@@ -1,0 +1,372 @@
+/* Sensors.css - Sensor Monitoring Dashboard */
+
+.sensors-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+  background: #f5f9f0;
+  min-height: calc(100vh - 70px);
+}
+
+@media (max-width: 1024px) {
+  .sensors-container {
+    padding: 1.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .sensors-container {
+    padding: 1rem;
+    min-height: calc(100vh - 60px);
+  }
+}
+
+@media (max-width: 480px) {
+  .sensors-container {
+    padding: 0.75rem;
+  }
+}
+
+/* Page Header */
+.sensors-header {
+  margin-bottom: 2rem;
+}
+
+.sensors-header h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #2d6a4f;
+  margin: 0 0 0.25rem;
+  letter-spacing: -0.025em;
+}
+
+.sensors-header p {
+  color: #6b7280;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .sensors-header h1 {
+    font-size: 1.5rem;
+  }
+}
+
+/* Status Card */
+.status-card {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  border: 1px solid #e5e7eb;
+}
+
+.status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status-header h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+  color: #1f2937;
+}
+
+/* Battery Status */
+.battery-status {
+  margin-bottom: 1.5rem;
+}
+
+.battery-level {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.battery-bar {
+  flex: 1;
+  height: 24px;
+  background: #e5e7eb;
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.battery-fill {
+  height: 100%;
+  background: #2d6a4f;
+  transition: width 0.3s ease;
+}
+
+.battery-fill.low {
+  background: #f59e0b;
+}
+
+.battery-fill.critical {
+  background: #ef4444;
+}
+
+.battery-percentage {
+  font-weight: 600;
+  min-width: 45px;
+  color: #1f2937;
+  font-size: 0.875rem;
+}
+
+.charging-status {
+  margin-top: 0.5rem;
+  color: #2d6a4f;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Stock Grid */
+.stock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 768px) {
+  .stock-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stock-card {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  border: 1px solid #e5e7eb;
+  transition: all 0.3s ease;
+}
+
+.stock-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  border-color: #cbd5e1;
+}
+
+.stock-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.stock-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.stock-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.stock-badge.ok {
+  background: #e8f5e8;
+  color: #2d6a4f;
+}
+
+.stock-badge.low {
+  background: #fef3c7;
+  color: #f59e0b;
+}
+
+.stock-badge.critical {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+/* Stock Level */
+.stock-level {
+  margin-bottom: 1rem;
+}
+
+.stock-bar {
+  height: 20px;
+  background: #e5e7eb;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.stock-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.stock-fill.ok {
+  background: #2d6a4f;
+}
+
+.stock-fill.low {
+  background: #f59e0b;
+}
+
+.stock-fill.critical {
+  background: #ef4444;
+}
+
+.stock-numbers {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+}
+
+.stock-current {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.stock-capacity {
+  color: #6b7280;
+}
+
+.stock-status-text {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-bottom: 1rem;
+}
+
+/* Price Section */
+.price-section {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+}
+
+.current-price {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: #1f2937;
+  font-size: 0.875rem;
+}
+
+.price-edit {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.price-input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+
+.price-input:focus {
+  outline: none;
+  border-color: #2d6a4f;
+  box-shadow: 0 0 0 3px rgba(45, 106, 79, 0.1);
+}
+
+.btn-edit-price {
+  width: 100%;
+  padding: 0.5rem;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #4b5563;
+  transition: all 0.3s ease;
+}
+
+.btn-edit-price:hover {
+  background: #e5e7eb;
+  transform: translateY(-1px);
+}
+
+.btn-save,
+.btn-cancel {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.btn-save {
+  background: #2d6a4f;
+  color: white;
+}
+
+.btn-save:hover {
+  background: #1b4d3e;
+  transform: translateY(-1px);
+}
+
+.btn-cancel {
+  background: #e5e7eb;
+  color: #4b5563;
+}
+
+.btn-cancel:hover {
+  background: #d1d5db;
+}
+
+/* Alert Messages */
+.alert-message {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.alert-message.critical {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.alert-message.warning {
+  background: #fef3c7;
+  color: #f59e0b;
+}
+
+/* Security Status */
+.security-event {
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin-top: 1rem;
+}
+
+.event-message {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: #1f2937;
+  font-size: 0.875rem;
+}
+
+.event-time {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.normal-status {
+  color: #2d6a4f;
+  font-weight: 500;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+}
