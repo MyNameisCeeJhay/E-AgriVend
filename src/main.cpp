@@ -10,6 +10,20 @@
 #include <DHT.h>
 
 // ============================================
+// FUNCTION DECLARATIONS (PROTOTYPES)
+// ============================================
+void connectToWiFi();
+void checkWiFi();
+void readBattery();
+void readEnvironment();
+void readSecurity();
+void processMegaCommands();
+void sendSensorData();
+void sendTransaction(float quantityKg, float amount, String riceType, String status);
+void sendSecurityAlert(String alertType);
+void printStatus();
+
+// ============================================
 // CONFIGURATION - CHANGE THESE VALUES
 // ============================================
 
@@ -323,7 +337,8 @@ void sendSensorData() {
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
   
-  StaticJsonDocument<512> doc;
+  // Changed from StaticJsonDocument to JsonDocument
+  JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
   doc["container1Level"] = sinandomengStock;
   doc["container2Level"] = dinoradoStock;
@@ -375,7 +390,8 @@ void sendTransaction(float quantityKg, float amount, String riceType, String sta
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
   
-  StaticJsonDocument<256> doc;
+  // Changed from StaticJsonDocument to JsonDocument
+  JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
   doc["transactionId"] = "TXN-" + String(millis());
   doc["riceType"] = riceType;
@@ -411,7 +427,8 @@ void sendSecurityAlert(String alertType) {
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
   
-  StaticJsonDocument<256> doc;
+  // Changed from StaticJsonDocument to JsonDocument
+  JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
   doc["alertType"] = alertType;
   doc["timestamp"] = millis();
