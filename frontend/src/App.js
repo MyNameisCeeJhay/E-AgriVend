@@ -41,7 +41,7 @@ function App() {
               <Route path="/terms" element={<Terms />} />
               
               {/* Refund Portal Routes - Accessed via QR code (No login required) */}
-              <Route path="/refund/:transactionId" element={<RefundRequest />} />
+              <Route path="/refund" element={<RefundRequest />} />
               <Route path="/refund/success" element={<RefundSuccess />} />
               
               {/* Admin Routes Only - Protected */}
