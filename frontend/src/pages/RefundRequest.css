@@ -465,3 +465,51 @@
     width: 100%;
   }
 }
+
+/* Add these styles */
+.validate-btn.validating {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.validation-success {
+  color: #10b981;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.validation-success::before {
+  content: "✓";
+  font-weight: bold;
+}
+
+.auto-filled {
+  background-color: #e8f5e8 !important;
+  border-color: #2d6a4f !important;
+}
+
+.auto-filled-note {
+  display: block;
+  font-size: 0.7rem;
+  color: #2d6a4f;
+  margin-top: 0.25rem;
+}
+
+.upload-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* Disabled state styling */
+.form-group input:disabled,
+.form-group select:disabled,
+.form-group textarea:disabled {
+  background-color: #f3f4f6;
+  cursor: not-allowed;
+  opacity: 0.7;
+}

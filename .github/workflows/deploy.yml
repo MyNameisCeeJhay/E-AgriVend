@@ -16,21 +16,22 @@ jobs:
         with:
           node-version: '18'
           
-      - name: Install Frontend Dependencies
+      - name: Install Dependencies
         run: |
           cd frontend
-          npm ci --prefer-offline --no-audit
+          npm ci
           
-      - name: Build Frontend
+      - name: Build
         run: |
           cd frontend
           CI=false npm run build
           
-      - name: Deploy to Firebase
+      - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_E_AGRIVEND }}
-          channelId: live
           projectId: e-agrivend
           entryPoint: ./frontend
+          channelId: live
+          expires: 30d

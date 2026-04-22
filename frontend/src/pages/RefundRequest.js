@@ -27,22 +27,42 @@ const RefundRequest = () => {
   const [success, setSuccess] = useState('');
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [transactionValid, setTransactionValid] = useState(false);
+  const [transactionData, setTransactionData] = useState(null);
   const [isWithinTimeLimit, setIsWithinTimeLimit] = useState(true);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [validating, setValidating] = useState(false);
 
+  // Validate transaction when user clicks validate button
   const handleValidateTransaction = async () => {
     if (!formData.transactionNumber) {
       setError('Please enter a transaction number');
       return;
     }
     
-    setLoading(true);
+    setValidating(true);
     setError('');
+    setTransactionValid(false);
+    setTransactionData(null);
     
     try {
       const response = await axios.get(`${API_URL}/refund/validate/${formData.transactionNumber}`);
+      
       if (response.data.success) {
         const transaction = response.data.data;
+        
+        // Check if refund already exists for this transaction
+        const checkRefund = await axios.get(`${API_URL}/refund/check/${formData.transactionNumber}`);
+        if (checkRefund.data.exists) {
+          setError('A refund request has already been submitted for this transaction.');
+          setValidating(false);
+          return;
+        }
+        
+        // Store transaction data
+        setTransactionData(transaction);
+        setTransactionValid(true);
+        
+        // Auto-fill product details from transaction
         setFormData(prev => ({
           ...prev,
           transactionDate: new Date(transaction.createdAt).toLocaleDateString('en-US'),
@@ -55,21 +75,35 @@ const RefundRequest = () => {
           selectedQuantity: transaction.quantityKg,
           amountInserted: transaction.amountPaid
         }));
-        setTransactionValid(true);
         
-        const hoursDiff = (new Date() - new Date(transaction.createdAt)) / (1000 * 60 * 60);
+        // Check 4-hour time limit
+        const transactionTime = new Date(transaction.createdAt);
+        const now = new Date();
+        const hoursDiff = (now - transactionTime) / (1000 * 60 * 60);
+        
         if (hoursDiff > 4) {
           setIsWithinTimeLimit(false);
-          setError('This transaction is outside the 4-hour refund window.');
+          setError('This transaction is outside the 4-hour refund window. Refunds are only accepted within 4 hours of purchase.');
+          setTransactionValid(false);
         } else {
-          startCountdown(new Date(transaction.createdAt));
+          setIsWithinTimeLimit(true);
+          startCountdown(transactionTime);
+          setError('');
         }
       }
     } catch (error) {
-      setError('Invalid transaction number. Please check and try again.');
+      console.error('Error validating transaction:', error);
+      if (error.response?.status === 404) {
+        setError('Transaction not found. Please check your transaction number and try again.');
+      } else if (error.response?.status === 400) {
+        setError(error.response.data?.error || 'A refund request has already been submitted for this transaction.');
+      } else {
+        setError('Unable to validate transaction. Please try again later.');
+      }
       setTransactionValid(false);
+      setTransactionData(null);
     } finally {
-      setLoading(false);
+      setValidating(false);
     }
   };
 
@@ -84,6 +118,8 @@ const RefundRequest = () => {
         clearInterval(interval);
         setIsWithinTimeLimit(false);
         setTimeRemaining(null);
+        setError('Refund window has expired. You can no longer request a refund for this transaction.');
+        setTransactionValid(false);
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor((diff % (3600000)) / 60000);
@@ -98,6 +134,12 @@ const RefundRequest = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    // Clear transaction validation when user changes transaction number
+    if (name === 'transactionNumber') {
+      setTransactionValid(false);
+      setTransactionData(null);
+      setError('');
+    }
   };
 
   const handleFileChange = (e) => {
@@ -126,6 +168,7 @@ const RefundRequest = () => {
     setError('');
     setSuccess('');
 
+    // Validate transaction is valid and within time limit
     if (!transactionValid) {
       setError('Please validate your transaction number first.');
       setLoading(false);
@@ -138,6 +181,7 @@ const RefundRequest = () => {
       return;
     }
 
+    // Validate all required fields
     if (!formData.fullName || !formData.email || !formData.refundReason || !formData.description || !formData.receiptImage) {
       setError('Please fill in all required fields and upload your receipt.');
       setLoading(false);
@@ -169,6 +213,7 @@ const RefundRequest = () => {
         }, 3000);
       }
     } catch (error) {
+      console.error('Error submitting refund:', error);
       setError(error.response?.data?.error || 'Failed to submit refund request.');
     } finally {
       setLoading(false);
@@ -193,6 +238,7 @@ const RefundRequest = () => {
     setError('');
     setSuccess('');
     setTransactionValid(false);
+    setTransactionData(null);
     setIsWithinTimeLimit(true);
     setTimeRemaining(null);
   };
@@ -294,7 +340,7 @@ const RefundRequest = () => {
                     name="transactionNumber"
                     value={formData.transactionNumber}
                     onChange={handleChange}
-                    placeholder="e.g., TXN-20260418-001"
+                    placeholder="e.g., TXN-MM7UBRUF"
                     required
                     className="transaction-input"
                     disabled={!isWithinTimeLimit}
@@ -302,12 +348,17 @@ const RefundRequest = () => {
                   <button 
                     type="button" 
                     onClick={handleValidateTransaction}
-                    className="validate-btn"
-                    disabled={!formData.transactionNumber || loading || !isWithinTimeLimit}
+                    className={`validate-btn ${validating ? 'validating' : ''}`}
+                    disabled={!formData.transactionNumber || validating || !isWithinTimeLimit}
                   >
-                    {loading ? '...' : 'Validate'}
+                    {validating ? 'Validating...' : 'Validate'}
                   </button>
                 </div>
+                {transactionValid && (
+                  <div className="validation-success">
+                    ✓ Transaction validated successfully
+                  </div>
+                )}
               </div>
             </div>
             
@@ -325,7 +376,7 @@ const RefundRequest = () => {
             )}
           </div>
 
-          {/* Product Details Section */}
+          {/* Product Details Section - Auto-filled after validation */}
           <div className="form-section">
             <h3>Product Details</h3>
             <div className="form-row">
@@ -336,13 +387,15 @@ const RefundRequest = () => {
                   value={formData.grainType}
                   onChange={handleChange}
                   required
-                  disabled={!isWithinTimeLimit}
+                  disabled={!transactionValid || !isWithinTimeLimit}
+                  className={transactionValid ? 'auto-filled' : ''}
                 >
                   <option value="">Select grain type</option>
                   {grainTypes.map(type => (
                     <option key={type} value={type}>{type}</option>
                   ))}
                 </select>
+                {transactionValid && <small className="auto-filled-note">Auto-filled from transaction</small>}
               </div>
               <div className="form-group">
                 <label>Selected Quantity (kg) *</label>
@@ -353,8 +406,10 @@ const RefundRequest = () => {
                   onChange={handleChange}
                   placeholder="1"
                   required
-                  disabled={!isWithinTimeLimit}
+                  disabled={!transactionValid || !isWithinTimeLimit}
+                  className={transactionValid ? 'auto-filled' : ''}
                 />
+                {transactionValid && <small className="auto-filled-note">Auto-filled from transaction</small>}
               </div>
               <div className="form-group">
                 <label>Amount Inserted (₱) *</label>
@@ -365,8 +420,10 @@ const RefundRequest = () => {
                   onChange={handleChange}
                   placeholder="0.00"
                   required
-                  disabled={!isWithinTimeLimit}
+                  disabled={!transactionValid || !isWithinTimeLimit}
+                  className={transactionValid ? 'auto-filled' : ''}
                 />
+                {transactionValid && <small className="auto-filled-note">Auto-filled from transaction</small>}
               </div>
             </div>
           </div>
@@ -381,7 +438,7 @@ const RefundRequest = () => {
                 value={formData.refundReason}
                 onChange={handleChange}
                 required
-                disabled={!isWithinTimeLimit}
+                disabled={!transactionValid || !isWithinTimeLimit}
               >
                 <option value="">Select refund reason</option>
                 {refundReasons.map(reason => (
@@ -398,7 +455,7 @@ const RefundRequest = () => {
                 placeholder="Briefly explain the problem encountered during the transaction..."
                 rows="4"
                 required
-                disabled={!isWithinTimeLimit}
+                disabled={!transactionValid || !isWithinTimeLimit}
               />
             </div>
           </div>
@@ -414,16 +471,15 @@ const RefundRequest = () => {
                   accept="image/jpeg,image/jpg,image/png,application/pdf"
                   onChange={handleFileChange}
                   required
-                  disabled={!isWithinTimeLimit}
+                  disabled={!transactionValid || !isWithinTimeLimit}
                   className="file-input"
+                  id="receipt-upload"
                 />
-                <div className="upload-icon">📁</div>
-                <p className="upload-text">
-                  Upload your receipt image or PDF file as proof of transaction.
-                </p>
-                <p className="upload-hint">
-                  Accepted formats: JPG, JPEG, PNG, PDF (Max 5MB)
-                </p>
+                <label htmlFor="receipt-upload" className="upload-label">
+                  <div className="upload-icon">📁</div>
+                  <p className="upload-text">Click or drag to upload receipt</p>
+                  <p className="upload-hint">JPG, JPEG, PNG, PDF (Max 5MB)</p>
+                </label>
               </div>
               {previewUrl && (
                 <div className="image-preview">
