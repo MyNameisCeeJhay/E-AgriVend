@@ -7,23 +7,24 @@ const Sidebar = ({ isOpen, onClose }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
-  // Customer Navigation Items
+  // Admin Navigation Items
+  const adminNavItems = [
+    { name: 'Dashboard', path: '/admin/dashboard', description: 'Analytics' },
+    { name: 'Products', path: '/admin/products', description: 'Manage products' },
+    { name: 'Sensors', path: '/admin/sensors', description: 'Machine status' },
+    { name: 'Transactions', path: '/admin/transactions', description: 'All purchases' },
+    { name: 'Returns', path: '/admin/returns', description: 'Return requests' },
+    { name: 'Reports', path: '/admin/reports', description: 'Sales reports' },
+    { name: 'Users', path: '/admin/users', description: 'Administrators' },
+  ];
+
+  // Customer Navigation Items (if needed)
   const customerNavItems = [
     { name: 'Dashboard', path: '/customer/dashboard', description: 'Overview' },
     { name: 'Transactions', path: '/customer/transactions', description: 'Purchase history' },
     { name: 'Ratings', path: '/customer/ratings', description: 'Your reviews' },
     { name: 'Returns', path: '/customer/returns', description: 'Return requests' },
     { name: 'Profile', path: '/customer/profile', description: 'Account settings' },
-  ];
-
-  // Admin Navigation Items
-  const adminNavItems = [
-    { name: 'Dashboard', path: '/admin/dashboard', description: 'Analytics' },
-    { name: 'Sensors', path: '/admin/sensors', description: 'Machine status' },
-    { name: 'Transactions', path: '/admin/transactions', description: 'All purchases' },
-    { name: 'Returns', path: '/admin/returns', description: 'Return requests' },
-    { name: 'Reports', path: '/admin/reports', description: 'Sales reports' },
-    { name: 'Users', path: '/admin/users', description: 'Administrators' },
   ];
 
   const navItems = isAdmin ? adminNavItems : customerNavItems;
@@ -40,7 +41,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <h2>AgriVend</h2>
+            <h2>🌾 AgriVend</h2>
             <p>{isAdmin ? 'Administrator' : 'Customer Portal'}</p>
           </div>
         </div>

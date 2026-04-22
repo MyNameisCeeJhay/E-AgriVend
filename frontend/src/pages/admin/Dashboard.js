@@ -215,14 +215,17 @@ const AdminDashboard = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="quick-actions">
-        <button className="btn-primary" onClick={() => window.location.href = '/admin/transactions'}>
-          View All Transactions
-        </button>
-        <button className="btn-secondary" onClick={() => window.location.href = '/admin/reports'}>
-          Generate Reports
-        </button>
-      </div>
+<div className="quick-actions">
+  <button className="btn-primary" onClick={() => window.location.href = '/admin/transactions'}>
+    View All Transactions
+  </button>
+  <button className="btn-secondary" onClick={() => window.location.href = '/admin/reports'}>
+    Generate Reports
+  </button>
+  <button className="btn-products" onClick={() => window.location.href = '/admin/products'}>
+    Manage Products
+  </button>
+</div>
     </div>
   );
 };

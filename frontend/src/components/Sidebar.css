@@ -1,4 +1,4 @@
-/* Sidebar.css - Fully Responsive */
+/* Sidebar Styles - Fully Responsive with Original Colors */
 
 .sidebar {
   width: 280px;
@@ -35,7 +35,7 @@
   background: #a8a8a8;
 }
 
-/* Sidebar Header */
+/* Sidebar Header - Green Gradient (Original) */
 .sidebar-header {
   padding: 2rem 1.5rem;
   background: linear-gradient(135deg, #1a472a 0%, #0e2a1a 100%);
@@ -475,9 +475,13 @@
   .sidebar-overlay {
     animation: none;
   }
+  
+  .sidebar-link:hover {
+    transform: none;
+  }
 }
 
-/* Fix for Edge browser */
+/* Edge Browser Fix */
 @supports (-ms-ime-align: auto) {
   .sidebar {
     overflow-y: auto;
@@ -486,4 +490,38 @@
   .sidebar-nav {
     flex: 1;
   }
+}
+
+/* Firefox Scrollbar */
+@-moz-document url-prefix() {
+  .sidebar {
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f1f1f1;
+  }
+
+  /* Update the modal-overlay in Products.css */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;  /* Increase this from 1000 to 2000 */
+}
+
+.modal-container {
+  background: white;
+  border-radius: 20px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  z-index: 2001;  /* Add this */
+  position: relative;
+}
 }

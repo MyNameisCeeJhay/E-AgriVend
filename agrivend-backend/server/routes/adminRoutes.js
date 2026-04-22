@@ -8,6 +8,18 @@ import { protect, admin } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Helper function to get date from ISO week
+function getDateOfISOWeek(week, year) {
+  const simple = new Date(year, 0, 1 + (week - 1) * 7);
+  const dow = simple.getDay();
+  const ISOweekStart = simple;
+  if (dow <= 4)
+    ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
+  else
+    ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
+  return ISOweekStart;
+}
+
 // ===== DASHBOARD ROUTE =====
 router.get('/dashboard', protect, admin, async (req, res) => {
   console.log('👑 GET /api/admin/dashboard - by:', req.user?.email);
@@ -32,6 +44,286 @@ router.get('/dashboard', protect, admin, async (req, res) => {
       success: false, 
       error: 'Server error' 
     });
+  }
+});
+
+// ===== TRANSACTION STATS ROUTE =====
+router.get('/transactions/stats', protect, admin, async (req, res) => {
+  console.log('📊 GET /api/admin/transactions/stats - by:', req.user?.email);
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    weekAgo.setHours(0, 0, 0, 0);
+    
+    const monthAgo = new Date();
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
+    monthAgo.setHours(0, 0, 0, 0);
+    
+    const [todaySales, weekSales, monthSales, totalSales] = await Promise.all([
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: today }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: weekAgo }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: monthAgo }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ])
+    ]);
+    
+    res.json({
+      success: true,
+      data: {
+        daily: todaySales[0]?.total || 0,
+        weekly: weekSales[0]?.total || 0,
+        monthly: monthSales[0]?.total || 0,
+        total: totalSales[0]?.total || 0
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching transaction stats:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch stats' });
+  }
+});
+
+// ===== DAILY REPORT ROUTE =====
+router.get('/reports/daily', protect, admin, async (req, res) => {
+  console.log('📅 GET /api/admin/reports/daily - by:', req.user?.email);
+  try {
+    const { date } = req.query;
+    const targetDate = date ? new Date(date) : new Date();
+    const startDate = new Date(targetDate);
+    startDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(targetDate);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const transactions = await Transaction.find({
+      createdAt: { $gte: startDate, $lte: endDate },
+      status: 'COMPLETED'
+    }).sort({ createdAt: -1 });
+    
+    const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    
+    // Group by hour for chart
+    const hourlyData = {};
+    for (let i = 0; i < 24; i++) {
+      hourlyData[i] = 0;
+    }
+    
+    transactions.forEach(t => {
+      const hour = new Date(t.createdAt).getHours();
+      hourlyData[hour] += t.amountPaid;
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalSales,
+          totalQuantity,
+          averageOrderValue: transactions.length > 0 ? totalSales / transactions.length : 0
+        },
+        transactions,
+        chartData: Object.entries(hourlyData).map(([hour, sales]) => ({
+          label: `${hour}:00`,
+          sales
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error generating daily report:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report' });
+  }
+});
+
+// ===== WEEKLY REPORT ROUTE =====
+router.get('/reports/weekly', protect, admin, async (req, res) => {
+  console.log('📆 GET /api/admin/reports/weekly - by:', req.user?.email);
+  try {
+    const { week, year } = req.query;
+    const currentYear = year || new Date().getFullYear();
+    const currentWeek = week || Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000));
+    
+    // Calculate start and end of week
+    const startDate = getDateOfISOWeek(parseInt(currentWeek), parseInt(currentYear));
+    startDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const transactions = await Transaction.find({
+      createdAt: { $gte: startDate, $lte: endDate },
+      status: 'COMPLETED'
+    }).sort({ createdAt: -1 });
+    
+    const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    
+    // Group by day of week
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dailyData = {};
+    dayNames.forEach(day => { dailyData[day] = 0; });
+    
+    transactions.forEach(t => {
+      const day = dayNames[new Date(t.createdAt).getDay()];
+      dailyData[day] += t.amountPaid;
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalSales,
+          totalQuantity,
+          averageOrderValue: transactions.length > 0 ? totalSales / transactions.length : 0
+        },
+        transactions,
+        chartData: Object.entries(dailyData).map(([day, sales]) => ({
+          label: day.slice(0, 3),
+          sales
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error generating weekly report:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report' });
+  }
+});
+
+// ===== MONTHLY REPORT ROUTE =====
+router.get('/reports/monthly', protect, admin, async (req, res) => {
+  console.log('📊 GET /api/admin/reports/monthly - by:', req.user?.email);
+  try {
+    const { month, year } = req.query;
+    const currentYear = year || new Date().getFullYear();
+    const currentMonth = parseInt(month) || new Date().getMonth() + 1;
+    
+    const startDate = new Date(currentYear, currentMonth - 1, 1);
+    startDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(currentYear, currentMonth, 0);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const transactions = await Transaction.find({
+      createdAt: { $gte: startDate, $lte: endDate },
+      status: 'COMPLETED'
+    }).sort({ createdAt: -1 });
+    
+    const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    
+    // Group by week of month
+    const weeklyData = {
+      'Week 1': 0,
+      'Week 2': 0,
+      'Week 3': 0,
+      'Week 4': 0,
+      'Week 5': 0
+    };
+    
+    transactions.forEach(t => {
+      const day = new Date(t.createdAt).getDate();
+      let week = 'Week 1';
+      if (day <= 7) week = 'Week 1';
+      else if (day <= 14) week = 'Week 2';
+      else if (day <= 21) week = 'Week 3';
+      else if (day <= 28) week = 'Week 4';
+      else week = 'Week 5';
+      
+      weeklyData[week] += t.amountPaid;
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalSales,
+          totalQuantity,
+          averageOrderValue: transactions.length > 0 ? totalSales / transactions.length : 0
+        },
+        transactions,
+        chartData: Object.entries(weeklyData).map(([week, sales]) => ({
+          label: week,
+          sales
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error generating monthly report:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report' });
+  }
+});
+
+// ===== CUSTOM DATE RANGE REPORT ROUTE =====
+router.get('/reports/custom', protect, admin, async (req, res) => {
+  console.log('📅 GET /api/admin/reports/custom - by:', req.user?.email);
+  try {
+    const { startDate, endDate } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Start date and end date are required' 
+      });
+    }
+    
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    
+    const transactions = await Transaction.find({
+      createdAt: { $gte: start, $lte: end },
+      status: 'COMPLETED'
+    }).sort({ createdAt: -1 });
+    
+    const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    
+    // Group by date
+    const dailyData = {};
+    transactions.forEach(t => {
+      const dateKey = new Date(t.createdAt).toLocaleDateString('en-US');
+      dailyData[dateKey] = (dailyData[dateKey] || 0) + t.amountPaid;
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalSales,
+          totalQuantity,
+          averageOrderValue: transactions.length > 0 ? totalSales / transactions.length : 0,
+          dateRange: { startDate, endDate }
+        },
+        transactions,
+        chartData: Object.entries(dailyData).map(([date, sales]) => ({
+          label: date,
+          sales
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error generating custom report:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report' });
   }
 });
 

@@ -25,6 +25,7 @@ import AdminTransactions from './pages/admin/Transactions';
 import AdminReturns from './pages/admin/Returns';
 import AdminReports from './pages/admin/Reports';
 import AdminUsers from './pages/admin/Users';
+import AdminProducts from './pages/admin/Products';  // NEW - Product Management
 
 const queryClient = new QueryClient();
 
@@ -52,6 +53,7 @@ function App() {
               }>
                 <Route index element={<Navigate to="/admin/dashboard" />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
+                <Route path="products" element={<AdminProducts />} />  {/* NEW - Product Management */}
                 <Route path="sensors" element={<AdminSensors />} />
                 <Route path="transactions" element={<AdminTransactions />} />
                 <Route path="returns" element={<AdminReturns />} />
