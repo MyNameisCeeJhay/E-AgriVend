@@ -57,6 +57,7 @@ import messageRoutes from './routes/messageRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import machineRatingRoutes from './routes/machineRatingRoutes.js';
 import esp32Routes from './routes/esp32Routes.js';  // [NEW] ESP32 Monitoring Routes
+import refundRoutes from './routes/refundRoutes.js';
 
 // Initialize express
 const app = express();
@@ -135,6 +136,7 @@ app.use('/api/ratings/machine', machineRatingRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/esp32', esp32Routes);  // [NEW]
+app.use('/api/refund', refundRoutes);
 
 // Test route
 app.get('/api/test', (req, res) => {

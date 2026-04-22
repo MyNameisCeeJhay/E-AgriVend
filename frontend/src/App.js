@@ -15,6 +15,8 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Terms from './pages/Terms';
+import RefundRequest from './pages/RefundRequest';
+import RefundSuccess from './pages/RefundSuccess';
 
 // Admin Pages Only
 import AdminDashboard from './pages/admin/Dashboard';
@@ -33,11 +35,16 @@ function App() {
         <AuthProvider>
           <SocketProvider>
             <Routes>
+              {/* Public Routes - No authentication required */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/terms" element={<Terms />} />
               
-              {/* Admin Routes Only */}
+              {/* Refund Portal Routes - Accessed via QR code (No login required) */}
+              <Route path="/refund/:transactionId" element={<RefundRequest />} />
+              <Route path="/refund/success" element={<RefundSuccess />} />
+              
+              {/* Admin Routes Only - Protected */}
               <Route path="/admin" element={
                 <AdminRoute>
                   <Layout />
