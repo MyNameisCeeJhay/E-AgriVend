@@ -106,4 +106,20 @@ router.get('/admin/:requestId/receipt', protect, admin, async (req, res) => {
   }
 });
 
+// Check if refund already exists for a transaction
+router.get('/check/:transactionNumber', async (req, res) => {
+  try {
+    const existingRefund = await RefundRequest.findOne({ 
+      transactionNumber: req.params.transactionNumber 
+    });
+    
+    res.json({
+      success: true,
+      exists: !!existingRefund
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;
