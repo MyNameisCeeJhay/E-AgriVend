@@ -1,6 +1,6 @@
 name: Deploy to Firebase Hosting
 
-on:
+'on':
   push:
     branches:
       - main
@@ -8,33 +8,36 @@ on:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+    
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          
-      - name: Install Dependencies
+          node-version: '20'
+      
+      # CRITICAL: Go into frontend folder first
+      - name: Install dependencies
         run: |
           cd frontend
-          npm install --legacy-peer-deps
-          
+          npm ci
+      
+      # CRITICAL: Build from frontend folder
       - name: Build
         run: |
           cd frontend
-          CI=false npm run build
-          
-      - name: List files for debugging
+          npm run build
+      
+      # Verify build exists (debugging)
+      - name: List build output
         run: |
-          ls -la
-          ls -la frontend/build
-          
-      - name: Deploy to Firebase
-        uses: FirebaseExtended/action-hosting-deploy@v0
+          ls -la frontend/build/
+      
+      # Deploy with entryPoint pointing to frontend
+      - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_E_AGRIVEND }}
-          projectId: e-agrivend
-          entryPoint: ./
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_YOUR_PROJECT }}'
+          projectId: your-project-id-here
+          channelId: live
+          entryPoint: './frontend'  # Tells Firebase where firebase.json is
