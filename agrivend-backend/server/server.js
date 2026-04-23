@@ -49,15 +49,16 @@ console.log('✅ All required environment variables found\n');
 // ===== IMPORT ALL ROUTES =====
 import authRoutes from './routes/authRoutes.js';
 import termsRoutes from './routes/termsRoutes.js';
-import sensorRoutes from './routes/sensorRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
 import returnRoutes from './routes/returnRoutes.js';
 import ratingRoutes from './routes/ratingRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import machineRatingRoutes from './routes/machineRatingRoutes.js';
-import esp32Routes from './routes/esp32Routes.js';  // [NEW] ESP32 Monitoring Routes
+import esp32Routes from './routes/esp32Routes.js';
 import refundRoutes from './routes/refundRoutes.js';
+import machineRoutes from './routes/machineRoutes.js';
+
 
 // Initialize express
 const app = express();
@@ -81,6 +82,11 @@ io.on('connection', (socket) => {
   socket.on('join_user_room', (userId) => {
     socket.join(`user_${userId}`);
     console.log(`User ${userId} joined their room`);
+  });
+
+  // Handle refund submission
+  socket.on('refund_submitted', (data) => {
+    io.emit('new_refund_notification', data);
   });
 
   socket.on('disconnect', () => {
@@ -117,26 +123,29 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 console.log('\n📌 Registering routes:');
 console.log('   /api/auth → authRoutes (includes password reset endpoints)');
 console.log('   /api/terms → termsRoutes');
-console.log('   /api/sensors → sensorRoutes');
 console.log('   /api/transactions → transactionRoutes');
 console.log('   /api/returns → returnRoutes');
 console.log('   /api/ratings → ratingRoutes');
 console.log('   /api/ratings/machine → machineRatingRoutes');
 console.log('   /api/messages → messageRoutes');
 console.log('   /api/admin → adminRoutes');
-console.log('   /api/esp32 → esp32Routes (ESP32 Monitoring - Stock, Battery, Security)');  // [NEW]
+console.log('   /api/esp32 → esp32Routes (ESP32 Monitoring)');
+console.log('   /api/refund → refundRoutes (Refund Request System)');
+console.log('   /api/machine → machineRoutes (Machine Monitoring)');
+
 
 app.use('/api/auth', authRoutes);
 app.use('/api/terms', termsRoutes);
-app.use('/api/sensors', sensorRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/returns', returnRoutes);
 app.use('/api/ratings', ratingRoutes);
 app.use('/api/ratings/machine', machineRatingRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/esp32', esp32Routes);  // [NEW]
+app.use('/api/esp32', esp32Routes);
 app.use('/api/refund', refundRoutes);
+app.use('/api/machine', machineRoutes);
+
 
 // Test route
 app.get('/api/test', (req, res) => {
@@ -158,14 +167,15 @@ app.get('/api/health', (req, res) => {
     routes: {
       auth: '/api/auth',
       terms: '/api/terms',
-      sensors: '/api/sensors',
       transactions: '/api/transactions',
       returns: '/api/returns',
       ratings: '/api/ratings',
       machineRatings: '/api/ratings/machine',
       messages: '/api/messages',
       admin: '/api/admin',
-      esp32: '/api/esp32',  // [NEW]
+      esp32: '/api/esp32',
+      refund: '/api/refund',
+      machine: '/api/machine',
       passwordReset: {
         sendOTP: '/api/auth/send-otp',
         verifyOTP: '/api/auth/verify-otp',
@@ -195,7 +205,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log('\n=================================');
   console.log(`✅ SERVER STARTED SUCCESSFULLY!`);
@@ -217,8 +227,6 @@ server.listen(PORT, () => {
   console.log(`   POST /api/auth/resend-otp - Resend OTP`);
   console.log(`\n📄 Terms: /api/terms`);
   console.log(`   GET /api/terms/current - Get current terms`);
-  console.log(`\n📡 Sensors: /api/sensors`);
-  console.log(`   GET /api/sensors/current - Get current sensor data`);
   console.log(`\n💰 Transactions: /api/transactions`);
   console.log(`   GET /api/transactions - Get user transactions`);
   console.log(`   POST /api/transactions - Create transaction`);
@@ -252,24 +260,57 @@ server.listen(PORT, () => {
   console.log(`   PUT /api/admin/returns/:id/process - Process return request`);
   console.log(`   GET /api/admin/messages - Get all support messages`);
   console.log(`   GET /api/admin/ratings - Get all ratings`);
-  console.log(`\n🤖 ESP32 MONITORING: /api/esp32`);  // [NEW]
-  console.log(`   POST /api/esp32/sensors/update - ESP32 sends sensor data (stock, battery, security)`);
+  console.log(`\n🤖 ESP32 MONITORING: /api/esp32`);
+  console.log(`   POST /api/esp32/sensors/update - ESP32 sends sensor data`);
   console.log(`   POST /api/esp32/transaction/confirm - ESP32 confirms transaction`);
   console.log(`   POST /api/esp32/security/alert - ESP32 sends security alert`);
   console.log(`   GET  /api/esp32/machine/status - Get machine status (admin)`);
   console.log(`   GET  /api/esp32/sensors/history - Get sensor history (admin)`);
+  console.log(`\n💰 REFUND SYSTEM: /api/refund`);
+  console.log(`   GET  /api/refund/validate/:transactionId - Validate transaction`);
+  console.log(`   POST /api/refund/request - Submit refund request`);
+  console.log(`   GET  /api/refund/status/:transactionId - Check refund status`);
+  console.log(`   GET  /api/refund/:refundId - Get refund by ID`);
+  console.log(`   GET  /api/refund/admin/all - Get all refunds (admin)`);
+  console.log(`   GET  /api/refund/admin/pending - Get pending refunds (admin)`);
+  console.log(`   PUT  /api/refund/admin/:refundId/process - Process refund (admin)`);
+  console.log(`   GET  /api/refund/admin/stats/summary - Get refund stats (admin)`);
+  console.log(`\n🤖 MACHINE MONITORING: /api/machine`);
+  console.log(`   GET  /api/machine/data - Get current machine data`);
+  console.log(`   POST /api/machine/update - Update machine data`);
+  console.log(`   POST /api/machine/refill - Refill storage (admin)`);
+  console.log(`   PUT  /api/machine/product/:storageId - Update product price`);
+  console.log(`   GET  /api/machine/history - Get sensor history`);
+  console.log(`   GET  /api/machine/stats - Get machine statistics`);
+  console.log(`\n📦 PRODUCT MANAGEMENT: /api/products`);
+  console.log(`   GET  /api/products - Get all products`);
+  console.log(`   GET  /api/products/:id - Get single product`);
+  console.log(`   POST /api/products - Create product`);
+  console.log(`   PUT  /api/products/:id - Update product`);
+  console.log(`   DELETE /api/products/:id - Delete product`);
+  console.log(`   PATCH /api/products/:id/archive - Archive product`);
+  console.log(`   PATCH /api/products/:id/restore - Restore product`);
+  console.log(`   GET  /api/products/categories/list - Get categories`);
   console.log('=================================\n');
   console.log('💡 Password Reset Flow:');
   console.log('   1. POST /api/auth/send-otp → Send OTP to email');
   console.log('   2. POST /api/auth/verify-otp → Verify OTP');
   console.log('   3. POST /api/auth/reset-password → Reset password with verified OTP');
   console.log('=================================\n');
-  console.log('📊 ESP32 MONITORING SUMMARY:');  // [NEW]
-  console.log('   ✅ Rice Stock Levels (Sinandomeng & Dinorado)');
-  console.log('   ✅ Battery Percentage Monitoring');
-  console.log('   ✅ Door Security Alerts');
-  console.log('   ✅ Vibration/Tamper Detection');
-  console.log('   ✅ Temperature & Humidity Monitoring');
-  console.log('   ✅ Transaction Recording');
+  console.log('🤖 MACHINE MONITORING SUMMARY:');
+  console.log('   ✅ 2 Storage Units (20kg each with Load Cell)');
+  console.log('   ✅ Real-time Weight Monitoring');
+  console.log('   ✅ Battery Percentage & Voltage');
+  console.log('   ✅ Product Price Management');
+  console.log('   ✅ Refill Storage Functionality');
+  console.log('   ✅ Socket.io Real-time Updates');
+  console.log('=================================\n');
+  console.log('💰 REFUND SYSTEM SUMMARY:');
+  console.log('   ✅ QR Code Scanning Support');
+  console.log('   ✅ Transaction Validation');
+  console.log('   ✅ 4-Hour Refund Window');
+  console.log('   ✅ Receipt Image Upload');
+  console.log('   ✅ Admin Approval/Rejection');
+  console.log('   ✅ Real-time Notifications');
   console.log('=================================\n');
 });

@@ -3,22 +3,18 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './Sidebar.css';
 
-const Sidebar = ({ isOpen, onClose }) => {
+const Sidebar = ({ isOpen, onClose, isMobile }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
-  // Admin Navigation Items
   const adminNavItems = [
     { name: 'Dashboard', path: '/admin/dashboard', description: 'Analytics' },
-    { name: 'Products', path: '/admin/products', description: 'Manage products' },
-    { name: 'Sensors', path: '/admin/sensors', description: 'Machine status' },
+    { name: 'Machine', path: '/admin/machine', description: 'Monitor machine' },
     { name: 'Transactions', path: '/admin/transactions', description: 'All purchases' },
     { name: 'Returns', path: '/admin/returns', description: 'Return requests' },
     { name: 'Reports', path: '/admin/reports', description: 'Sales reports' },
-    { name: 'Users', path: '/admin/users', description: 'Administrators' },
   ];
 
-  // Customer Navigation Items (if needed)
   const customerNavItems = [
     { name: 'Dashboard', path: '/customer/dashboard', description: 'Overview' },
     { name: 'Transactions', path: '/customer/transactions', description: 'Purchase history' },
@@ -30,7 +26,8 @@ const Sidebar = ({ isOpen, onClose }) => {
   const navItems = isAdmin ? adminNavItems : customerNavItems;
 
   const handleLinkClick = () => {
-    if (window.innerWidth <= 768) {
+    // Close sidebar on mobile when a link is clicked
+    if (isMobile && onClose) {
       onClose();
     }
   };
@@ -41,7 +38,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <h2>🌾 AgriVend</h2>
+            <h2>AgriVend</h2>
             <p>{isAdmin ? 'Administrator' : 'Customer Portal'}</p>
           </div>
         </div>

@@ -20,12 +20,11 @@ import RefundSuccess from './pages/RefundSuccess';
 
 // Admin Pages Only
 import AdminDashboard from './pages/admin/Dashboard';
-import AdminSensors from './pages/admin/Sensors';
+import AdminMachine from './pages/admin/Machine';
 import AdminTransactions from './pages/admin/Transactions';
 import AdminReturns from './pages/admin/Returns';
 import AdminReports from './pages/admin/Reports';
-import AdminUsers from './pages/admin/Users';
-import AdminProducts from './pages/admin/Products';  // NEW - Product Management
+
 
 const queryClient = new QueryClient();
 
@@ -53,12 +52,10 @@ function App() {
               }>
                 <Route index element={<Navigate to="/admin/dashboard" />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
-                <Route path="products" element={<AdminProducts />} />  {/* NEW - Product Management */}
-                <Route path="sensors" element={<AdminSensors />} />
+                <Route path="machine" element={<AdminMachine />} />
                 <Route path="transactions" element={<AdminTransactions />} />
                 <Route path="returns" element={<AdminReturns />} />
                 <Route path="reports" element={<AdminReports />} />
-                <Route path="users" element={<AdminUsers />} />
               </Route>
               
               {/* Redirect any other routes to login */}

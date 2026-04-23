@@ -2,69 +2,56 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema({
-  email: {
-    type: String,
-    required: [true, 'Email is required'],
+  email: { 
+    type: String, 
+    required: true, 
     unique: true,
     lowercase: true,
-    trim: true,
-    match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
-  },
-  password: {
-    type: String,
-    required: [true, 'Password is required'],
-    minlength: [6, 'Password must be at least 6 characters']
-  },
-  firstName: {
-    type: String,
-    required: [true, 'First name is required'],
     trim: true
   },
-  lastName: {
-    type: String,
-    required: [true, 'Last name is required'],
-    trim: true
+  password: { 
+    type: String, 
+    required: true 
   },
-  phone: {
-    type: String,
-    trim: true,
-    default: ''
+  firstName: { 
+    type: String, 
+    required: true 
   },
-  address: {
-    type: String,
-    trim: true,
-    default: ''
+  lastName: { 
+    type: String, 
+    required: true 
   },
-  role: {
-    type: String,
-    enum: ['admin', 'customer'],
-    default: 'customer'
+  phone: { 
+    type: String, 
+    default: '' 
   },
-  termsAccepted: {
-    type: Boolean,
-    default: false
+  address: { 
+    type: String, 
+    default: '' 
   },
-  termsAcceptedAt: {
-    type: Date
+  role: { 
+    type: String, 
+    enum: ['admin', 'customer'], 
+    default: 'customer' 
   },
-  isActive: {
-    type: Boolean,
-    default: true
+  termsAccepted: { 
+    type: Boolean, 
+    default: false 
   },
-  lastLogin: {
-    type: Date
+  termsAcceptedAt: { 
+    type: Date 
   },
-  totalSpent: {
-    type: Number,
-    default: 0
+  isActive: { 
+    type: Boolean, 
+    default: true 
   },
-  transactionCount: {
-    type: Number,
-    default: 0
+  resetPasswordOTP: { 
+    type: String 
+  },
+  resetPasswordExpires: { 
+    type: Date 
   }
-}, {
-  timestamps: true
-});
+}, { timestamps: true });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
@@ -84,12 +71,15 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Return user without password
+// Remove password from JSON response
 userSchema.methods.toJSON = function() {
-  const user = this.toObject();
-  delete user.password;
-  return user;
+  const obj = this.toObject();
+  delete obj.password;
+  delete obj.resetPasswordOTP;
+  delete obj.resetPasswordExpires;
+  return obj;
 };
 
 const User = mongoose.model('User', userSchema);
+
 export default User;

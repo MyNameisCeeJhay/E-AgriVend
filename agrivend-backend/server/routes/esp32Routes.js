@@ -1,5 +1,4 @@
 import express from 'express';
-import SensorData from '../models/SensorData.js';
 import Transaction from '../models/Transaction.js';
 import { protect, admin } from '../middleware/auth.js';
 

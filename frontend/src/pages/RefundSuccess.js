@@ -7,7 +7,7 @@ const RefundSuccess = () => {
     <div className="refund-container">
       <div className="refund-card">
         <div className="refund-header">
-          <h1>🌾 AgriVend</h1>
+          <h1>AgriVend</h1>
           <h2>Request Submitted Successfully!</h2>
         </div>
         
