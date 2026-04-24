@@ -40,7 +40,7 @@ const char* WIFI_PASSWORD = "M49wP9pr";
 
 // Backend Server URL - CHANGE THIS TO YOUR COMPUTER'S IP
 // Find your IP: Windows: ipconfig, Mac/Linux: ifconfig
-const char* SERVER_URL = "http://192.168.1.33:5000/api/esp32";
+const char* SERVER_URL = "https://your-backend.onrender.com/api/esp32"; 
 
 // Device ID
 const char* DEVICE_ID = "AGRIVEND_001";

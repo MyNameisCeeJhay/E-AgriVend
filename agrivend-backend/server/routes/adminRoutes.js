@@ -1,3 +1,4 @@
+import User from '../models/User.js';
 import express from 'express';
 // import User from '../models/User.js'; // REMOVED - Using in-memory store
 import Transaction from '../models/Transaction.js';
@@ -47,33 +48,6 @@ const findUserById = (id) => {
 const findUserByEmail = (email) => {
   return users.find(u => u.email === email);
 };
-
-// ===== DASHBOARD ROUTE =====
-router.get('/dashboard', protect, admin, async (req, res) => {
-  console.log('👑 GET /api/admin/dashboard - by:', req.user?.email);
-  try {
-    const totalUsers = users.filter(u => u.role === 'customer').length;
-    const totalTransactions = await Transaction.countDocuments();
-    const pendingReturns = await Return.countDocuments({ status: 'PENDING' });
-    const unreadMessages = await Message.countDocuments({ status: 'unread' });
-
-    res.json({
-      success: true,
-      data: {
-        totalUsers,
-        totalTransactions,
-        pendingReturns,
-        unreadMessages
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching admin dashboard:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Server error' 
-    });
-  }
-});
 
 // ===== TRANSACTION STATS ROUTE =====
 router.get('/transactions/stats', protect, admin, async (req, res) => {
@@ -814,6 +788,85 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
       success: false, 
       error: 'Server error' 
     });
+  }
+});
+
+router.get('/dashboard/stats', protect, admin, async (req, res) => {
+  console.log('📊 GET /api/admin/dashboard/stats - by:', req.user?.email);
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+    weekStart.setHours(0, 0, 0, 0);
+    
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    
+    const [todaySalesResult, weekSalesResult, monthSalesResult, pendingReturns, unreadMessages, totalTransactions] = await Promise.all([
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: today }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: weekStart }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: monthStart }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Return.countDocuments({ status: 'PENDING' }),
+      Message.countDocuments({ status: 'unread' }),
+      Transaction.countDocuments({ status: 'COMPLETED' })
+    ]);
+    
+    res.json({
+      success: true,
+      data: {
+        todaySales: todaySalesResult[0]?.total || 0,
+        weekSales: weekSalesResult[0]?.total || 0,
+        monthSales: monthSalesResult[0]?.total || 0,
+        pendingReturns: pendingReturns,
+        unreadMessages: unreadMessages,
+        totalTransactions: totalTransactions
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ===== RECENT TRANSACTIONS ENDPOINT =====
+router.get('/transactions/recent', protect, admin, async (req, res) => {
+  console.log('📋 GET /api/admin/transactions/recent - by:', req.user?.email);
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    
+    const transactions = await Transaction.find({ status: 'COMPLETED' })
+      .sort({ createdAt: -1 })
+      .limit(limit);
+    
+    // Format transactions to match frontend expectations
+    const formattedTransactions = transactions.map(t => ({
+      _id: t._id,
+      transactionId: t.transactionId,
+      riceType: t.riceType,
+      quantityKg: t.quantityKg,
+      totalAmount: t.amountPaid,
+      createdAt: t.createdAt
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedTransactions
+    });
+  } catch (error) {
+    console.error('Error fetching recent transactions:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

@@ -16,6 +16,23 @@ const __dirname = path.dirname(__filename);
 // Load environment variables based on environment
 const isProduction = process.env.NODE_ENV === 'production';
 
+const express = require('express');
+const cors = require('cors');
+
+const app = express();
+
+// ✅ CORS must come FIRST before routes
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+app.use(express.json());
+
+// your routes below...
+app.use('/admin', adminRoutes);
+
 if (!isProduction) {
   // Development: Load .env from parent directory (since server.js is in /server folder)
   const envPath = path.resolve(__dirname, '../.env');
@@ -89,9 +106,11 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL, 'http://localhost:3000'] : '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    methods: ['GET', 'POST'],
     credentials: true
-  }
+  },
+  transports: ['websocket', 'polling'],  // Allow both
+  allowEIO3: true
 });
 
 app.set('io', io);
@@ -211,6 +230,55 @@ app.use((err, req, res, next) => {
     success: false,
     error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
   });
+});
+
+// Get all refund requests (Admin only - add auth middleware)
+app.get('/api/admin/refunds', async (req, res) => {
+  try {
+    const refunds = await db.collection('refunds')
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    const refundList = [];
+    refunds.forEach(doc => {
+      refundList.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    const stats = {
+      total: refundList.length,
+      pending: refundList.filter(r => r.status === 'pending').length,
+      approved: refundList.filter(r => r.status === 'approved').length,
+      rejected: refundList.filter(r => r.status === 'rejected').length
+    };
+    
+    res.json({ success: true, refunds: refundList, stats });
+  } catch (error) {
+    console.error('Error fetching refunds:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update refund status (Approve/Reject)
+app.put('/api/admin/refunds/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status, adminNotes } = req.body;
+  
+  try {
+    await db.collection('refunds').doc(id).update({
+      status: status, // 'approved' or 'rejected'
+      adminNotes: adminNotes || '',
+      processedAt: new Date(),
+      processedBy: req.user?.email || 'admin'
+    });
+    
+    res.json({ success: true, message: `Refund ${status} successfully` });
+  } catch (error) {
+    console.error('Error updating refund:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Start server

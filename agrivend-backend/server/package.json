@@ -1,5 +1,7 @@
 {
+  "type": "module",
   "dependencies": {
+    "cors": "^2.8.6",
     "nodemailer": "^8.0.4"
   }
 }
