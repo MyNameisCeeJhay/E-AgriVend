@@ -16,9 +16,6 @@ const __dirname = path.dirname(__filename);
 // Load environment variables based on environment
 const isProduction = process.env.NODE_ENV === 'production';
 
-// your routes below...
-app.use('/admin', adminRoutes);
-
 if (!isProduction) {
   // Development: Load .env from parent directory (since server.js is in /server folder)
   const envPath = path.resolve(__dirname, '../.env');
