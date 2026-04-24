@@ -3,10 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
 import './Dashboard.css';
-
-const API_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5000/api'
-  : 'https://e-agrivend.onrender.com/api';
+import { API_URL } from '../../config';
 
 const AdminDashboard = () => {
   const { user } = useAuth();

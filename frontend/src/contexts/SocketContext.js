@@ -1,10 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import io from 'socket.io-client';
-import { useAuth } from './AuthContext';
-
-const SOCKET_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5000'
-  : 'https://e-agrivend.onrender.com';
 
 const SocketContext = createContext();
 
@@ -12,33 +7,37 @@ export const useSocket = () => useContext(SocketContext);
 
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
-  const [sensorData, setSensorData] = useState(null);
-  const [alerts, setAlerts] = useState([]);
-  const { isAuthenticated } = useAuth();
 
   useEffect(() => {
-    if (!isAuthenticated) return;
-
-    const socket = io(SOCKET_URL, {
-    transports: ['websocket', 'polling'],
-    withCredentials: true
-  });
-
-    newSocket.on('sensor_update', (data) => {
-      setSensorData(data);
+    // Use the correct URL based on environment
+    const SOCKET_URL = window.location.hostname === 'localhost'
+      ? 'http://localhost:5000'
+      : 'https://e-agrivend.onrender.com';
+    
+    console.log('🔌 Connecting to Socket.IO at:', SOCKET_URL);
+    
+    const newSocket = io(SOCKET_URL, {
+      transports: ['websocket', 'polling'],
+      withCredentials: true
     });
 
-    newSocket.on('alerts', (newAlerts) => {
-      setAlerts((prev) => [...prev, ...newAlerts]);
+    newSocket.on('connect', () => {
+      console.log('✅ Socket.IO connected');
     });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('❌ Socket.IO connection error:', error);
+    });
+
+    setSocket(newSocket);
 
     return () => {
-      newSocket.disconnect();
+      newSocket.close();
     };
-  }, [isAuthenticated]);
+  }, []);
 
   return (
-    <SocketContext.Provider value={{ socket, sensorData, alerts, setAlerts }}>
+    <SocketContext.Provider value={{ socket }}>
       {children}
     </SocketContext.Provider>
   );
