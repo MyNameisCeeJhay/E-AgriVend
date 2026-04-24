@@ -1,3 +1,4 @@
+import User from '../models/User.js';
 import express from 'express';
 // import User from '../models/User.js'; // REMOVED - Using in-memory store
 import Transaction from '../models/Transaction.js';
@@ -47,46 +48,6 @@ const findUserById = (id) => {
 const findUserByEmail = (email) => {
   return users.find(u => u.email === email);
 };
-
-// ===== DASHBOARD ROUTE =====
-// Add to adminRoutes.js
-router.get('/dashboard/stats', protect, admin, async (req, res) => {
-  try {
-    const totalUsers = await User.countDocuments();
-    const totalTransactions = await Transaction.countDocuments();
-    const pendingReturns = await Return.countDocuments({ status: 'PENDING' });
-    const totalRevenue = await Transaction.aggregate([
-      { $match: { status: 'COMPLETED' } },
-      { $group: { _id: null, total: { $sum: '$amountPaid' } } }
-    ]);
-    
-    res.json({
-      success: true,
-      data: {
-        totalUsers,
-        totalTransactions,
-        pendingReturns,
-        totalRevenue: totalRevenue[0]?.total || 0
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-router.get('/transactions/recent', protect, admin, async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 5;
-    const transactions = await Transaction.find()
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate('user', 'firstName lastName email');
-    
-    res.json({ success: true, data: transactions });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
 
 // ===== TRANSACTION STATS ROUTE =====
 router.get('/transactions/stats', protect, admin, async (req, res) => {
@@ -830,25 +791,20 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
   }
 });
 
-// ===== DASHBOARD STATS ENDPOINT =====
 router.get('/dashboard/stats', protect, admin, async (req, res) => {
   console.log('📊 GET /api/admin/dashboard/stats - by:', req.user?.email);
   try {
-    // Get today's date at midnight
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    // Get week start (Monday)
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
     weekStart.setHours(0, 0, 0, 0);
     
-    // Get month start
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
     
-    // Get all statistics in parallel
     const [todaySalesResult, weekSalesResult, monthSalesResult, pendingReturns, unreadMessages, totalTransactions] = await Promise.all([
       Transaction.aggregate([
         { $match: { createdAt: { $gte: today }, status: 'COMPLETED' } },
