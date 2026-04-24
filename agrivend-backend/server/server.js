@@ -20,7 +20,7 @@ if (!isProduction) {
   // Development: Load .env from parent directory (since server.js is in /server folder)
   const envPath = path.resolve(__dirname, '../.env');
   console.log('🔍 Loading .env from:', envPath);
-  
+
   if (fs.existsSync(envPath)) {
     const result = dotenv.config({ path: envPath });
     if (result.error) {
@@ -38,32 +38,26 @@ if (!isProduction) {
   console.log('📋 Using environment variables from Render dashboard');
 }
 
-// Check required variables (PORT is optional in production - Render provides it)
+// Check required variables
 const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET'];
-const missingVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+const missingVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
 
 if (missingVars.length > 0) {
   console.error('❌ Missing required environment variables:', missingVars.join(', '));
   if (!isProduction) process.exit(1);
 }
 
-// Set default PORT for production if not set
 if (!process.env.PORT && isProduction) {
   process.env.PORT = 10000;
   console.log('⚠️  PORT not set, using default:', process.env.PORT);
 }
 
-// Check optional configurations
 if (!process.env.FRONTEND_URL && isProduction) {
   console.warn('⚠️  FRONTEND_URL not set. CORS might not work correctly.');
-  console.warn('   Make sure to set FRONTEND_URL in Render environment variables');
 }
 
 if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
   console.warn('⚠️  Email configuration not found. Password reset functionality will not work.');
-  if (!isProduction) {
-    console.warn('   To enable password reset, add EMAIL_USER and EMAIL_PASS to .env file');
-  }
 }
 
 console.log('✅ Environment check completed\n');
@@ -85,33 +79,54 @@ import refundRoutes from './routes/refundRoutes.js';
 const app = express();
 const server = http.createServer(app);
 
-// ===== FIXED: Expanded CORS origins for both development and production =====
+// ===== CORS CONFIGURATION =====
+// FIX: Added Flutter web dev ports + allow mobile apps (no origin header)
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'http://localhost:3000',
-  'http://localhost:59589',    // Your Flutter app origin
-  'http://localhost:58296',
-  'https://e-agrivend.onrender.com'
-].filter(Boolean); // Remove any undefined values
+  'http://localhost:3000',       // Web frontend dev
+  'http://localhost:60767',      // Flutter web dev (common port)
+  'http://localhost:8080',       // Flutter web alternative port
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+];
 
-console.log('🌐 Allowed CORS origins:', allowedOrigins);
+const corsOptions = {
+  origin: function (origin, callback) {
+    // FIX: Allow requests with no origin (Flutter mobile apps, Postman, curl)
+    // Mobile apps don't send an Origin header — without this they'd be blocked
+    if (!origin) {
+      return callback(null, true);
+    }
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    console.warn(`⚠️  CORS blocked request from origin: ${origin}`);
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
 
-// Initialize Socket.io with correct CORS
+// Initialize Socket.io with the same CORS config
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: true
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed`));
+    },
+    methods: ['GET', 'POST'],
+    credentials: true,
   },
   transports: ['websocket', 'polling'],
-  allowEIO3: true
+  allowEIO3: true,
 });
 
 app.set('io', io);
 
 io.on('connection', (socket) => {
   console.log('🟢 New client connected:', socket.id);
-  
+
   socket.on('join_user_room', (userId) => {
     socket.join(`user_${userId}`);
     console.log(`User ${userId} joined their room`);
@@ -123,45 +138,33 @@ io.on('connection', (socket) => {
 });
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+mongoose
+  .connect(process.env.MONGODB_URI)
   .then(() => console.log('✅ MongoDB Connected successfully'))
-  .catch(err => {
+  .catch((err) => {
     console.error('❌ MongoDB connection error:', err);
     process.exit(1);
   });
 
-// Middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
+// ===== MIDDLEWARE =====
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
 
-// ===== FIXED: Better CORS configuration =====
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('❌ CORS blocked origin:', origin);
-      console.log('✅ Allowed origins:', allowedOrigins);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-}));
+// FIX: Apply CORS middleware BEFORE all routes
+app.use(cors(corsOptions));
 
-// Handle preflight requests for all routes
-app.options('*', cors());
+// FIX: Handle preflight OPTIONS requests for all routes
+// Browsers send an OPTIONS request before cross-origin POST/PUT/DELETE
+app.options('*', cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// Create uploads directory if it doesn't exist (for production)
+// Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -199,11 +202,11 @@ app.use('/api/refund', refundRoutes);
 
 // Test route
 app.get('/api/test', (req, res) => {
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: 'API is working',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
+    environment: process.env.NODE_ENV,
   });
 });
 
@@ -217,31 +220,25 @@ app.get('/api/health', (req, res) => {
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     emailConfigured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
     frontendUrl: process.env.FRONTEND_URL || 'not set',
-    allowedOrigins: allowedOrigins
+    allowedOrigins,
   });
-});
-
-// Test CORS route
-app.options('/api/cors-test', cors());
-app.get('/api/cors-test', (req, res) => {
-  res.json({ message: 'CORS is working!' });
 });
 
 // 404 handler
 app.use('*', (req, res) => {
   console.log(`❌ 404 - Route not found: ${req.originalUrl}`);
-  res.status(404).json({ 
+  res.status(404).json({
     success: false,
-    error: `Route ${req.originalUrl} not found` 
+    error: `Route ${req.originalUrl} not found`,
   });
 });
 
 // Error handler
 app.use((err, req, res, next) => {
   console.error('❌ Server error:', err);
-  res.status(500).json({ 
+  res.status(500).json({
     success: false,
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
   });
 });
 
@@ -253,8 +250,8 @@ server.listen(PORT, () => {
   console.log(`🚀 Environment: ${process.env.NODE_ENV}`);
   console.log(`🚀 Port: ${PORT}`);
   console.log(`🌐 Frontend: ${process.env.FRONTEND_URL || 'Not set'}`);
-  console.log(`🌐 Allowed Origins: ${allowedOrigins.join(', ')}`);
   console.log(`📦 MongoDB: Connected`);
-  console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configureed ⚠️'}`);
+  console.log(`🔒 CORS Origins: ${allowedOrigins.join(', ')}`);
+  console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configured ⚠️'}`);
   console.log('=================================\n');
 });
