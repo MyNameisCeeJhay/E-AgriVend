@@ -4,9 +4,9 @@ import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
 import './Dashboard.css';
 
-const API_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://e-agrivend.onrender.com/api'
-  : 'http://localhost:5000/api';
+const API_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5000/api'
+  : 'https://e-agrivend.onrender.com/api';
 
 const AdminDashboard = () => {
   const { user } = useAuth();

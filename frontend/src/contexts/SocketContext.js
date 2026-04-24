@@ -2,9 +2,9 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import io from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
-const SOCKET_URL = window.location.hostname !== 'localhost'
-  ? 'https://e-agrivend.onrender.com'
-  : 'http://localhost:5000';
+const SOCKET_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:5000'
+  : 'https://e-agrivend.onrender.com';
 
 const SocketContext = createContext();
 
@@ -19,12 +19,10 @@ export const SocketProvider = ({ children }) => {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const newSocket = io(SOCKET_URL);
-    setSocket(newSocket);
-
-    newSocket.on('connect', () => {
-      console.log('Socket connected');
-    });
+    const socket = io(SOCKET_URL, {
+    transports: ['websocket', 'polling'],
+    withCredentials: true
+  });
 
     newSocket.on('sensor_update', (data) => {
       setSensorData(data);

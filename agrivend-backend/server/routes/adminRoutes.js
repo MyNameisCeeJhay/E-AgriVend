@@ -49,29 +49,42 @@ const findUserByEmail = (email) => {
 };
 
 // ===== DASHBOARD ROUTE =====
-router.get('/dashboard', protect, admin, async (req, res) => {
-  console.log('👑 GET /api/admin/dashboard - by:', req.user?.email);
+// Add to adminRoutes.js
+router.get('/dashboard/stats', protect, admin, async (req, res) => {
   try {
-    const totalUsers = users.filter(u => u.role === 'customer').length;
+    const totalUsers = await User.countDocuments();
     const totalTransactions = await Transaction.countDocuments();
     const pendingReturns = await Return.countDocuments({ status: 'PENDING' });
-    const unreadMessages = await Message.countDocuments({ status: 'unread' });
-
+    const totalRevenue = await Transaction.aggregate([
+      { $match: { status: 'COMPLETED' } },
+      { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+    ]);
+    
     res.json({
       success: true,
       data: {
         totalUsers,
         totalTransactions,
         pendingReturns,
-        unreadMessages
+        totalRevenue: totalRevenue[0]?.total || 0
       }
     });
   } catch (error) {
-    console.error('Error fetching admin dashboard:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Server error' 
-    });
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.get('/transactions/recent', protect, admin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    const transactions = await Transaction.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('user', 'firstName lastName email');
+    
+    res.json({ success: true, data: transactions });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
