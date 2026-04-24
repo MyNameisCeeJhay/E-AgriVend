@@ -16,9 +16,6 @@ const __dirname = path.dirname(__filename);
 // Load environment variables based on environment
 const isProduction = process.env.NODE_ENV === 'production';
 
-
-app.use(express.json());
-
 // your routes below...
 app.use('/admin', adminRoutes);
 
