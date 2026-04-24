@@ -213,6 +213,55 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Get all refund requests (Admin only - add auth middleware)
+app.get('/api/admin/refunds', async (req, res) => {
+  try {
+    const refunds = await db.collection('refunds')
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    const refundList = [];
+    refunds.forEach(doc => {
+      refundList.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    const stats = {
+      total: refundList.length,
+      pending: refundList.filter(r => r.status === 'pending').length,
+      approved: refundList.filter(r => r.status === 'approved').length,
+      rejected: refundList.filter(r => r.status === 'rejected').length
+    };
+    
+    res.json({ success: true, refunds: refundList, stats });
+  } catch (error) {
+    console.error('Error fetching refunds:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update refund status (Approve/Reject)
+app.put('/api/admin/refunds/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status, adminNotes } = req.body;
+  
+  try {
+    await db.collection('refunds').doc(id).update({
+      status: status, // 'approved' or 'rejected'
+      adminNotes: adminNotes || '',
+      processedAt: new Date(),
+      processedBy: req.user?.email || 'admin'
+    });
+    
+    res.json({ success: true, message: `Refund ${status} successfully` });
+  } catch (error) {
+    console.error('Error updating refund:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
