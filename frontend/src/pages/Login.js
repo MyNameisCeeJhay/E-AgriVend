@@ -37,32 +37,6 @@ const Login = () => {
   // OTP input refs
   const otpInputs = useRef([]);
 
-  // Add Admin States
-  const [showAddAdmin, setShowAddAdmin] = useState(false);
-  const [adminFormData, setAdminFormData] = useState({
-    email: '',
-    password: '',
-    firstName: '',
-    lastName: '',
-    phone: ''
-  });
-  const [adminLoading, setAdminLoading] = useState(false);
-  const [adminMessage, setAdminMessage] = useState('');
-  const [adminError, setAdminError] = useState('');
-
-  // Auto reload after successful admin creation
-  useEffect(() => {
-    let reloadTimer;
-    if (adminMessage && adminMessage.includes('successfully')) {
-      reloadTimer = setTimeout(() => {
-        window.location.reload();
-      }, 2000);
-    }
-    return () => {
-      if (reloadTimer) clearTimeout(reloadTimer);
-    };
-  }, [adminMessage]);
-
   // Auto reload after successful password reset
   useEffect(() => {
     let reloadTimer;
@@ -141,7 +115,7 @@ const Login = () => {
     return otp.join('');
   };
 
-  // Send OTP - FIXED: Better error handling
+  // Send OTP
   const handleSendOTP = async (e) => {
     e.preventDefault();
     
@@ -156,24 +130,18 @@ const Login = () => {
     setOtp(['', '', '', '', '', '']);
 
     try {
-      console.log('📧 Sending OTP to:', resetEmail);
-      
-      // Increase timeout to 30 seconds for email sending
       const response = await axios.post(`${API_URL}/auth/send-otp`, {
         email: resetEmail
       }, {
-        timeout: 30000, // 30 seconds timeout
+        timeout: 30000,
         headers: {
           'Content-Type': 'application/json'
         }
       });
       
-      console.log('📧 Response:', response.data);
-      
-      // Check if the request was successful
       if (response.status === 200 || response.status === 201) {
         if (response.data && response.data.success !== false) {
-          setResetMessage(response.data.message || 'OTP sent to your email! Please check your inbox.');
+          setResetMessage('OTP sent successfully to your registered email');
           setOtpSent(true);
           setResetStep(2);
         } else {
@@ -184,30 +152,21 @@ const Login = () => {
       }
       
     } catch (error) {
-      console.error('❌ Error sending OTP:', error);
+      console.error('Error sending OTP:', error);
       
-      // Handle different error scenarios
       if (error.code === 'ECONNABORTED') {
-        setResetError('Request timeout. The email might still be sending. Please check your email inbox.');
-      } else if (error.message === 'Network Error') {
-        // Check if the email might have been sent despite network error
-        setResetError('Network issue detected. Please check your email inbox - the OTP may have been sent successfully.');
+        setResetError('Request timeout. Please try again.');
       } else if (error.response) {
-        // Server responded with error
-        const errorMsg = error.response.data?.error || 'Failed to send OTP';
-        setResetError(errorMsg);
-      } else if (error.request) {
-        // Request was made but no response
-        setResetError('No response from server. Please check your email - the OTP might have been sent.');
+        setResetError(error.response.data?.error || 'Failed to send OTP');
       } else {
-        setResetError(error.message || 'An error occurred. Please try again.');
+        setResetError('Network error. Please check your connection.');
       }
     } finally {
       setResetLoading(false);
     }
   };
 
-  // Reset Password (One Step - Verifies and Resets)
+  // Reset Password
   const handleResetPassword = async (e) => {
     e.preventDefault();
     
@@ -241,7 +200,7 @@ const Login = () => {
       });
       
       if (response.data && response.data.success) {
-        setResetMessage(response.data.message || 'Password reset successfully! Page will reload in 2 seconds...');
+        setResetMessage('Password reset successful! Redirecting to login...');
         
         setTimeout(() => {
           setShowForgotPassword(false);
@@ -252,7 +211,6 @@ const Login = () => {
           setConfirmPassword('');
           setResetMessage('');
           setOtpSent(false);
-          window.location.reload();
         }, 2000);
       } else {
         setResetError(response.data?.error || 'Failed to reset password');
@@ -262,8 +220,6 @@ const Login = () => {
       console.error('Error resetting password:', error);
       if (error.response) {
         setResetError(error.response.data?.error || 'Invalid OTP or failed to reset password');
-      } else if (error.request) {
-        setResetError('No response from server. Please try again.');
       } else {
         setResetError('An error occurred. Please try again.');
       }
@@ -286,7 +242,7 @@ const Login = () => {
       });
       
       if (response.data && response.data.success) {
-        setResetMessage(response.data.message || 'New OTP sent to your email!');
+        setResetMessage('New OTP sent successfully');
         setOtp(['', '', '', '', '', '']);
         
         setTimeout(() => {
@@ -300,58 +256,9 @@ const Login = () => {
       
     } catch (error) {
       console.error('Error resending OTP:', error);
-      setResetError('Failed to resend OTP. Please check your email or try again.');
+      setResetError('Failed to resend OTP. Please try again.');
     } finally {
       setResetLoading(false);
-    }
-  };
-
-  // Create Admin Account
-  const handleCreateAdmin = async (e) => {
-    e.preventDefault();
-    
-    if (!adminFormData.email || !adminFormData.password || !adminFormData.firstName || !adminFormData.lastName) {
-      setAdminError('Please fill in all required fields');
-      return;
-    }
-    
-    setAdminLoading(true);
-    setAdminError('');
-    setAdminMessage('');
-
-    try {
-      const response = await axios.post(`${API_URL}/auth/register`, {
-        email: adminFormData.email,
-        password: adminFormData.password,
-        firstName: adminFormData.firstName,
-        lastName: adminFormData.lastName,
-        phone: adminFormData.phone || '',
-        role: 'admin'
-      }, {
-        timeout: 30000
-      });
-      
-      setAdminMessage('Admin account created successfully! Page will reload in 2 seconds...');
-      
-      setAdminFormData({
-        email: '',
-        password: '',
-        firstName: '',
-        lastName: '',
-        phone: ''
-      });
-      
-      setTimeout(() => {
-        setShowAddAdmin(false);
-        setAdminMessage('');
-        window.location.reload();
-      }, 2000);
-      
-    } catch (error) {
-      console.error('Error creating admin:', error);
-      setAdminError(error.response?.data?.error || 'Failed to create admin account');
-    } finally {
-      setAdminLoading(false);
     }
   };
 
@@ -382,406 +289,296 @@ const Login = () => {
   const displayError = localError || authError;
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <div className="login-header">
-          <h1 className="login-title">
-            AgriVend
-          </h1>
-          <p className="login-subtitle">
-            Administrator Portal
-          </p>
-        </div>
-        
-        {displayError && !showForgotPassword && !showAddAdmin && (
-          <div className="login-error">
-            {displayError}
+    <div 
+      className="login-container"
+      style={{
+        backgroundImage: `url('/assets/images/AgBackground.jpg')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      }}
+    >
+      <div className="login-overlay"></div>
+      <div className="login-grid">
+        {/* Left Side - Brand Area */}
+        <div className="login-brand">
+          <div className="brand-content">
+            <div className="brand-logo">
+              <h1 className="brand-name">AGRIVEND</h1>
+            </div>
+            <p className="brand-tagline">Solar Powered Grain Vending Machine</p>
+            <div className="brand-features">
+              <div className="feature-item">
+                <span className="feature-check">✓</span>
+                <span>Automated Vending Machine</span>
+              </div>
+              <div className="feature-item">
+                <span className="feature-check">✓</span>
+                <span>Real-time Inventory Tracking</span>
+              </div>
+              <div className="feature-item">
+                <span className="feature-check">✓</span>
+                <span>Secure Payment Processing</span>
+              </div>
+              <div className="feature-item">
+                <span className="feature-check">✓</span>
+                <span>Enterprise Management Dashboard</span>
+              </div>
+            </div>
+            <div className="brand-footer">
+              <p className="authorized-text">Authorized Personnel Only</p>
+            </div>
           </div>
-        )}
-        
-        {!showForgotPassword && !showAddAdmin ? (
-          <form className="login-form" onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label className="form-label">
-                Email Address
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@agrivend.com"
-                className="form-input"
-                disabled={loading}
-              />
+        </div>
+
+        {/* Right Side - Login Form */}
+        <div className="login-form-container">
+          <div className="form-wrapper">
+            <div className="form-header">
+              <h2 className="form-title">Welcome Back</h2>
+              <p className="form-subtitle">Sign in to your administrator account</p>
             </div>
             
-            <div className="form-group">
-              <label className="form-label">
-                Password
-              </label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                className="form-input"
-                disabled={loading}
-              />
-            </div>
-
-            <div className="form-options">
-              <button
-                type="button"
-                onClick={() => setShowForgotPassword(true)}
-                className="forgot-password-link"
-              >
-                Forgot Password?
-              </button>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className={`login-button ${loading ? 'loading' : ''}`}
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-
-            <div className="form-divider">
-              <span>or</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowAddAdmin(true)}
-              className="add-admin-button"
-            >
-              Create New Admin Account
-            </button>
-          </form>
-        ) : showForgotPassword ? (
-          <div className="reset-form">
-            {resetStep === 1 ? (
-              // Step 1: Enter Email
-              <form onSubmit={handleSendOTP}>
-                <h3 className="reset-title">Reset Password</h3>
-                <p className="reset-description">
-                  Enter your email address and we'll send you an OTP to reset your password.
-                </p>
-                
-                <div className="form-group">
-                  <label className="form-label">
-                    Email Address
-                  </label>
+            {displayError && !showForgotPassword && (
+              <div className="alert-message error">
+                <span>{displayError}</span>
+              </div>
+            )}
+            
+            {!showForgotPassword ? (
+              <form className="login-form" onSubmit={handleSubmit}>
+                <div className="input-group">
+                  <label className="input-label">Email Address</label>
                   <input
                     type="email"
                     required
-                    value={resetEmail}
-                    onChange={(e) => setResetEmail(e.target.value)}
-                    placeholder="Enter your registered email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="admin@agrivend.com"
                     className="form-input"
-                    disabled={resetLoading}
-                  />
-                </div>
-
-                {resetError && (
-                  <div className="reset-error">
-                    {resetError}
-                  </div>
-                )}
-
-                {resetMessage && (
-                  <div className="reset-success">
-                    {resetMessage}
-                  </div>
-                )}
-
-                <div className="form-actions">
-                  <button
-                    type="submit"
-                    disabled={resetLoading}
-                    className={`login-button ${resetLoading ? 'loading' : ''}`}
-                  >
-                    {resetLoading ? 'Sending...' : 'Send OTP'}
-                  </button>
-                  
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowForgotPassword(false);
-                      setResetError('');
-                      setResetMessage('');
-                      setResetEmail('');
-                      setResetStep(1);
-                    }}
-                    className="back-to-login"
-                  >
-                    Back to Login
-                  </button>
-                </div>
-              </form>
-            ) : (
-              // Step 2: Enter OTP and New Password
-              <form onSubmit={handleResetPassword}>
-                <h3 className="reset-title">Reset Password</h3>
-                <p className="reset-description">
-                  Enter the OTP sent to <strong>{resetEmail}</strong> and create a new strong password.
-                </p>
-                
-                {/* OTP Input Bar */}
-                <div className="otp-input-container">
-                  <label className="form-label">OTP Code</label>
-                  <div className="otp-input-group">
-                    {otp.map((digit, index) => (
-                      <input
-                        key={index}
-                        type="text"
-                        maxLength="1"
-                        value={digit}
-                        onChange={(e) => handleOtpChange(index, e.target.value)}
-                        onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                        onPaste={index === 0 ? handleOtpPaste : undefined}
-                        ref={(el) => (otpInputs.current[index] = el)}
-                        className="otp-input"
-                        autoFocus={index === 0}
-                        disabled={resetLoading}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Resend OTP Link */}
-                <div className="resend-otp-container">
-                  <button
-                    type="button"
-                    onClick={handleResendOTP}
-                    className="resend-otp-link"
-                    disabled={resetLoading}
-                  >
-                    Didn't receive the code? Resend OTP
-                  </button>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">
-                    New Password
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={newPassword}
-                    onChange={handleNewPasswordChange}
-                    placeholder="Enter new password"
-                    className="form-input"
-                    disabled={resetLoading}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">
-                    Confirm Password
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm new password"
-                    className="form-input"
-                    disabled={resetLoading}
-                  />
-                </div>
-
-                {/* Password Strength Indicator */}
-                <div className="password-strength">
-                  <div className="strength-bars">
-                    <div className={`strength-bar ${passwordStrength.requirements.minLength ? 'strong' : ''}`}></div>
-                    <div className={`strength-bar ${passwordStrength.requirements.hasUpperCase ? 'strong' : ''}`}></div>
-                    <div className={`strength-bar ${passwordStrength.requirements.hasLowerCase ? 'strong' : ''}`}></div>
-                    <div className={`strength-bar ${passwordStrength.requirements.hasNumbers ? 'strong' : ''}`}></div>
-                    <div className={`strength-bar ${passwordStrength.requirements.hasSpecialChar ? 'strong' : ''}`}></div>
-                  </div>
-                  <div className="strength-text">
-                    {passwordStrength.isStrong ? (
-                      <span className="strength-strong">✓ Strong password</span>
-                    ) : (
-                      <span className="strength-weak">Password requirements:</span>
-                    )}
-                  </div>
-                  <ul className="strength-requirements">
-                    {!passwordStrength.requirements.minLength && <li>• At least 8 characters</li>}
-                    {!passwordStrength.requirements.hasUpperCase && <li>• At least one uppercase letter</li>}
-                    {!passwordStrength.requirements.hasLowerCase && <li>• At least one lowercase letter</li>}
-                    {!passwordStrength.requirements.hasNumbers && <li>• At least one number</li>}
-                    {!passwordStrength.requirements.hasSpecialChar && <li>• At least one special character (!@#$%^&*)</li>}
-                  </ul>
-                </div>
-
-                {resetError && (
-                  <div className="reset-error">
-                    {resetError}
-                  </div>
-                )}
-
-                {resetMessage && (
-                  <div className="reset-success">
-                    {resetMessage}
-                  </div>
-                )}
-
-                <div className="form-actions">
-                  <button
-                    type="submit"
-                    disabled={resetLoading || getOtpValue().length !== 6 || !passwordStrength.isStrong}
-                    className={`login-button ${resetLoading ? 'loading' : ''}`}
-                  >
-                    {resetLoading ? 'Resetting...' : 'Reset Password'}
-                  </button>
-                  
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setResetStep(1);
-                      setOtp(['', '', '', '', '', '']);
-                      setNewPassword('');
-                      setConfirmPassword('');
-                      setResetError('');
-                    }}
-                    className="back-to-login"
-                  >
-                    Back
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        ) : (
-          <div className="add-admin-form">
-            <h3 className="reset-title">Create Admin Account</h3>
-            <p className="reset-description">
-              Create a new administrator account to access the system.
-            </p>
-            
-            <form onSubmit={handleCreateAdmin}>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">First Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={adminFormData.firstName}
-                    onChange={(e) => setAdminFormData({...adminFormData, firstName: e.target.value})}
-                    placeholder="Enter first name"
-                    className="form-input"
+                    disabled={loading}
                   />
                 </div>
                 
-                <div className="form-group">
-                  <label className="form-label">Last Name *</label>
+                <div className="input-group">
+                  <label className="input-label">Password</label>
                   <input
-                    type="text"
+                    type="password"
                     required
-                    value={adminFormData.lastName}
-                    onChange={(e) => setAdminFormData({...adminFormData, lastName: e.target.value})}
-                    placeholder="Enter last name"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
                     className="form-input"
+                    disabled={loading}
                   />
                 </div>
-              </div>
 
-              <div className="form-group">
-                <label className="form-label">Email Address *</label>
-                <input
-                  type="email"
-                  required
-                  value={adminFormData.email}
-                  onChange={(e) => setAdminFormData({...adminFormData, email: e.target.value})}
-                  placeholder="admin@agrivend.com"
-                  className="form-input"
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Password *</label>
-                <input
-                  type="password"
-                  required
-                  value={adminFormData.password}
-                  onChange={(e) => setAdminFormData({...adminFormData, password: e.target.value})}
-                  placeholder="Enter strong password"
-                  className="form-input"
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Phone</label>
-                <input
-                  type="tel"
-                  value={adminFormData.phone}
-                  onChange={(e) => setAdminFormData({...adminFormData, phone: e.target.value})}
-                  placeholder="Optional"
-                  className="form-input"
-                />
-              </div>
-
-              {adminError && (
-                <div className="reset-error">
-                  {adminError}
+                <div className="form-options">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPassword(true)}
+                    className="forgot-password-link"
+                  >
+                    Forgot Password?
+                  </button>
                 </div>
-              )}
 
-              {adminMessage && (
-                <div className="reset-success">
-                  {adminMessage}
-                </div>
-              )}
-
-              <div className="form-actions">
                 <button
                   type="submit"
-                  disabled={adminLoading}
-                  className={`login-button ${adminLoading ? 'loading' : ''}`}
+                  disabled={loading}
+                  className={`submit-button ${loading ? 'loading' : ''}`}
                 >
-                  {adminLoading ? 'Creating...' : 'Create Admin Account'}
+                  {loading ? 'Signing in...' : 'Sign In'}
                 </button>
-                
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddAdmin(false);
-                    setAdminError('');
-                    setAdminMessage('');
-                    setAdminFormData({
-                      email: '',
-                      password: '',
-                      firstName: '',
-                      lastName: '',
-                      phone: ''
-                    });
-                  }}
-                  className="back-to-login"
-                >
-                  Back to Login
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
+              </form>
+            ) : (
+              <div className="reset-form">
+                {resetStep === 1 ? (
+                  <form onSubmit={handleSendOTP}>
+                    <h3 className="reset-title">Reset Password</h3>
+                    <p className="reset-description">
+                      Enter your email address and we'll send you a verification code
+                    </p>
+                    
+                    <div className="input-group">
+                      <label className="input-label">Email Address</label>
+                      <input
+                        type="email"
+                        required
+                        value={resetEmail}
+                        onChange={(e) => setResetEmail(e.target.value)}
+                        placeholder="admin@agrivend.com"
+                        className="form-input"
+                        disabled={resetLoading}
+                      />
+                    </div>
 
-        {/* Admin Demo Credentials Only */}
-        <div className="demo-credentials">
-          <div className="demo-badge">Admin Demo Credentials</div>
-          <div className="demo-info">
-            <div className="demo-row">
-              <span className="demo-label">Admin Email:</span>
-              <span className="demo-value">admin@agrivend.com</span>
-            </div>
-            <div className="demo-row">
-              <span className="demo-label">Password:</span>
-              <span className="demo-value">Admin@123</span>
-            </div>
+                    {resetError && (
+                      <div className="alert-message error">
+                        <span>{resetError}</span>
+                      </div>
+                    )}
+
+                    {resetMessage && (
+                      <div className="alert-message success">
+                        <span>{resetMessage}</span>
+                      </div>
+                    )}
+
+                    <div className="form-actions">
+                      <button
+                        type="submit"
+                        disabled={resetLoading}
+                        className={`submit-button ${resetLoading ? 'loading' : ''}`}
+                      >
+                        {resetLoading ? 'Sending...' : 'Send OTP'}
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowForgotPassword(false);
+                          setResetError('');
+                          setResetMessage('');
+                          setResetEmail('');
+                          setResetStep(1);
+                        }}
+                        className="secondary-button"
+                      >
+                        Back to Login
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={handleResetPassword}>
+                    <h3 className="reset-title">Verify & Reset</h3>
+                    <p className="reset-description">
+                      Enter the OTP sent to <strong>{resetEmail}</strong>
+                    </p>
+                    
+                    <div className="otp-section">
+                      <label className="input-label">Verification Code</label>
+                      <div className="otp-input-group">
+                        {otp.map((digit, index) => (
+                          <input
+                            key={index}
+                            type="text"
+                            maxLength="1"
+                            value={digit}
+                            onChange={(e) => handleOtpChange(index, e.target.value)}
+                            onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                            onPaste={index === 0 ? handleOtpPaste : undefined}
+                            ref={(el) => (otpInputs.current[index] = el)}
+                            className="otp-input"
+                            autoFocus={index === 0}
+                            disabled={resetLoading}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="resend-section">
+                      <button
+                        type="button"
+                        onClick={handleResendOTP}
+                        className="resend-link"
+                        disabled={resetLoading}
+                      >
+                        Resend Code
+                      </button>
+                    </div>
+
+                    <div className="input-group">
+                      <label className="input-label">New Password</label>
+                      <input
+                        type="password"
+                        required
+                        value={newPassword}
+                        onChange={handleNewPasswordChange}
+                        placeholder="Create new password"
+                        className="form-input"
+                        disabled={resetLoading}
+                      />
+                    </div>
+
+                    <div className="input-group">
+                      <label className="input-label">Confirm Password</label>
+                      <input
+                        type="password"
+                        required
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Confirm new password"
+                        className="form-input"
+                        disabled={resetLoading}
+                      />
+                    </div>
+
+                    <div className="password-strength">
+                      <div className="strength-bars">
+                        <div className={`strength-bar ${passwordStrength.requirements.minLength ? 'strong' : ''}`}></div>
+                        <div className={`strength-bar ${passwordStrength.requirements.hasUpperCase ? 'strong' : ''}`}></div>
+                        <div className={`strength-bar ${passwordStrength.requirements.hasLowerCase ? 'strong' : ''}`}></div>
+                        <div className={`strength-bar ${passwordStrength.requirements.hasNumbers ? 'strong' : ''}`}></div>
+                        <div className={`strength-bar ${passwordStrength.requirements.hasSpecialChar ? 'strong' : ''}`}></div>
+                      </div>
+                      <div className="strength-text">
+                        {passwordStrength.isStrong ? (
+                          <span className="strength-strong">✓ Strong password</span>
+                        ) : (
+                          <span className="strength-weak">Password must contain:</span>
+                        )}
+                      </div>
+                      {!passwordStrength.isStrong && (
+                        <ul className="strength-requirements">
+                          {!passwordStrength.requirements.minLength && <li>• At least 8 characters</li>}
+                          {!passwordStrength.requirements.hasUpperCase && <li>• At least one uppercase letter</li>}
+                          {!passwordStrength.requirements.hasLowerCase && <li>• At least one lowercase letter</li>}
+                          {!passwordStrength.requirements.hasNumbers && <li>• At least one number</li>}
+                          {!passwordStrength.requirements.hasSpecialChar && <li>• At least one special character</li>}
+                        </ul>
+                      )}
+                    </div>
+
+                    {resetError && (
+                      <div className="alert-message error">
+                        <span>{resetError}</span>
+                      </div>
+                    )}
+
+                    {resetMessage && (
+                      <div className="alert-message success">
+                        <span>{resetMessage}</span>
+                      </div>
+                    )}
+
+                    <div className="form-actions">
+                      <button
+                        type="submit"
+                        disabled={resetLoading || getOtpValue().length !== 6 || !passwordStrength.isStrong}
+                        className={`submit-button ${resetLoading ? 'loading' : ''}`}
+                      >
+                        {resetLoading ? 'Resetting...' : 'Reset Password'}
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResetStep(1);
+                          setOtp(['', '', '', '', '', '']);
+                          setNewPassword('');
+                          setConfirmPassword('');
+                          setResetError('');
+                        }}
+                        className="secondary-button"
+                      >
+                        Back
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -259,7 +259,7 @@ const RefundRequest = () => {
       <div className="refund-card">
         {/* Header */}
         <div className="refund-header">
-          <h1>🌾 AgriVend</h1>
+          <h1>AgriVend</h1>
           <h2>Customer Refund Request Portal</h2>
         </div>
 

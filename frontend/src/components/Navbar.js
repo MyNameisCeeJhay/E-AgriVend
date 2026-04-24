@@ -7,7 +7,7 @@ import './Navbar.css';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
-const Navbar = ({ sidebarOpen, setSidebarOpen }) => {
+const Navbar = ({ sidebarOpen, onToggleSidebar }) => {
   const { user, logout } = useAuth();
   const { socket } = useSocket();
   const navigate = useNavigate();
@@ -18,8 +18,15 @@ const Navbar = ({ sidebarOpen, setSidebarOpen }) => {
   const [unreadCount, setUnreadCount] = useState(0);
 
   const isCustomer = user?.role === 'customer';
+  const isAdmin = user?.role === 'admin';
 
-  // Load notifications from localStorage
+  // Handle sidebar toggle - calls the function from Layout
+  const handleToggleSidebar = () => {
+    if (onToggleSidebar) {
+      onToggleSidebar();
+    }
+  };
+
   useEffect(() => {
     if (!user || !isCustomer) return;
     
@@ -255,14 +262,15 @@ const Navbar = ({ sidebarOpen, setSidebarOpen }) => {
         <div className="navbar-left">
           <button 
             className="menu-toggle"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={handleToggleSidebar}
+            aria-label="Toggle menu"
           >
             <span className="menu-icon">☰</span>
           </button>
           
           <Link to={isCustomer ? "/customer/dashboard" : "/admin/dashboard"} className="navbar-logo">
             <span className="logo-text">AgriVend</span>
-            {!isCustomer && <span className="logo-badge">Admin</span>}
+            {isAdmin && <span className="logo-badge">Admin</span>}
           </Link>
         </div>
 
@@ -329,9 +337,17 @@ const Navbar = ({ sidebarOpen, setSidebarOpen }) => {
           )}
 
           <div className="user-menu">
-            <span className="user-name">
-              {user?.firstName} {user?.lastName}
-            </span>
+            <div className="user-avatar-small">
+              {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
+            </div>
+            <div className="user-info-small">
+              <span className="user-name-small">
+                {user?.firstName} {user?.lastName}
+              </span>
+              <span className="user-role-small">
+                {isAdmin ? 'Administrator' : 'Customer'}
+              </span>
+            </div>
             <button onClick={logout} className="logout-btn">
               Logout
             </button>

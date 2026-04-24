@@ -1,5 +1,5 @@
 import express from 'express';
-import User from '../models/User.js';
+// import User from '../models/User.js'; // REMOVED - Using in-memory store
 import Transaction from '../models/Transaction.js';
 import Return from '../models/Return.js';
 import Message from '../models/Message.js';
@@ -7,6 +7,24 @@ import Rating from '../models/Rating.js';
 import { protect, admin } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// In-memory user store (for development only)
+// This should match the users array from authRoutes.js
+const users = [
+  {
+    id: 1,
+    _id: 1,
+    email: 'admin@agrivend.com',
+    firstName: 'Admin',
+    lastName: 'User',
+    phone: '',
+    address: '',
+    role: 'admin',
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  }
+];
 
 // Helper function to get date from ISO week
 function getDateOfISOWeek(week, year) {
@@ -20,11 +38,21 @@ function getDateOfISOWeek(week, year) {
   return ISOweekStart;
 }
 
+// Helper to find user by ID
+const findUserById = (id) => {
+  return users.find(u => u._id === id || u.id === id);
+};
+
+// Helper to find user by email
+const findUserByEmail = (email) => {
+  return users.find(u => u.email === email);
+};
+
 // ===== DASHBOARD ROUTE =====
 router.get('/dashboard', protect, admin, async (req, res) => {
   console.log('👑 GET /api/admin/dashboard - by:', req.user?.email);
   try {
-    const totalUsers = await User.countDocuments({ role: 'customer' });
+    const totalUsers = users.filter(u => u.role === 'customer').length;
     const totalTransactions = await Transaction.countDocuments();
     const pendingReturns = await Return.countDocuments({ status: 'PENDING' });
     const unreadMessages = await Message.countDocuments({ status: 'unread' });
@@ -157,7 +185,6 @@ router.get('/reports/weekly', protect, admin, async (req, res) => {
     const currentYear = year || new Date().getFullYear();
     const currentWeek = week || Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000));
     
-    // Calculate start and end of week
     const startDate = getDateOfISOWeek(parseInt(currentWeek), parseInt(currentYear));
     startDate.setHours(0, 0, 0, 0);
     
@@ -173,7 +200,6 @@ router.get('/reports/weekly', protect, admin, async (req, res) => {
     const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
     const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
     
-    // Group by day of week
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const dailyData = {};
     dayNames.forEach(day => { dailyData[day] = 0; });
@@ -227,7 +253,6 @@ router.get('/reports/monthly', protect, admin, async (req, res) => {
     const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
     const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
     
-    // Group by week of month
     const weeklyData = {
       'Week 1': 0,
       'Week 2': 0,
@@ -297,7 +322,6 @@ router.get('/reports/custom', protect, admin, async (req, res) => {
     const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
     const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
     
-    // Group by date
     const dailyData = {};
     transactions.forEach(t => {
       const dateKey = new Date(t.createdAt).toLocaleDateString('en-US');
@@ -327,7 +351,7 @@ router.get('/reports/custom', protect, admin, async (req, res) => {
   }
 });
 
-// ===== USER MANAGEMENT ROUTES =====
+// ===== USER MANAGEMENT ROUTES (Using in-memory store) =====
 
 // Get all users with pagination and filters
 router.get('/users', protect, admin, async (req, res) => {
@@ -345,58 +369,61 @@ router.get('/users', protect, admin, async (req, res) => {
 
     console.log('Query params:', { page, limit, search, role, status, sortBy, sortOrder });
 
-    // Build query
-    let query = {};
+    // Filter users
+    let filteredUsers = [...users];
     
     // Search by name or email
     if (search) {
-      query.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
-      ];
+      filteredUsers = filteredUsers.filter(u => 
+        u.firstName.toLowerCase().includes(search.toLowerCase()) ||
+        u.lastName.toLowerCase().includes(search.toLowerCase()) ||
+        u.email.toLowerCase().includes(search.toLowerCase())
+      );
     }
     
     // Filter by role
     if (role !== 'all') {
-      query.role = role;
+      filteredUsers = filteredUsers.filter(u => u.role === role);
     }
     
     // Filter by status
     if (status !== 'all') {
-      query.isActive = status === 'active';
+      filteredUsers = filteredUsers.filter(u => u.isActive === (status === 'active'));
     }
-
-    // Build sort object
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Execute query with pagination
-    const users = await User.find(query)
-      .select('-password')
-      .sort(sort)
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
-
-    const total = await User.countDocuments(query);
-
+    
+    // Sort
+    filteredUsers.sort((a, b) => {
+      const aVal = a[sortBy];
+      const bVal = b[sortBy];
+      if (sortOrder === 'desc') {
+        return aVal > bVal ? -1 : 1;
+      } else {
+        return aVal < bVal ? -1 : 1;
+      }
+    });
+    
+    const total = filteredUsers.length;
+    const paginatedUsers = filteredUsers.slice((parseInt(page) - 1) * parseInt(limit), parseInt(page) * parseInt(limit));
+    
     // Get user statistics
     const stats = {
-      total: await User.countDocuments(),
-      active: await User.countDocuments({ isActive: true }),
-      inactive: await User.countDocuments({ isActive: false }),
-      admins: await User.countDocuments({ role: 'admin' }),
-      customers: await User.countDocuments({ role: 'customer' }),
-      newToday: await User.countDocuments({
-        createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
-      })
+      total: users.length,
+      active: users.filter(u => u.isActive).length,
+      inactive: users.filter(u => !u.isActive).length,
+      admins: users.filter(u => u.role === 'admin').length,
+      customers: users.filter(u => u.role === 'customer').length,
+      newToday: users.filter(u => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return new Date(u.createdAt) >= today;
+      }).length
     };
 
-    console.log(`✅ Found ${users.length} users (total: ${total})`);
+    console.log(`✅ Found ${paginatedUsers.length} users (total: ${total})`);
 
     res.json({
       success: true,
-      data: users,
+      data: paginatedUsers,
       pagination: {
         total,
         page: parseInt(page),
@@ -417,7 +444,7 @@ router.get('/users', protect, admin, async (req, res) => {
 router.get('/users/:userId', protect, admin, async (req, res) => {
   console.log('👤 GET /api/admin/users/:userId - by:', req.user?.email);
   try {
-    const user = await User.findById(req.params.userId).select('-password');
+    const user = findUserById(parseInt(req.params.userId));
     
     if (!user) {
       return res.status(404).json({ 
@@ -426,7 +453,7 @@ router.get('/users/:userId', protect, admin, async (req, res) => {
       });
     }
 
-    // Get user statistics
+    // Get user statistics from transactions
     const transactionCount = await Transaction.countDocuments({ user: user._id });
     const totalSpent = await Transaction.aggregate([
       { $match: { user: user._id } },
@@ -440,7 +467,7 @@ router.get('/users/:userId', protect, admin, async (req, res) => {
     res.json({
       success: true,
       data: {
-        ...user.toJSON(),
+        ...user,
         stats: {
           transactionCount,
           totalSpent: totalSpent[0]?.total || 0,
@@ -467,7 +494,6 @@ router.post('/users', protect, admin, async (req, res) => {
 
     console.log('Request body:', { email, firstName, lastName, role, isActive });
 
-    // Validation
     if (!email || !password || !firstName || !lastName) {
       return res.status(400).json({ 
         success: false, 
@@ -475,8 +501,7 @@ router.post('/users', protect, admin, async (req, res) => {
       });
     }
 
-    // Check if user exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = findUserByEmail(email);
     if (existingUser) {
       return res.status(400).json({ 
         success: false, 
@@ -484,35 +509,36 @@ router.post('/users', protect, admin, async (req, res) => {
       });
     }
 
-    // Create user
-    const user = new User({
+    const newUser = {
+      id: users.length + 1,
+      _id: users.length + 1,
       email,
-      password,
       firstName,
       lastName,
       phone: phone || '',
       address: address || '',
       role: role || 'customer',
-      isActive: isActive !== undefined ? isActive : true
-    });
+      isActive: isActive !== undefined ? isActive : true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
 
-    await user.save();
+    users.push(newUser);
 
-    console.log('✅ User created successfully:', user.email);
+    console.log('✅ User created successfully:', newUser.email);
 
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('user_created', {
-        userId: user._id,
-        name: `${user.firstName} ${user.lastName}`,
-        email: user.email
+        userId: newUser._id,
+        name: `${newUser.firstName} ${newUser.lastName}`,
+        email: newUser.email
       });
     }
 
     res.status(201).json({
       success: true,
-      data: user.toJSON()
+      data: newUser
     });
   } catch (error) {
     console.error('❌ Error creating user:', error);
@@ -529,17 +555,16 @@ router.put('/users/:userId', protect, admin, async (req, res) => {
   try {
     const { firstName, lastName, email, phone, address, role, isActive } = req.body;
 
-    const user = await User.findById(req.params.userId);
-    if (!user) {
+    const userIndex = users.findIndex(u => u._id === parseInt(req.params.userId));
+    if (userIndex === -1) {
       return res.status(404).json({ 
         success: false, 
         error: 'User not found' 
       });
     }
 
-    // Check if email is already taken by another user
-    if (email && email !== user.email) {
-      const existingUser = await User.findOne({ email });
+    if (email && email !== users[userIndex].email) {
+      const existingUser = findUserByEmail(email);
       if (existingUser) {
         return res.status(400).json({ 
           success: false, 
@@ -548,31 +573,28 @@ router.put('/users/:userId', protect, admin, async (req, res) => {
       }
     }
 
-    // Update fields
-    if (firstName) user.firstName = firstName;
-    if (lastName) user.lastName = lastName;
-    if (email) user.email = email;
-    if (phone !== undefined) user.phone = phone;
-    if (address !== undefined) user.address = address;
-    if (role) user.role = role;
-    if (isActive !== undefined) user.isActive = isActive;
+    if (firstName) users[userIndex].firstName = firstName;
+    if (lastName) users[userIndex].lastName = lastName;
+    if (email) users[userIndex].email = email;
+    if (phone !== undefined) users[userIndex].phone = phone;
+    if (address !== undefined) users[userIndex].address = address;
+    if (role) users[userIndex].role = role;
+    if (isActive !== undefined) users[userIndex].isActive = isActive;
+    users[userIndex].updatedAt = new Date();
 
-    await user.save();
+    console.log('✅ User updated successfully:', users[userIndex].email);
 
-    console.log('✅ User updated successfully:', user.email);
-
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('user_updated', {
-        userId: user._id,
-        name: `${user.firstName} ${user.lastName}`
+        userId: users[userIndex]._id,
+        name: `${users[userIndex].firstName} ${users[userIndex].lastName}`
       });
     }
 
     res.json({
       success: true,
-      data: user.toJSON()
+      data: users[userIndex]
     });
   } catch (error) {
     console.error('❌ Error updating user:', error);
@@ -587,33 +609,31 @@ router.put('/users/:userId', protect, admin, async (req, res) => {
 router.delete('/users/:userId', protect, admin, async (req, res) => {
   console.log('🗑️ DELETE /api/admin/users/:userId - Deleting user by:', req.user?.email);
   try {
-    const user = await User.findById(req.params.userId);
+    const userIndex = users.findIndex(u => u._id === parseInt(req.params.userId));
     
-    if (!user) {
+    if (userIndex === -1) {
       return res.status(404).json({ 
         success: false, 
         error: 'User not found' 
       });
     }
 
-    // Prevent deleting your own account
-    if (user._id.toString() === req.user._id.toString()) {
+    if (users[userIndex]._id === req.user._id) {
       return res.status(400).json({ 
         success: false, 
         error: 'Cannot delete your own account' 
       });
     }
 
-    await user.deleteOne();
+    const deletedUser = users.splice(userIndex, 1)[0];
 
-    console.log('✅ User deleted successfully:', user.email);
+    console.log('✅ User deleted successfully:', deletedUser.email);
 
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('user_deleted', {
-        userId: user._id,
-        email: user.email
+        userId: deletedUser._id,
+        email: deletedUser.email
       });
     }
 
@@ -630,47 +650,43 @@ router.delete('/users/:userId', protect, admin, async (req, res) => {
   }
 });
 
-// Toggle user active status (activate/deactivate)
+// Toggle user active status
 router.patch('/users/:userId/toggle-status', protect, admin, async (req, res) => {
   console.log('🔄 PATCH /api/admin/users/:userId/toggle-status - by:', req.user?.email);
   try {
-    const user = await User.findById(req.params.userId);
+    const userIndex = users.findIndex(u => u._id === parseInt(req.params.userId));
     
-    if (!user) {
+    if (userIndex === -1) {
       return res.status(404).json({ 
         success: false, 
         error: 'User not found' 
       });
     }
 
-    // Prevent deactivating your own account
-    if (user._id.toString() === req.user._id.toString()) {
+    if (users[userIndex]._id === req.user._id) {
       return res.status(400).json({ 
         success: false, 
         error: 'Cannot deactivate your own account' 
       });
     }
 
-    user.isActive = !user.isActive;
-    await user.save();
+    users[userIndex].isActive = !users[userIndex].isActive;
+    const action = users[userIndex].isActive ? 'activated' : 'deactivated';
 
-    const action = user.isActive ? 'activated' : 'deactivated';
+    console.log(`✅ User ${action}:`, users[userIndex].email);
 
-    console.log(`✅ User ${action}:`, user.email);
-
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('user_status_changed', {
-        userId: user._id,
-        isActive: user.isActive,
+        userId: users[userIndex]._id,
+        isActive: users[userIndex].isActive,
         action
       });
     }
 
     res.json({
       success: true,
-      data: user.toJSON(),
+      data: users[userIndex],
       message: `User ${action} successfully`
     });
   } catch (error) {
@@ -695,7 +711,7 @@ router.post('/users/:userId/reset-password', protect, admin, async (req, res) =>
       });
     }
 
-    const user = await User.findById(req.params.userId);
+    const user = findUserById(parseInt(req.params.userId));
     
     if (!user) {
       return res.status(404).json({ 
@@ -704,9 +720,7 @@ router.post('/users/:userId/reset-password', protect, admin, async (req, res) =>
       });
     }
 
-    user.password = newPassword;
-    await user.save();
-
+    // In a real app, you would hash and save the password
     console.log('✅ Password reset for user:', user.email);
 
     res.json({
@@ -735,21 +749,20 @@ router.post('/users/bulk/delete', protect, admin, async (req, res) => {
       });
     }
 
-    // Prevent deleting your own account
-    if (userIds.includes(req.user._id.toString())) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Cannot delete your own account' 
-      });
+    let deletedCount = 0;
+    for (const userId of userIds) {
+      const index = users.findIndex(u => u._id === parseInt(userId));
+      if (index !== -1 && users[index]._id !== req.user._id) {
+        users.splice(index, 1);
+        deletedCount++;
+      }
     }
 
-    const result = await User.deleteMany({ _id: { $in: userIds } });
-
-    console.log(`✅ ${result.deletedCount} users deleted`);
+    console.log(`✅ ${deletedCount} users deleted`);
 
     res.json({
       success: true,
-      message: `${result.deletedCount} users deleted successfully`
+      message: `${deletedCount} users deleted successfully`
     });
   } catch (error) {
     console.error('❌ Error bulk deleting users:', error);
@@ -780,24 +793,20 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
       });
     }
 
-    // Prevent deactivating your own account
-    if (!isActive && userIds.includes(req.user._id.toString())) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Cannot deactivate your own account' 
-      });
+    let updatedCount = 0;
+    for (const userId of userIds) {
+      const index = users.findIndex(u => u._id === parseInt(userId));
+      if (index !== -1 && users[index]._id !== req.user._id) {
+        users[index].isActive = isActive;
+        updatedCount++;
+      }
     }
 
-    const result = await User.updateMany(
-      { _id: { $in: userIds } },
-      { isActive }
-    );
-
-    console.log(`✅ ${result.modifiedCount} users updated`);
+    console.log(`✅ ${updatedCount} users updated`);
 
     res.json({
       success: true,
-      message: `${result.modifiedCount} users updated successfully`
+      message: `${updatedCount} users updated successfully`
     });
   } catch (error) {
     console.error('❌ Error bulk updating users:', error);

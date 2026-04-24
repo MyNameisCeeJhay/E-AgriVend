@@ -222,9 +222,7 @@ const AdminDashboard = () => {
   <button className="btn-secondary" onClick={() => window.location.href = '/admin/reports'}>
     Generate Reports
   </button>
-  <button className="btn-products" onClick={() => window.location.href = '/admin/products'}>
-    Manage Products
-  </button>
+  
 </div>
     </div>
   );
