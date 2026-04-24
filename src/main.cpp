@@ -1,102 +1,90 @@
 /**
- * AgriVend - ESP32 Sensor Monitoring System WITH MEGA COMMUNICATION
- * Sends sensor data to backend + communicates with Arduino Mega
- * NO LOAD CELLS - All sensors on ESP32, dispensing controlled by Mega
+ * ESP32 CODE - WiFi Bridge for Rice Vending Machine
+ * PlatformIO Version
+ * Receives data from Arduino Mega via UART
+ * Sends data to backend website for admin monitoring
+ * 
+ * CONNECTIONS:
+ * - ESP32 RX2 (Pin 16) -> Mega TX2 (Pin 17) with LEVEL SHIFTER
+ * - ESP32 TX2 (Pin 17) -> Mega RX2 (Pin 16) with LEVEL SHIFTER
+ * - GND -> GND
  */
 
+#include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <DHT.h>
 
 // ============================================
-// FUNCTION DECLARATIONS (PROTOTYPES)
+// FUNCTION DECLARATIONS
 // ============================================
 void connectToWiFi();
 void checkWiFi();
-void readBattery();
-void readEnvironment();
-void readSecurity();
-void processMegaCommands();
-void sendSensorData();
-void sendTransaction(float quantityKg, float amount, String riceType, String status);
-void sendSecurityAlert(String alertType);
+void processMegaData();
+void parseStatusData(String data);
+void parseTransactionData(String data);
+void parseStockData(String data);
+void parseStateData(String data);
+void parseErrorData(String data);
+void sendStatusToBackend();
+void sendTransactionToBackend(float kg, float amount, String riceType, String status);
+void sendErrorToBackend(String errorType);
+void checkMegaConnection();
 void printStatus();
 
 // ============================================
-// CONFIGURATION - CHANGE THESE VALUES
+// WiFi CONFIGURATION - CHANGE THESE
 // ============================================
-
-// WiFi Credentials
 const char* WIFI_SSID = "SKYW_0A48_2G";
 const char* WIFI_PASSWORD = "M49wP9pr";
 
-// Backend Server URL
+// Backend Server URL - CHANGE THIS TO YOUR COMPUTER'S IP
+// Find your IP: Windows: ipconfig, Mac/Linux: ifconfig
 const char* SERVER_URL = "http://192.168.1.33:5000/api/esp32";
 
 // Device ID
 const char* DEVICE_ID = "AGRIVEND_001";
 
 // ============================================
-// PIN DEFINITIONS
+// UART PINS for Mega Communication
 // ============================================
-
-// DHT Temperature/Humidity Sensor
-const int DHT_PIN = 4;
-#define DHTTYPE DHT22
-DHT dht(DHT_PIN, DHTTYPE);
-
-// Security
-const int DOOR_SENSOR_PIN = 34;
-const int VIBRATION_SENSOR_PIN = 35;
-
-// Battery Monitoring (voltage divider)
-const int BATTERY_PIN = 36;
-
-// LED Indicators
-const int LED_GREEN = 2;
-const int LED_RED = 5;
-
-// Buzzer for security alerts
-const int BUZZER_PIN = 33;
-
-// ========== UART Communication with Mega ==========
-// Using GPIO16 (RX) and GPIO17 (TX) - These are FREE now
-#define MEGA_RX_PIN 16  // ESP32 RX - connect to Mega TX (USE LEVEL SHIFTER!)
+#define MEGA_RX_PIN 16  // ESP32 RX - connect to Mega TX (with level shifter)
 #define MEGA_TX_PIN 17  // ESP32 TX - connect to Mega RX
 
 // ============================================
-// VARIABLES
+// LED PINS
 // ============================================
+#define LED_WIFI 2      // Built-in LED - WiFi status
+#define LED_DATA 4      // External LED - Data activity (connect to pin 4)
 
-// Stock levels (updated from Mega or manual input)
-float sinandomengStock = 20.0;  // Default stock in kg
-float dinoradoStock = 20.0;     // Default stock in kg
+// ============================================
+// VARIABLES (Received from Mega)
+// ============================================
+// Stock levels
+float stockPremium = 20.0;
+float stockRegular = 20.0;
 
-// Battery monitoring
-float batteryVoltage = 0;
-float batteryPercentage = 0;
+// Machine status
+int machineState = 0;        // 0=IDLE, 1=GRAIN_SELECTED, 2=QUANTITY_SELECTED, 3=PAYMENT, 4=DISPENSING, 5=COMPLETE
+float insertedAmount = 0;
+float lastDispenseKg = 0;
+int selectedGrain = 0;
+int targetQuantity = 1;
+int errorCode = 0;
+uint32_t transactionCount = 0;
 
-// Environmental monitoring
-float temperature = 0;
-float humidity = 0;
-
-// Security monitoring
-bool doorOpen = false;
-bool vibrationDetected = false;
-String machineStatus = "ACTIVE";
-
-// Transaction tracking
-float lastTransactionAmount = 0;
-float lastTransactionWeight = 0;
-String lastTransactionStatus = "";
-int selectedRiceType = 0;  // 1=Sinandomeng, 2=Dinorado
+// Communication status
+bool megaConnected = false;
+unsigned long lastMegaData = 0;
+const unsigned long MEGA_TIMEOUT = 10000;  // 10 seconds timeout
 
 // Timing
-unsigned long lastSensorSend = 0;
-const unsigned long SENSOR_INTERVAL = 5000;
+unsigned long lastSendToBackend = 0;
+const unsigned long BACKEND_INTERVAL = 5000;  // Send every 5 seconds
 unsigned long lastWiFiCheck = 0;
 const unsigned long WIFI_CHECK_INTERVAL = 30000;
+unsigned long lastStatusPrint = 0;
+const unsigned long STATUS_PRINT_INTERVAL = 30000;  // Print status every 30 seconds
 
 // ============================================
 // SETUP
@@ -104,46 +92,36 @@ const unsigned long WIFI_CHECK_INTERVAL = 30000;
 void setup() {
   Serial.begin(115200);
   Serial2.begin(9600, SERIAL_8N1, MEGA_RX_PIN, MEGA_TX_PIN);
-  delay(1000);
+  
+  pinMode(LED_WIFI, OUTPUT);
+  pinMode(LED_DATA, OUTPUT);
+  
+  digitalWrite(LED_WIFI, LOW);
+  digitalWrite(LED_DATA, LOW);
   
   Serial.println("\n=================================");
-  Serial.println("🌾 AgriVend ESP32 + Mega System");
+  Serial.println("🌾 ESP32 - WiFi Bridge");
+  Serial.println("Receives data from Arduino Mega");
   Serial.println("=================================");
   Serial.print("Device ID: ");
   Serial.println(DEVICE_ID);
-  Serial.println("UART with Mega initialized on GPIO16(RX)/GPIO17(TX)");
-  
-  // Initialize pins
-  pinMode(DOOR_SENSOR_PIN, INPUT_PULLUP);
-  pinMode(VIBRATION_SENSOR_PIN, INPUT);
-  pinMode(LED_GREEN, OUTPUT);
-  pinMode(LED_RED, OUTPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
-  
-  digitalWrite(LED_GREEN, LOW);
-  digitalWrite(LED_RED, LOW);
-  digitalWrite(BUZZER_PIN, LOW);
-  
-  // Initialize DHT sensor
-  dht.begin();
+  Serial.print("UART pins: RX=");
+  Serial.print(MEGA_RX_PIN);
+  Serial.print(", TX=");
+  Serial.println(MEGA_TX_PIN);
+  Serial.print("Backend URL: ");
+  Serial.println(SERVER_URL);
+  Serial.println("=================================\n");
   
   // Connect to WiFi
   connectToWiFi();
   
-  // Blink green LED to indicate ready
-  for (int i = 0; i < 3; i++) {
-    digitalWrite(LED_GREEN, HIGH);
-    delay(200);
-    digitalWrite(LED_GREEN, LOW);
-    delay(200);
-  }
-  
-  Serial.println("✅ System ready! Communicating with Mega...");
-  Serial2.println("ESP32:READY");
+  Serial.println("✅ ESP32 Ready - Waiting for Mega data...");
+  Serial.println("Waiting for MEGA:READY signal...\n");
 }
 
 // ============================================
-// WIFI FUNCTIONS
+// WiFi FUNCTIONS
 // ============================================
 void connectToWiFi() {
   Serial.print("Connecting to WiFi");
@@ -160,10 +138,11 @@ void connectToWiFi() {
     Serial.println("\n✅ WiFi Connected!");
     Serial.print("📡 IP Address: ");
     Serial.println(WiFi.localIP());
-    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_WIFI, HIGH);
   } else {
     Serial.println("\n❌ WiFi Connection Failed!");
-    digitalWrite(LED_RED, HIGH);
+    Serial.println("Check SSID and password");
+    digitalWrite(LED_WIFI, LOW);
   }
 }
 
@@ -175,191 +154,217 @@ void checkWiFi() {
 }
 
 // ============================================
-// SENSOR READINGS
+// PROCESS DATA FROM ARDUINO MEGA
 // ============================================
-
-void readBattery() {
-  int batteryRaw = analogRead(BATTERY_PIN);
-  batteryVoltage = (batteryRaw / 4095.0) * 3.3 * 2;
-  
-  // Calculate battery percentage for 12V lead-acid battery
-  if (batteryVoltage >= 12.7) batteryPercentage = 100;
-  else if (batteryVoltage >= 12.5) batteryPercentage = 90;
-  else if (batteryVoltage >= 12.3) batteryPercentage = 75;
-  else if (batteryVoltage >= 12.1) batteryPercentage = 50;
-  else if (batteryVoltage >= 11.9) batteryPercentage = 25;
-  else if (batteryVoltage >= 11.7) batteryPercentage = 10;
-  else batteryPercentage = 0;
-}
-
-void readEnvironment() {
-  temperature = dht.readTemperature();
-  humidity = dht.readHumidity();
-  
-  if (isnan(temperature) || isnan(humidity)) {
-    temperature = 25.0;
-    humidity = 50.0;
-  }
-}
-
-void readSecurity() {
-  bool currentDoorState = (digitalRead(DOOR_SENSOR_PIN) == LOW);
-  
-  if (currentDoorState != doorOpen) {
-    doorOpen = currentDoorState;
-    if (doorOpen) {
-      Serial.println("🚪 DOOR OPENED - Security alert!");
-      sendSecurityAlert("DOOR_OPENED");
-      Serial2.println("ALERT:DOOR_OPEN");
-    } else {
-      Serial.println("🔒 Door closed");
-      Serial2.println("STATUS:DOOR_CLOSED");
-    }
-  }
-  
-  int vibrationValue = analogRead(VIBRATION_SENSOR_PIN);
-  static unsigned long lastVibrationTime = 0;
-  
-  if (vibrationValue > 2000 && (millis() - lastVibrationTime) > 30000) {
-    vibrationDetected = true;
-    lastVibrationTime = millis();
-    Serial.println("⚠️ VIBRATION DETECTED!");
-    sendSecurityAlert("VIBRATION_DETECTED");
-    Serial2.println("ALERT:VIBRATION");
-  } else {
-    vibrationDetected = false;
-  }
-}
-
-// ============================================
-// MEGA COMMUNICATION
-// ============================================
-void processMegaCommands() {
+void processMegaData() {
   if (Serial2.available()) {
-    String command = Serial2.readStringUntil('\n');
-    command.trim();
-    Serial.print("[MEGA → ESP32] ");
-    Serial.println(command);
+    String data = Serial2.readStringUntil('\n');
+    data.trim();
     
-    if (command.startsWith("DISPENSE:")) {
-      // Format: DISPENSE:1.5:1 (1.5 kg, rice type 1)
-      int firstColon = command.indexOf(':');
-      int secondColon = command.indexOf(':', firstColon + 1);
+    if (data.length() > 0) {
+      // Blink LED to show data activity
+      digitalWrite(LED_DATA, HIGH);
+      delay(50);
+      digitalWrite(LED_DATA, LOW);
       
-      float kgToDispense = command.substring(firstColon + 1, secondColon).toFloat();
-      int riceType = command.substring(secondColon + 1).toInt();
-      selectedRiceType = riceType;
+      Serial.print("[MEGA → ESP32] ");
+      Serial.println(data);
       
-      Serial.print("Dispense request: ");
-      Serial.print(kgToDispense, 3);
-      Serial.print(" kg of rice type ");
-      Serial.println(riceType);
+      lastMegaData = millis();
+      megaConnected = true;
       
-      // Check stock
-      float currentStock = (riceType == 1) ? sinandomengStock : dinoradoStock;
-      
-      if (currentStock >= kgToDispense) {
-        // Sufficient stock
-        Serial2.println("STATUS:OK");
-        
-        // Update stock locally
-        if (riceType == 1) {
-          sinandomengStock -= kgToDispense;
-        } else {
-          dinoradoStock -= kgToDispense;
-        }
-        
-        // Send transaction to backend
-        float pricePerKg = (riceType == 1) ? 65.0 : 52.0;
-        float amount = kgToDispense * pricePerKg;
-        sendTransaction(kgToDispense, amount, 
-                       (riceType == 1) ? "Sinandomeng" : "Dinorado", 
-                       "COMPLETED");
-        
-        Serial.print("✅ Dispense approved! New stock: ");
-        Serial.print(currentStock - kgToDispense, 2);
-        Serial.println(" kg");
-      } else {
-        // Insufficient stock
-        Serial2.println("STATUS:INSUFFICIENT_STOCK");
-        Serial.print("❌ Dispense denied! Only ");
-        Serial.print(currentStock, 2);
-        Serial.println(" kg available");
+      // Parse different message types
+      if (data.startsWith("MEGA:READY")) {
+        Serial.println("✅ Mega is ready and connected!");
+        Serial2.println("ESP32:READY");
+      }
+      else if (data.startsWith("DATA|")) {
+        parseStatusData(data);
+      }
+      else if (data.startsWith("TXN|")) {
+        parseTransactionData(data);
+      }
+      else if (data.startsWith("STOCK|")) {
+        parseStockData(data);
+      }
+      else if (data.startsWith("STATE|")) {
+        parseStateData(data);
+      }
+      else if (data.startsWith("ERROR|")) {
+        parseErrorData(data);
+      }
+      else if (data == "PONG") {
+        Serial.println("✅ Mega responded to ping");
       }
     }
-    else if (command == "STATUS") {
-      // Send full status to Mega
-      Serial2.print("STOCK:");
-      Serial2.print(sinandomengStock);
-      Serial2.print(",");
-      Serial2.println(dinoradoStock);
-      
-      Serial2.print("BATTERY:");
-      Serial2.print(batteryPercentage);
-      Serial2.print(",");
-      Serial2.println(batteryVoltage);
-      
-      Serial2.print("ENV:");
-      Serial2.print(temperature);
-      Serial2.print(",");
-      Serial2.println(humidity);
-      
-      Serial2.print("SECURITY:");
-      Serial2.print(doorOpen ? "OPEN" : "CLOSED");
-      Serial2.print(",");
-      Serial2.println(vibrationDetected ? "VIBRATION" : "OK");
-      
-      Serial2.print("STATUS:");
-      Serial2.println(machineStatus);
-      
-      Serial.println("✅ Sent STATUS response to Mega");
+  }
+}
+
+void parseStatusData(String data) {
+  // Format: DATA|state|stockPremium|stockRegular|insertedAmount|lastDispenseKg|selectedGrain|targetQty|errorCode|transactionCount
+  data = data.substring(5);  // Remove "DATA|"
+  
+  int parts[10];
+  int partIndex = 0;
+  
+  for (int i = 0; i < data.length() && partIndex < 10; i++) {
+    if (data[i] == '|') {
+      parts[partIndex++] = i;
     }
-    else if (command == "PING") {
-      Serial2.println("PONG");
-      Serial.println("✅ Sent PONG response to Mega");
+  }
+  
+  if (partIndex >= 9) {
+    int start = 0;
+    
+    machineState = data.substring(start, parts[0]).toInt();
+    stockPremium = data.substring(parts[0] + 1, parts[1]).toFloat();
+    stockRegular = data.substring(parts[1] + 1, parts[2]).toFloat();
+    insertedAmount = data.substring(parts[2] + 1, parts[3]).toFloat();
+    lastDispenseKg = data.substring(parts[3] + 1, parts[4]).toFloat();
+    selectedGrain = data.substring(parts[4] + 1, parts[5]).toInt();
+    targetQuantity = data.substring(parts[5] + 1, parts[6]).toInt();
+    errorCode = data.substring(parts[6] + 1, parts[7]).toInt();
+    transactionCount = data.substring(parts[7] + 1, parts[8]).toInt();
+    
+    const char* stateNames[] = {"IDLE", "GRAIN_SELECTED", "QUANTITY_SELECTED", "PAYMENT", "DISPENSING", "COMPLETE"};
+    Serial.print("📊 Status: State=");
+    Serial.print(stateNames[machineState]);
+    Serial.print(", Stock(P/R)=");
+    Serial.print(stockPremium);
+    Serial.print("/");
+    Serial.print(stockRegular);
+    Serial.println(" kg");
+  }
+}
+
+void parseTransactionData(String data) {
+  // Format: TXN|kg|amount|riceType|status
+  data = data.substring(4);  // Remove "TXN|"
+  
+  int firstBar = data.indexOf('|');
+  int secondBar = data.indexOf('|', firstBar + 1);
+  int thirdBar = data.indexOf('|', secondBar + 1);
+  
+  if (firstBar > 0 && secondBar > 0 && thirdBar > 0) {
+    float kg = data.substring(0, firstBar).toFloat();
+    float amount = data.substring(firstBar + 1, secondBar).toFloat();
+    String riceType = data.substring(secondBar + 1, thirdBar);
+    String status = data.substring(thirdBar + 1);
+    
+    Serial.print("💰 Transaction: ");
+    Serial.print(kg, 3);
+    Serial.print("kg ");
+    Serial.print(riceType);
+    Serial.print(" - ₱");
+    Serial.print(amount, 2);
+    Serial.print(" [");
+    Serial.print(status);
+    Serial.println("]");
+    
+    // Immediately send transaction to backend
+    sendTransactionToBackend(kg, amount, riceType, status);
+  }
+}
+
+void parseStockData(String data) {
+  // Format: STOCK|premium|regular
+  data = data.substring(6);  // Remove "STOCK|"
+  
+  int barPos = data.indexOf('|');
+  if (barPos > 0) {
+    stockPremium = data.substring(0, barPos).toFloat();
+    stockRegular = data.substring(barPos + 1).toFloat();
+    
+    Serial.print("📦 Stock updated: Premium=");
+    Serial.print(stockPremium, 2);
+    Serial.print("kg, Regular=");
+    Serial.print(stockRegular, 2);
+    Serial.println("kg");
+  }
+}
+
+void parseStateData(String data) {
+  // Format: STATE|stateValue
+  machineState = data.substring(6).toInt();
+  
+  const char* stateNames[] = {"IDLE", "GRAIN_SELECTED", "QUANTITY_SELECTED", "PAYMENT", "DISPENSING", "COMPLETE"};
+  Serial.print("📊 Machine State: ");
+  Serial.println(stateNames[machineState]);
+}
+
+void parseErrorData(String data) {
+  // Format: ERROR|errorType
+  String errorType = data.substring(6);
+  Serial.print("❌ Error from Mega: ");
+  Serial.println(errorType);
+  
+  // Send error to backend
+  sendErrorToBackend(errorType);
+}
+
+// ============================================
+// CHECK MEGA CONNECTION
+// ============================================
+void checkMegaConnection() {
+  if (millis() - lastMegaData > MEGA_TIMEOUT) {
+    if (megaConnected) {
+      megaConnected = false;
+      Serial.println("⚠️ WARNING: Mega connection lost!");
+      
+      // Send heartbeat to check
+      Serial2.println("PING");
+    }
+  } else {
+    if (!megaConnected && (millis() - lastMegaData) < MEGA_TIMEOUT) {
+      megaConnected = true;
+      Serial.println("✅ Mega reconnected!");
     }
   }
 }
 
 // ============================================
-// SERVER FUNCTIONS
+// SEND DATA TO BACKEND WEBSITE
 // ============================================
-void sendSensorData() {
-  checkWiFi();
-  
+void sendStatusToBackend() {
   if (WiFi.status() != WL_CONNECTED) {
     return;
   }
   
   HTTPClient http;
-  String url = String(SERVER_URL) + "/sensors/update";
+  String url = String(SERVER_URL) + "/status";
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
   
-  // Changed from StaticJsonDocument to JsonDocument
+  // Create JSON document
   JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
-  doc["container1Level"] = sinandomengStock;
-  doc["container2Level"] = dinoradoStock;
-  doc["batteryVoltage"] = batteryVoltage;
-  doc["batteryPercentage"] = batteryPercentage;
-  doc["temperature"] = temperature;
-  doc["humidity"] = humidity;
-  doc["doorStatus"] = doorOpen ? "OPEN" : "CLOSED";
-  doc["vibrationDetected"] = vibrationDetected;
+  doc["state"] = machineState;
+  doc["stockPremium"] = stockPremium;
+  doc["stockRegular"] = stockRegular;
+  doc["insertedAmount"] = insertedAmount;
+  doc["lastDispenseKg"] = lastDispenseKg;
+  doc["selectedGrain"] = selectedGrain;
+  doc["targetQuantity"] = targetQuantity;
+  doc["errorCode"] = errorCode;
+  doc["transactionCount"] = transactionCount;
+  doc["megaConnected"] = megaConnected;
   
-  // Update machine status
-  if (sinandomengStock < 0.5 && dinoradoStock < 0.5) {
+  // Determine machine status
+  String machineStatus = "ACTIVE";
+  if (stockPremium < 0.5 && stockRegular < 0.5) {
     machineStatus = "EMPTY";
-  } else if (batteryPercentage < 15) {
-    machineStatus = "LOW_BATTERY";
-  } else if (doorOpen) {
-    machineStatus = "DOOR_OPEN";
-  } else {
-    machineStatus = "ACTIVE";
+  } else if (errorCode == 1) {
+    machineStatus = "LOW_STOCK";
+  } else if (!megaConnected) {
+    machineStatus = "MEGA_DISCONNECTED";
+  } else if (machineState == 4) {
+    machineStatus = "DISPENSING";
+  } else if (machineState == 3) {
+    machineStatus = "PAYMENT_MODE";
   }
   doc["machineStatus"] = machineStatus;
+  doc["timestamp"] = millis();
   
   String jsonString;
   serializeJson(doc, jsonString);
@@ -367,37 +372,40 @@ void sendSensorData() {
   int httpResponseCode = http.POST(jsonString);
   
   if (httpResponseCode > 0) {
-    Serial.print("📤 Sensor data sent. Response: ");
-    Serial.println(httpResponseCode);
+    if (httpResponseCode == 200) {
+      Serial.println("📤 Status sent to backend successfully");
+    } else {
+      Serial.print("📤 Status sent. Response: ");
+      Serial.println(httpResponseCode);
+    }
   } else {
-    Serial.print("❌ Error sending sensor data: ");
+    Serial.print("❌ Error sending status: ");
     Serial.println(httpResponseCode);
   }
   
   http.end();
 }
 
-void sendTransaction(float quantityKg, float amount, String riceType, String status) {
-  checkWiFi();
-  
+void sendTransactionToBackend(float kg, float amount, String riceType, String status) {
   if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠️ No WiFi - Transaction will be sent when WiFi reconnects");
     return;
   }
   
   HTTPClient http;
-  String url = String(SERVER_URL) + "/transaction/confirm";
+  String url = String(SERVER_URL) + "/transaction";
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
   
-  // Changed from StaticJsonDocument to JsonDocument
   JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
   doc["transactionId"] = "TXN-" + String(millis());
   doc["riceType"] = riceType;
-  doc["quantityKg"] = quantityKg;
+  doc["quantityKg"] = kg;
   doc["amountPaid"] = amount;
   doc["status"] = status;
+  doc["timestamp"] = millis();
   
   String jsonString;
   serializeJson(doc, jsonString);
@@ -405,34 +413,30 @@ void sendTransaction(float quantityKg, float amount, String riceType, String sta
   int httpResponseCode = http.POST(jsonString);
   
   if (httpResponseCode > 0) {
-    Serial.println("💰 Transaction recorded successfully!");
+    Serial.println("💰 Transaction sent to backend successfully!");
   } else {
-    Serial.print("❌ Failed to record transaction: ");
+    Serial.print("❌ Failed to send transaction: ");
     Serial.println(httpResponseCode);
   }
   
   http.end();
 }
 
-void sendSecurityAlert(String alertType) {
-  checkWiFi();
-  
+void sendErrorToBackend(String errorType) {
   if (WiFi.status() != WL_CONNECTED) {
     return;
   }
   
   HTTPClient http;
-  String url = String(SERVER_URL) + "/security/alert";
+  String url = String(SERVER_URL) + "/error";
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
   
-  // Changed from StaticJsonDocument to JsonDocument
   JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
-  doc["alertType"] = alertType;
+  doc["errorType"] = errorType;
   doc["timestamp"] = millis();
-  doc["doorStatus"] = doorOpen ? "OPEN" : "CLOSED";
   
   String jsonString;
   serializeJson(doc, jsonString);
@@ -440,10 +444,10 @@ void sendSecurityAlert(String alertType) {
   int httpResponseCode = http.POST(jsonString);
   
   if (httpResponseCode > 0) {
-    Serial.print("🚨 Security alert sent: ");
-    Serial.println(alertType);
+    Serial.print("🚨 Error sent to backend: ");
+    Serial.println(errorType);
   } else {
-    Serial.print("❌ Failed to send security alert: ");
+    Serial.print("❌ Failed to send error: ");
     Serial.println(httpResponseCode);
   }
   
@@ -451,54 +455,67 @@ void sendSecurityAlert(String alertType) {
 }
 
 // ============================================
-// PRINT STATUS
+// PRINT STATUS TO SERIAL MONITOR
 // ============================================
 void printStatus() {
-  Serial.println("\n=== AGRIVEND STATUS ===");
-  Serial.print("🍚 Sinandomeng: ");
-  Serial.print(sinandomengStock, 2);
-  Serial.println(" kg");
-  Serial.print("🍚 Dinorado: ");
-  Serial.print(dinoradoStock, 2);
-  Serial.println(" kg");
-  Serial.print("🔋 Battery: ");
-  Serial.print(batteryVoltage, 1);
-  Serial.print("V (");
-  Serial.print(batteryPercentage, 0);
-  Serial.println("%)");
-  Serial.print("🌡️ Temperature: ");
-  Serial.print(temperature, 1);
-  Serial.println("°C");
-  Serial.print("💧 Humidity: ");
-  Serial.print(humidity, 0);
-  Serial.println("%");
-  Serial.print("🚪 Door: ");
-  Serial.println(doorOpen ? "OPEN" : "CLOSED");
-  Serial.print("⚠️ Vibration: ");
-  Serial.println(vibrationDetected ? "DETECTED" : "Normal");
-  Serial.print("📡 WiFi: ");
-  Serial.println(WiFi.status() == WL_CONNECTED ? "Connected ✅" : "Disconnected ❌");
-  Serial.print("📊 Machine Status: ");
-  Serial.println(machineStatus);
-  Serial.println("========================");
+  const char* stateNames[] = {"IDLE", "GRAIN_SELECTED", "QUANTITY_SELECTED", "PAYMENT", "DISPENSING", "COMPLETE"};
+  
+  Serial.println("\n╔═══════════════════════════════════════╗");
+  Serial.println("║         ESP32 STATUS REPORT           ║");
+  Serial.println("╠═══════════════════════════════════════╣");
+  Serial.print  ("║ 🔗 Mega Connected: ");
+  Serial.print(megaConnected ? "YES ✅            " : "NO ❌             ");
+  Serial.println("║");
+  Serial.print  ("║ 📡 WiFi: ");
+  Serial.print(WiFi.status() == WL_CONNECTED ? "Connected ✅       " : "Disconnected ❌    ");
+  Serial.println("║");
+  Serial.print  ("║ 📊 Machine State: ");
+  Serial.print(stateNames[machineState]);
+  for(int i = strlen(stateNames[machineState]); i < 18; i++) Serial.print(" ");
+  Serial.println("║");
+  Serial.print  ("║ 🍚 Premium Stock: ");
+  Serial.print(stockPremium, 1);
+  Serial.print(" kg");
+  if(stockPremium < 10) Serial.print(" ");
+  Serial.println("             ║");
+  Serial.print  ("║ 🍚 Regular Stock: ");
+  Serial.print(stockRegular, 1);
+  Serial.print(" kg");
+  if(stockRegular < 10) Serial.print(" ");
+  Serial.println("             ║");
+  Serial.print  ("║ 💰 Last Amount: ₱");
+  Serial.print(insertedAmount, 2);
+  if(insertedAmount < 100) Serial.print(" ");
+  Serial.println("            ║");
+  Serial.print  ("║ 📈 Transactions: ");
+  Serial.print(transactionCount);
+  for(int i = String(transactionCount).length(); i < 18; i++) Serial.print(" ");
+  Serial.println("║");
+  Serial.println("╚═══════════════════════════════════════╝\n");
 }
 
 // ============================================
 // MAIN LOOP
 // ============================================
 void loop() {
-  readBattery();
-  readEnvironment();
-  readSecurity();
+  // Process incoming data from Mega
+  processMegaData();
   
-  // Process commands from Mega
-  processMegaCommands();
+  // Check Mega connection
+  checkMegaConnection();
   
-  // Send sensor data to backend periodically
-  if (millis() - lastSensorSend >= SENSOR_INTERVAL) {
-    sendSensorData();
+  // Send status to backend periodically
+  if (millis() - lastSendToBackend >= BACKEND_INTERVAL) {
+    if (megaConnected && WiFi.status() == WL_CONNECTED) {
+      sendStatusToBackend();
+    }
+    lastSendToBackend = millis();
+  }
+  
+  // Print status to serial monitor periodically
+  if (millis() - lastStatusPrint >= STATUS_PRINT_INTERVAL) {
     printStatus();
-    lastSensorSend = millis();
+    lastStatusPrint = millis();
   }
   
   // Check WiFi periodically
@@ -507,24 +524,5 @@ void loop() {
     lastWiFiCheck = millis();
   }
   
-  // LED indicators
-  bool hasIssue = (sinandomengStock < 5.0 || 
-                   dinoradoStock < 5.0 || 
-                   batteryPercentage < 20 || 
-                   doorOpen || 
-                   vibrationDetected);
-  
-  if (hasIssue) {
-    static unsigned long lastBlink = 0;
-    if (millis() - lastBlink > 1000) {
-      digitalWrite(LED_RED, !digitalRead(LED_RED));
-      lastBlink = millis();
-    }
-    digitalWrite(LED_GREEN, LOW);
-  } else if (WiFi.status() == WL_CONNECTED) {
-    digitalWrite(LED_GREEN, HIGH);
-    digitalWrite(LED_RED, LOW);
-  }
-  
-  delay(100);
+  delay(50);
 }
