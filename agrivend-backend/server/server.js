@@ -85,14 +85,25 @@ import refundRoutes from './routes/refundRoutes.js';
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.io
+// ===== FIXED: Expanded CORS origins for both development and production =====
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:3000',
+  'http://localhost:59589',    // Your Flutter app origin
+  'http://localhost:58296',
+  'https://e-agrivend.onrender.com'
+].filter(Boolean); // Remove any undefined values
+
+console.log('🌐 Allowed CORS origins:', allowedOrigins);
+
+// Initialize Socket.io with correct CORS
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL, 'http://localhost:3000'] : '*',
-    methods: ['GET', 'POST'],
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true
   },
-  transports: ['websocket', 'polling'],  // Allow both
+  transports: ['websocket', 'polling'],
   allowEIO3: true
 });
 
@@ -124,15 +135,27 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// Configure CORS
-const allowedOrigins = process.env.FRONTEND_URL 
-  ? [process.env.FRONTEND_URL, 'http://localhost:3000']
-  : ['http://localhost:3000'];
-
+// ===== FIXED: Better CORS configuration =====
 app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS blocked origin:', origin);
+      console.log('✅ Allowed origins:', allowedOrigins);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
+
+// Handle preflight requests for all routes
+app.options('*', cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -193,8 +216,15 @@ app.get('/api/health', (req, res) => {
     environment: process.env.NODE_ENV,
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     emailConfigured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
-    frontendUrl: process.env.FRONTEND_URL || 'not set'
+    frontendUrl: process.env.FRONTEND_URL || 'not set',
+    allowedOrigins: allowedOrigins
   });
+});
+
+// Test CORS route
+app.options('/api/cors-test', cors());
+app.get('/api/cors-test', (req, res) => {
+  res.json({ message: 'CORS is working!' });
 });
 
 // 404 handler
@@ -215,55 +245,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Get all refund requests (Admin only - add auth middleware)
-app.get('/api/admin/refunds', async (req, res) => {
-  try {
-    const refunds = await db.collection('refunds')
-      .orderBy('createdAt', 'desc')
-      .get();
-    
-    const refundList = [];
-    refunds.forEach(doc => {
-      refundList.push({
-        id: doc.id,
-        ...doc.data()
-      });
-    });
-    
-    const stats = {
-      total: refundList.length,
-      pending: refundList.filter(r => r.status === 'pending').length,
-      approved: refundList.filter(r => r.status === 'approved').length,
-      rejected: refundList.filter(r => r.status === 'rejected').length
-    };
-    
-    res.json({ success: true, refunds: refundList, stats });
-  } catch (error) {
-    console.error('Error fetching refunds:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update refund status (Approve/Reject)
-app.put('/api/admin/refunds/:id', async (req, res) => {
-  const { id } = req.params;
-  const { status, adminNotes } = req.body;
-  
-  try {
-    await db.collection('refunds').doc(id).update({
-      status: status, // 'approved' or 'rejected'
-      adminNotes: adminNotes || '',
-      processedAt: new Date(),
-      processedBy: req.user?.email || 'admin'
-    });
-    
-    res.json({ success: true, message: `Refund ${status} successfully` });
-  } catch (error) {
-    console.error('Error updating refund:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
@@ -272,7 +253,8 @@ server.listen(PORT, () => {
   console.log(`🚀 Environment: ${process.env.NODE_ENV}`);
   console.log(`🚀 Port: ${PORT}`);
   console.log(`🌐 Frontend: ${process.env.FRONTEND_URL || 'Not set'}`);
+  console.log(`🌐 Allowed Origins: ${allowedOrigins.join(', ')}`);
   console.log(`📦 MongoDB: Connected`);
-  console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configured ⚠️'}`);
+  console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configureed ⚠️'}`);
   console.log('=================================\n');
 });
