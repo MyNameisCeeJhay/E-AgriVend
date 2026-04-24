@@ -830,4 +830,88 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
   }
 });
 
+// ===== DASHBOARD STATS ENDPOINT =====
+router.get('/dashboard/stats', protect, admin, async (req, res) => {
+  console.log('📊 GET /api/admin/dashboard/stats - by:', req.user?.email);
+  try {
+    // Get today's date at midnight
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Get week start (Monday)
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+    weekStart.setHours(0, 0, 0, 0);
+    
+    // Get month start
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    
+    // Get all statistics in parallel
+    const [todaySalesResult, weekSalesResult, monthSalesResult, pendingReturns, unreadMessages, totalTransactions] = await Promise.all([
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: today }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: weekStart }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: monthStart }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Return.countDocuments({ status: 'PENDING' }),
+      Message.countDocuments({ status: 'unread' }),
+      Transaction.countDocuments({ status: 'COMPLETED' })
+    ]);
+    
+    res.json({
+      success: true,
+      data: {
+        todaySales: todaySalesResult[0]?.total || 0,
+        weekSales: weekSalesResult[0]?.total || 0,
+        monthSales: monthSalesResult[0]?.total || 0,
+        pendingReturns: pendingReturns,
+        unreadMessages: unreadMessages,
+        totalTransactions: totalTransactions
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ===== RECENT TRANSACTIONS ENDPOINT =====
+router.get('/transactions/recent', protect, admin, async (req, res) => {
+  console.log('📋 GET /api/admin/transactions/recent - by:', req.user?.email);
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    
+    const transactions = await Transaction.find({ status: 'COMPLETED' })
+      .sort({ createdAt: -1 })
+      .limit(limit);
+    
+    // Format transactions to match frontend expectations
+    const formattedTransactions = transactions.map(t => ({
+      _id: t._id,
+      transactionId: t.transactionId,
+      riceType: t.riceType,
+      quantityKg: t.quantityKg,
+      totalAmount: t.amountPaid,
+      createdAt: t.createdAt
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedTransactions
+    });
+  } catch (error) {
+    console.error('Error fetching recent transactions:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;
