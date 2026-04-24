@@ -1,19 +1,16 @@
-// config.js
-const getApiUrl = () => {
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return 'http://localhost:5000/api';
-  }
-  return 'https://e-agrivend.onrender.com/api';
-};
+// config.js - Use environment variables
+export const API_URL = process.env.REACT_APP_API_URL || 
+  (window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000/api' 
+    : 'https://e-agrivend.onrender.com/api');
 
-const getSocketUrl = () => {
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return 'http://localhost:5000';
-  }
-  return 'https://e-agrivend.onrender.com';
-};
+export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL ||
+  (window.location.hostname === 'localhost'
+    ? 'http://localhost:5000'
+    : 'https://e-agrivend.onrender.com');
 
-export const API_URL = getApiUrl();
-export const SOCKET_URL = getSocketUrl();
+console.log('🔧 Config loaded:');
+console.log('   API_URL:', API_URL);
+console.log('   SOCKET_URL:', SOCKET_URL);
 
 export default { API_URL, SOCKET_URL };

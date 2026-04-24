@@ -15,7 +15,8 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "REACT_APP_API_URL=https://e-agrivend.onrender.com/api REACT_APP_SOCKET_URL=https://e-agrivend.onrender.com npm run build",
+    "build": "react-scripts build",
+    "build:prod": "set REACT_APP_API_URL=https://e-agrivend.onrender.com/api && set REACT_APP_SOCKET_URL=https://e-agrivend.onrender.com && react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
