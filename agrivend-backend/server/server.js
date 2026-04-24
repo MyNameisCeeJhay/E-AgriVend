@@ -17,7 +17,6 @@ const __dirname = path.dirname(__filename);
 const isProduction = process.env.NODE_ENV === 'production';
 
 if (!isProduction) {
-  // Development: Load .env from parent directory (since server.js is in /server folder)
   const envPath = path.resolve(__dirname, '../.env');
   console.log('🔍 Loading .env from:', envPath);
 
@@ -54,10 +53,14 @@ if (!process.env.PORT && isProduction) {
 
 if (!process.env.FRONTEND_URL && isProduction) {
   console.warn('⚠️  FRONTEND_URL not set. CORS might not work correctly.');
+  console.warn('   Make sure to set FRONTEND_URL in Render environment variables');
 }
 
 if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
   console.warn('⚠️  Email configuration not found. Password reset functionality will not work.');
+  if (!isProduction) {
+    console.warn('   To enable password reset, add EMAIL_USER and EMAIL_PASS to .env file');
+  }
 }
 
 console.log('✅ Environment check completed\n');
@@ -80,24 +83,33 @@ const app = express();
 const server = http.createServer(app);
 
 // ===== CORS CONFIGURATION =====
-// FIX: Added Flutter web dev ports + allow mobile apps (no origin header)
+// Production origins (explicitly listed from environment variable)
 const allowedOrigins = [
-  'http://localhost:3000',       // Web frontend dev
-  'http://localhost:60767',      // Flutter web dev (common port)
-  'http://localhost:8080',       // Flutter web alternative port
   ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
 ];
 
+// FIX: Regex to match ANY localhost port
+// Flutter Web picks a random port on every run (60767, 61713, etc.)
+// We cannot hardcode specific ports — this regex allows all of them
+const localhostRegex = /^http:\/\/localhost(:\d+)?$/;
+
 const corsOptions = {
   origin: function (origin, callback) {
-    // FIX: Allow requests with no origin (Flutter mobile apps, Postman, curl)
-    // Mobile apps don't send an Origin header — without this they'd be blocked
+    // Allow Flutter mobile apps (Android/iOS send no Origin header)
     if (!origin) {
       return callback(null, true);
     }
+
+    // Allow any localhost port — Flutter Web dev on any random port
+    if (localhostRegex.test(origin)) {
+      return callback(null, true);
+    }
+
+    // Allow production origins listed in FRONTEND_URL env var
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
+
     console.warn(`⚠️  CORS blocked request from origin: ${origin}`);
     return callback(new Error(`Origin ${origin} not allowed by CORS`));
   },
@@ -106,11 +118,11 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 };
 
-// Initialize Socket.io with the same CORS config
+// Initialize Socket.io with matching CORS config
 const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || localhostRegex.test(origin) || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
       return callback(new Error(`Origin ${origin} not allowed`));
@@ -153,11 +165,11 @@ app.use(
   })
 );
 
-// FIX: Apply CORS middleware BEFORE all routes
+// FIX: Apply CORS middleware BEFORE all route definitions
 app.use(cors(corsOptions));
 
-// FIX: Handle preflight OPTIONS requests for all routes
-// Browsers send an OPTIONS request before cross-origin POST/PUT/DELETE
+// FIX: Explicitly handle preflight OPTIONS requests for every route
+// Browsers always send OPTIONS before cross-origin POST/PUT/DELETE
 app.options('*', cors(corsOptions));
 
 app.use(express.json());
@@ -211,6 +223,8 @@ app.get('/api/test', (req, res) => {
 });
 
 // Health check
+// Visit https://e-agrivend.onrender.com/api/health after deploying
+// to confirm CORS config is live on Render
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
@@ -220,7 +234,11 @@ app.get('/api/health', (req, res) => {
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     emailConfigured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
     frontendUrl: process.env.FRONTEND_URL || 'not set',
-    allowedOrigins,
+    cors: {
+      productionOrigins: allowedOrigins,
+      localhostAllowed: true,
+      mobileAllowed: true,
+    },
   });
 });
 
@@ -251,7 +269,7 @@ server.listen(PORT, () => {
   console.log(`🚀 Port: ${PORT}`);
   console.log(`🌐 Frontend: ${process.env.FRONTEND_URL || 'Not set'}`);
   console.log(`📦 MongoDB: Connected`);
-  console.log(`🔒 CORS Origins: ${allowedOrigins.join(', ')}`);
+  console.log(`🔒 CORS: All localhost ports allowed + Flutter mobile`);
   console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configured ⚠️'}`);
   console.log('=================================\n');
 });
