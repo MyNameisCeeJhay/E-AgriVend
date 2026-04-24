@@ -16,7 +16,6 @@ const __dirname = path.dirname(__filename);
 // Load environment variables based on environment
 const isProduction = process.env.NODE_ENV === 'production';
 
-const app = express();
 
 // ✅ CORS must come FIRST before routes
 app.use(cors({
