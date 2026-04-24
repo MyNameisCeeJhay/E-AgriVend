@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "dependencies": {
     "nodemailer": "^8.0.4"
   }
