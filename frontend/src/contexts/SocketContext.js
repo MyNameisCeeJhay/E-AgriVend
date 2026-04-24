@@ -2,7 +2,9 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import io from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
-const SOCKET_URL = 'https://e-agrivend.onrender.com'
+const SOCKET_URL = window.location.hostname !== 'localhost'
+  ? 'https://e-agrivend.onrender.com'
+  : 'http://localhost:5000';
 
 const SocketContext = createContext();
 
