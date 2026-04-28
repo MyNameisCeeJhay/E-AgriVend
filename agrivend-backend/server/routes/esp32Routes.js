@@ -1,6 +1,7 @@
 import express from 'express';
 import Transaction from '../models/Transaction.js';
 import { protect, admin } from '../middleware/auth.js';
+import SensorData from '../models/SensorData.js';
 
 const router = express.Router();
 
