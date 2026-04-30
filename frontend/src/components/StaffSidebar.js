@@ -3,37 +3,14 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './Sidebar.css';
 
-const Sidebar = ({ isOpen, onClose, isMobile }) => {
+const StaffSidebar = ({ isOpen, onClose, isMobile }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
-  const isStaff = user?.role === 'staff';
 
-  const adminNavItems = [
-    { name: 'Dashboard', path: '/admin/dashboard', description: 'Analytics' },
-    { name: 'Machine', path: '/admin/machine', description: 'Monitor machine' },
-    { name: 'Transactions', path: '/admin/transactions', description: 'All purchases' },
-    { name: 'Returns', path: '/admin/returns', description: 'Return requests' },
-    { name: 'Staff', path: '/admin/staff', description: 'Manage staff accounts' }, 
-    { name: 'Reports', path: '/admin/reports', description: 'Sales reports' },
-  ];
-
+  // Staff only has access to Machine Monitor and Transactions
   const staffNavItems = [
-    { name: 'Dashboard', path: '/staff/dashboard', description: 'Overview' },
+    { name: 'Machine Monitor', path: '/staff/dashboard', description: 'Monitor machine' },
     { name: 'Transactions', path: '/staff/transactions', description: 'View purchases' },
   ];
-
-  const customerNavItems = [
-    { name: 'Dashboard', path: '/customer/dashboard', description: 'Overview' },
-    { name: 'Transactions', path: '/customer/transactions', description: 'Purchase history' },
-    { name: 'Ratings', path: '/customer/ratings', description: 'Your reviews' },
-    { name: 'Returns', path: '/customer/returns', description: 'Return requests' },
-    { name: 'Profile', path: '/customer/profile', description: 'Account settings' },
-  ];
-
-  let navItems = [];
-  if (isAdmin) navItems = adminNavItems;
-  else if (isStaff) navItems = staffNavItems;
-  else navItems = customerNavItems;
 
   const handleLinkClick = () => {
     if (isMobile && onClose) {
@@ -48,12 +25,12 @@ const Sidebar = ({ isOpen, onClose, isMobile }) => {
         <div className="sidebar-header">
           <div className="sidebar-logo">
             <h2>AgriVend</h2>
-            <p>{isAdmin ? 'Administrator' : isStaff ? 'Staff Portal' : 'Customer Portal'}</p>
+            <p>Staff Portal</p>
           </div>
         </div>
         
         <nav className="sidebar-nav">
-          {navItems.map((item) => (
+          {staffNavItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
@@ -77,7 +54,7 @@ const Sidebar = ({ isOpen, onClose, isMobile }) => {
             </div>
             <div className="user-details">
               <div className="user-name">{user?.firstName} {user?.lastName}</div>
-              <div className="user-role">{isAdmin ? 'Administrator' : isStaff ? 'Staff' : 'Customer'}</div>
+              <div className="user-role">Staff</div>
             </div>
           </div>
         </div>
@@ -86,4 +63,4 @@ const Sidebar = ({ isOpen, onClose, isMobile }) => {
   );
 };
 
-export default Sidebar;
+export default StaffSidebar;

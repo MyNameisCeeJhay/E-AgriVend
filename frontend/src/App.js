@@ -9,7 +9,9 @@ import { SocketProvider } from './contexts/SocketContext';
 // Components
 import PrivateRoute from './components/PrivateRoute';
 import AdminRoute from './components/AdminRoute';
+import StaffRoute from './components/StaffRoute';
 import Layout from './components/Layout';
+import StaffLayout from './components/StaffLayout';
 
 // Pages
 import Login from './pages/Login';
@@ -24,7 +26,11 @@ import AdminMachine from './pages/admin/Machine';
 import AdminTransactions from './pages/admin/Transactions';
 import AdminReturns from './pages/admin/Returns';
 import AdminReports from './pages/admin/Reports';
+import StaffManagement from './pages/admin/StaffManagement'; // Admin manages staff
 
+// Staff Pages
+import StaffDashboard from './pages/staff/StaffDashboard';
+import StaffTransactions from './pages/staff/StaffTransactions';
 
 const queryClient = new QueryClient();
 
@@ -41,7 +47,7 @@ function App() {
               <Route path="/terms" element={<Terms />} />
               
               {/* Refund Portal Routes - Accessed via QR code (No login required) */}
-              <Route path="/refund" element={<RefundRequest />} />
+              <Route path="/refund/:transactionId" element={<RefundRequest />} />
               <Route path="/refund/success" element={<RefundSuccess />} />
               
               {/* Admin Routes Only - Protected */}
@@ -56,6 +62,18 @@ function App() {
                 <Route path="transactions" element={<AdminTransactions />} />
                 <Route path="returns" element={<AdminReturns />} />
                 <Route path="reports" element={<AdminReports />} />
+                <Route path="staff" element={<StaffManagement />} /> {/* ADD THIS - Admin manages staff */}
+              </Route>
+              
+              {/* Staff Routes - Protected */}
+              <Route path="/staff" element={
+                <StaffRoute>
+                  <StaffLayout />
+                </StaffRoute>
+              }>
+                <Route index element={<Navigate to="/staff/dashboard" />} />
+                <Route path="dashboard" element={<StaffDashboard />} />
+                <Route path="transactions" element={<StaffTransactions />} />
               </Route>
               
               {/* Redirect any other routes to login */}

@@ -41,7 +41,7 @@ if (process.env.MONGODB_URI) {
   console.log('   Connection string:', hiddenUri);
 }
 
-// Define schemas
+// Define schemas with STAFF role added
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
@@ -49,7 +49,7 @@ const userSchema = new mongoose.Schema({
   lastName: { type: String, required: true },
   phone: { type: String, default: '' },
   address: { type: String, default: '' },
-  role: { type: String, enum: ['admin', 'customer'], default: 'customer' },
+  role: { type: String, enum: ['admin', 'customer', 'staff'], default: 'customer' },  // ADDED 'staff'
   termsAccepted: { type: Boolean, default: false },
   termsAcceptedAt: { type: Date },
   isActive: { type: Boolean, default: true }
@@ -157,6 +157,7 @@ const seedDatabase = async () => {
     const salt = await bcrypt.genSalt(10);
     const adminPassword = await bcrypt.hash('admin123', salt);
     const customerPassword = await bcrypt.hash('customer123', salt);
+    const staffPassword = await bcrypt.hash('staff123', salt);  // ADDED STAFF PASSWORD
 
     // Create admin user
     const admin = await User.create({
@@ -183,6 +184,34 @@ const seedDatabase = async () => {
       isActive: true
     });
     console.log('✅ Customer created:', customer.email);
+
+    // Create staff user - ADDED
+    const staff = await User.create({
+      email: 'staff@agrivend.com',
+      password: staffPassword,
+      firstName: 'John',
+      lastName: 'Doe',
+      phone: '09123456789',
+      address: 'Staff Office',
+      role: 'staff',
+      termsAccepted: true,
+      isActive: true
+    });
+    console.log('✅ Staff created:', staff.email);
+
+    // Create second staff user - ADDED
+    const staff2 = await User.create({
+      email: 'maria@agrivend.com',
+      password: staffPassword,
+      firstName: 'Maria',
+      lastName: 'Santos',
+      phone: '09123456780',
+      address: 'Staff Office 2',
+      role: 'staff',
+      termsAccepted: true,
+      isActive: true
+    });
+    console.log('✅ Staff created:', staff2.email);
 
     // Create terms agreement
     const terms = await TermsAgreement.create({
@@ -285,8 +314,10 @@ Last updated: ${new Date().toLocaleDateString()}`,
     console.log('📝 Login credentials:');
     console.log('   Admin: admin@agrivend.com / admin123');
     console.log('   Customer: customer@test.com / customer123');
+    console.log('   Staff: staff@agrivend.com / staff123');
+    console.log('   Staff: maria@agrivend.com / staff123');
     console.log('\n📊 Collections populated:');
-    console.log('   - users (2 users)');
+    console.log('   - users (4 users)');
     console.log('   - termsagreements (1 document)');
     console.log('   - sensordatas (1 document)');
     console.log('   - transactions (1 document)');

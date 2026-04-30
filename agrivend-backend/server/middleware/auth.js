@@ -47,3 +47,15 @@ export const admin = (req, res, next) => {
     });
   }
 };
+
+// ADD THIS STAFF MIDDLEWARE
+export const staff = (req, res, next) => {
+  if (req.user && (req.user.role === 'admin' || req.user.role === 'staff')) {
+    next();
+  } else {
+    res.status(403).json({ 
+      success: false,
+      error: 'Staff or Admin access required' 
+    });
+  }
+};

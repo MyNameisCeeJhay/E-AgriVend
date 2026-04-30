@@ -1,6 +1,5 @@
 import User from '../models/User.js';
 import express from 'express';
-// import User from '../models/User.js'; // REMOVED - Using in-memory store
 import Transaction from '../models/Transaction.js';
 import Return from '../models/Return.js';
 import Message from '../models/Message.js';
@@ -8,24 +7,6 @@ import Rating from '../models/Rating.js';
 import { protect, admin } from '../middleware/auth.js';
 
 const router = express.Router();
-
-// In-memory user store (for development only)
-// This should match the users array from authRoutes.js
-const users = [
-  {
-    id: 1,
-    _id: 1,
-    email: 'admin@agrivend.com',
-    firstName: 'Admin',
-    lastName: 'User',
-    phone: '',
-    address: '',
-    role: 'admin',
-    isActive: true,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  }
-];
 
 // Helper function to get date from ISO week
 function getDateOfISOWeek(week, year) {
@@ -39,15 +20,84 @@ function getDateOfISOWeek(week, year) {
   return ISOweekStart;
 }
 
-// Helper to find user by ID
-const findUserById = (id) => {
-  return users.find(u => u._id === id || u.id === id);
-};
+// ===== DASHBOARD STATS =====
+router.get('/dashboard/stats', protect, admin, async (req, res) => {
+  console.log('📊 GET /api/admin/dashboard/stats - by:', req.user?.email);
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+    weekStart.setHours(0, 0, 0, 0);
+    
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    
+    const [todaySalesResult, weekSalesResult, monthSalesResult, pendingReturns, unreadMessages, totalTransactions] = await Promise.all([
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: today }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: weekStart }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { createdAt: { $gte: monthStart }, status: 'COMPLETED' } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]),
+      Return.countDocuments({ status: 'PENDING' }),
+      Message.countDocuments({ status: 'unread' }),
+      Transaction.countDocuments({ status: 'COMPLETED' })
+    ]);
+    
+    res.json({
+      success: true,
+      data: {
+        todaySales: todaySalesResult[0]?.total || 0,
+        weekSales: weekSalesResult[0]?.total || 0,
+        monthSales: monthSalesResult[0]?.total || 0,
+        pendingReturns: pendingReturns,
+        unreadMessages: unreadMessages,
+        totalTransactions: totalTransactions
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
-// Helper to find user by email
-const findUserByEmail = (email) => {
-  return users.find(u => u.email === email);
-};
+// ===== RECENT TRANSACTIONS ENDPOINT =====
+router.get('/transactions/recent', protect, admin, async (req, res) => {
+  console.log('📋 GET /api/admin/transactions/recent - by:', req.user?.email);
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    
+    const transactions = await Transaction.find({ status: 'COMPLETED' })
+      .sort({ createdAt: -1 })
+      .limit(limit);
+    
+    const formattedTransactions = transactions.map(t => ({
+      _id: t._id,
+      transactionId: t.transactionId,
+      riceType: t.riceType,
+      quantityKg: t.quantityKg,
+      totalAmount: t.amountPaid,
+      createdAt: t.createdAt
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedTransactions
+    });
+  } catch (error) {
+    console.error('Error fetching recent transactions:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ===== TRANSACTION STATS ROUTE =====
 router.get('/transactions/stats', protect, admin, async (req, res) => {
@@ -98,7 +148,7 @@ router.get('/transactions/stats', protect, admin, async (req, res) => {
   }
 });
 
-// ===== DAILY REPORT ROUTE =====
+// ===== REPORT ROUTES =====
 router.get('/reports/daily', protect, admin, async (req, res) => {
   console.log('📅 GET /api/admin/reports/daily - by:', req.user?.email);
   try {
@@ -118,7 +168,6 @@ router.get('/reports/daily', protect, admin, async (req, res) => {
     const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
     const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
     
-    // Group by hour for chart
     const hourlyData = {};
     for (let i = 0; i < 24; i++) {
       hourlyData[i] = 0;
@@ -151,7 +200,6 @@ router.get('/reports/daily', protect, admin, async (req, res) => {
   }
 });
 
-// ===== WEEKLY REPORT ROUTE =====
 router.get('/reports/weekly', protect, admin, async (req, res) => {
   console.log('📆 GET /api/admin/reports/weekly - by:', req.user?.email);
   try {
@@ -205,7 +253,6 @@ router.get('/reports/weekly', protect, admin, async (req, res) => {
   }
 });
 
-// ===== MONTHLY REPORT ROUTE =====
 router.get('/reports/monthly', protect, admin, async (req, res) => {
   console.log('📊 GET /api/admin/reports/monthly - by:', req.user?.email);
   try {
@@ -269,7 +316,6 @@ router.get('/reports/monthly', protect, admin, async (req, res) => {
   }
 });
 
-// ===== CUSTOM DATE RANGE REPORT ROUTE =====
 router.get('/reports/custom', protect, admin, async (req, res) => {
   console.log('📅 GET /api/admin/reports/custom - by:', req.user?.email);
   try {
@@ -325,9 +371,11 @@ router.get('/reports/custom', protect, admin, async (req, res) => {
   }
 });
 
-// ===== USER MANAGEMENT ROUTES (Using in-memory store) =====
+// ============================================
+// USER MANAGEMENT ROUTES (Staff Management) - Updated with MongoDB
+// ============================================
 
-// Get all users with pagination and filters
+// Get all users with pagination and filters (Supports role='staff')
 router.get('/users', protect, admin, async (req, res) => {
   console.log('👥 GET /api/admin/users - by:', req.user?.email);
   try {
@@ -343,61 +391,75 @@ router.get('/users', protect, admin, async (req, res) => {
 
     console.log('Query params:', { page, limit, search, role, status, sortBy, sortOrder });
 
-    // Filter users
-    let filteredUsers = [...users];
+    let query = {};
     
-    // Search by name or email
-    if (search) {
-      filteredUsers = filteredUsers.filter(u => 
-        u.firstName.toLowerCase().includes(search.toLowerCase()) ||
-        u.lastName.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase())
-      );
+    // Filter by role - IMPORTANT: Use 'staff' not 'admin' for staff management
+    if (role === 'staff') {
+      query.role = 'staff';
+    } else if (role === 'admin') {
+      query.role = 'admin';
+    } else if (role === 'customer') {
+      query.role = 'customer';
     }
-    
-    // Filter by role
-    if (role !== 'all') {
-      filteredUsers = filteredUsers.filter(u => u.role === role);
-    }
+    // If role === 'all', don't add role filter
     
     // Filter by status
     if (status !== 'all') {
-      filteredUsers = filteredUsers.filter(u => u.isActive === (status === 'active'));
+      query.isActive = status === 'active';
     }
     
-    // Sort
-    filteredUsers.sort((a, b) => {
-      const aVal = a[sortBy];
-      const bVal = b[sortBy];
-      if (sortOrder === 'desc') {
-        return aVal > bVal ? -1 : 1;
-      } else {
-        return aVal < bVal ? -1 : 1;
-      }
+    // Search by name or email
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Sort order
+    const sortOption = {};
+    sortOption[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    
+    const users = await User.find(query)
+      .select('-password')
+      .sort(sortOption)
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+    
+    const total = await User.countDocuments(query);
+    
+    // Calculate stats based on role filter
+    let statsQuery = {};
+    if (role === 'staff') {
+      statsQuery.role = 'staff';
+    } else if (role === 'admin') {
+      statsQuery.role = 'admin';
+    }
+    // For 'all', statsQuery is empty
+    
+    const totalStats = await User.countDocuments(statsQuery);
+    const activeStats = await User.countDocuments({ ...statsQuery, isActive: true });
+    const inactiveStats = await User.countDocuments({ ...statsQuery, isActive: false });
+    const newTodayStats = await User.countDocuments({
+      ...statsQuery,
+      createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
     });
     
-    const total = filteredUsers.length;
-    const paginatedUsers = filteredUsers.slice((parseInt(page) - 1) * parseInt(limit), parseInt(page) * parseInt(limit));
-    
-    // Get user statistics
     const stats = {
-      total: users.length,
-      active: users.filter(u => u.isActive).length,
-      inactive: users.filter(u => !u.isActive).length,
-      admins: users.filter(u => u.role === 'admin').length,
-      customers: users.filter(u => u.role === 'customer').length,
-      newToday: users.filter(u => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return new Date(u.createdAt) >= today;
-      }).length
+      total: totalStats,
+      active: activeStats,
+      inactive: inactiveStats,
+      admins: await User.countDocuments({ role: 'admin' }),
+      customers: await User.countDocuments({ role: 'customer' }),
+      newToday: newTodayStats
     };
 
-    console.log(`✅ Found ${paginatedUsers.length} users (total: ${total})`);
+    console.log(`✅ Found ${users.length} users (total: ${total})`);
 
     res.json({
       success: true,
-      data: paginatedUsers,
+      data: users,
       pagination: {
         total,
         page: parseInt(page),
@@ -418,7 +480,7 @@ router.get('/users', protect, admin, async (req, res) => {
 router.get('/users/:userId', protect, admin, async (req, res) => {
   console.log('👤 GET /api/admin/users/:userId - by:', req.user?.email);
   try {
-    const user = findUserById(parseInt(req.params.userId));
+    const user = await User.findById(req.params.userId).select('-password');
     
     if (!user) {
       return res.status(404).json({ 
@@ -441,7 +503,7 @@ router.get('/users/:userId', protect, admin, async (req, res) => {
     res.json({
       success: true,
       data: {
-        ...user,
+        ...user.toObject(),
         stats: {
           transactionCount,
           totalSpent: totalSpent[0]?.total || 0,
@@ -460,7 +522,7 @@ router.get('/users/:userId', protect, admin, async (req, res) => {
   }
 });
 
-// Create new user (admin only)
+// Create new user (staff account)
 router.post('/users', protect, admin, async (req, res) => {
   console.log('➕ POST /api/admin/users - Creating new user by:', req.user?.email);
   try {
@@ -475,7 +537,7 @@ router.post('/users', protect, admin, async (req, res) => {
       });
     }
 
-    const existingUser = findUserByEmail(email);
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ 
         success: false, 
@@ -483,27 +545,24 @@ router.post('/users', protect, admin, async (req, res) => {
       });
     }
 
-    const newUser = {
-      id: users.length + 1,
-      _id: users.length + 1,
+    const newUser = new User({
       email,
+      password,
       firstName,
       lastName,
       phone: phone || '',
       address: address || '',
-      role: role || 'customer',
-      isActive: isActive !== undefined ? isActive : true,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+      role: role || 'staff',
+      isActive: isActive !== undefined ? isActive : true
+    });
 
-    users.push(newUser);
+    await newUser.save();
 
     console.log('✅ User created successfully:', newUser.email);
 
     const io = req.app.get('io');
     if (io) {
-      io.emit('user_created', {
+      io.emit('staff_created', {
         userId: newUser._id,
         name: `${newUser.firstName} ${newUser.lastName}`,
         email: newUser.email
@@ -512,7 +571,14 @@ router.post('/users', protect, admin, async (req, res) => {
 
     res.status(201).json({
       success: true,
-      data: newUser
+      data: {
+        id: newUser._id,
+        email: newUser.email,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        role: newUser.role,
+        isActive: newUser.isActive
+      }
     });
   } catch (error) {
     console.error('❌ Error creating user:', error);
@@ -529,46 +595,55 @@ router.put('/users/:userId', protect, admin, async (req, res) => {
   try {
     const { firstName, lastName, email, phone, address, role, isActive } = req.body;
 
-    const userIndex = users.findIndex(u => u._id === parseInt(req.params.userId));
-    if (userIndex === -1) {
+    const user = await User.findById(req.params.userId);
+    if (!user) {
       return res.status(404).json({ 
         success: false, 
         error: 'User not found' 
       });
     }
 
-    if (email && email !== users[userIndex].email) {
-      const existingUser = findUserByEmail(email);
+    if (email && email !== user.email) {
+      const existingUser = await User.findOne({ email });
       if (existingUser) {
         return res.status(400).json({ 
           success: false, 
           error: 'Email already in use' 
         });
       }
+      user.email = email;
     }
 
-    if (firstName) users[userIndex].firstName = firstName;
-    if (lastName) users[userIndex].lastName = lastName;
-    if (email) users[userIndex].email = email;
-    if (phone !== undefined) users[userIndex].phone = phone;
-    if (address !== undefined) users[userIndex].address = address;
-    if (role) users[userIndex].role = role;
-    if (isActive !== undefined) users[userIndex].isActive = isActive;
-    users[userIndex].updatedAt = new Date();
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (phone !== undefined) user.phone = phone;
+    if (address !== undefined) user.address = address;
+    if (role) user.role = role;
+    if (isActive !== undefined) user.isActive = isActive;
 
-    console.log('✅ User updated successfully:', users[userIndex].email);
+    await user.save();
+
+    console.log('✅ User updated successfully:', user.email);
 
     const io = req.app.get('io');
     if (io) {
-      io.emit('user_updated', {
-        userId: users[userIndex]._id,
-        name: `${users[userIndex].firstName} ${users[userIndex].lastName}`
+      io.emit('staff_updated', {
+        userId: user._id,
+        name: `${user.firstName} ${user.lastName}`,
+        email: user.email
       });
     }
 
     res.json({
       success: true,
-      data: users[userIndex]
+      data: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        isActive: user.isActive
+      }
     });
   } catch (error) {
     console.error('❌ Error updating user:', error);
@@ -583,31 +658,31 @@ router.put('/users/:userId', protect, admin, async (req, res) => {
 router.delete('/users/:userId', protect, admin, async (req, res) => {
   console.log('🗑️ DELETE /api/admin/users/:userId - Deleting user by:', req.user?.email);
   try {
-    const userIndex = users.findIndex(u => u._id === parseInt(req.params.userId));
+    const user = await User.findById(req.params.userId);
     
-    if (userIndex === -1) {
+    if (!user) {
       return res.status(404).json({ 
         success: false, 
         error: 'User not found' 
       });
     }
 
-    if (users[userIndex]._id === req.user._id) {
+    if (user._id.toString() === req.user._id.toString()) {
       return res.status(400).json({ 
         success: false, 
         error: 'Cannot delete your own account' 
       });
     }
 
-    const deletedUser = users.splice(userIndex, 1)[0];
+    await User.findByIdAndDelete(req.params.userId);
 
-    console.log('✅ User deleted successfully:', deletedUser.email);
+    console.log('✅ User deleted successfully:', user.email);
 
     const io = req.app.get('io');
     if (io) {
-      io.emit('user_deleted', {
-        userId: deletedUser._id,
-        email: deletedUser.email
+      io.emit('staff_deleted', {
+        userId: user._id,
+        email: user.email
       });
     }
 
@@ -628,39 +703,40 @@ router.delete('/users/:userId', protect, admin, async (req, res) => {
 router.patch('/users/:userId/toggle-status', protect, admin, async (req, res) => {
   console.log('🔄 PATCH /api/admin/users/:userId/toggle-status - by:', req.user?.email);
   try {
-    const userIndex = users.findIndex(u => u._id === parseInt(req.params.userId));
+    const user = await User.findById(req.params.userId);
     
-    if (userIndex === -1) {
+    if (!user) {
       return res.status(404).json({ 
         success: false, 
         error: 'User not found' 
       });
     }
 
-    if (users[userIndex]._id === req.user._id) {
+    if (user._id.toString() === req.user._id.toString()) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Cannot deactivate your own account' 
+        error: 'Cannot modify your own account status' 
       });
     }
 
-    users[userIndex].isActive = !users[userIndex].isActive;
-    const action = users[userIndex].isActive ? 'activated' : 'deactivated';
+    user.isActive = !user.isActive;
+    await user.save();
 
-    console.log(`✅ User ${action}:`, users[userIndex].email);
+    const action = user.isActive ? 'activated' : 'deactivated';
+    console.log(`✅ User ${action}:`, user.email);
 
     const io = req.app.get('io');
     if (io) {
-      io.emit('user_status_changed', {
-        userId: users[userIndex]._id,
-        isActive: users[userIndex].isActive,
+      io.emit('staff_status_changed', {
+        userId: user._id,
+        isActive: user.isActive,
         action
       });
     }
 
     res.json({
       success: true,
-      data: users[userIndex],
+      data: user,
       message: `User ${action} successfully`
     });
   } catch (error) {
@@ -672,7 +748,7 @@ router.patch('/users/:userId/toggle-status', protect, admin, async (req, res) =>
   }
 });
 
-// Reset user password (admin only)
+// Reset user password
 router.post('/users/:userId/reset-password', protect, admin, async (req, res) => {
   console.log('🔑 POST /api/admin/users/:userId/reset-password - by:', req.user?.email);
   try {
@@ -685,7 +761,7 @@ router.post('/users/:userId/reset-password', protect, admin, async (req, res) =>
       });
     }
 
-    const user = findUserById(parseInt(req.params.userId));
+    const user = await User.findById(req.params.userId);
     
     if (!user) {
       return res.status(404).json({ 
@@ -694,7 +770,9 @@ router.post('/users/:userId/reset-password', protect, admin, async (req, res) =>
       });
     }
 
-    // In a real app, you would hash and save the password
+    user.password = newPassword;
+    await user.save();
+
     console.log('✅ Password reset for user:', user.email);
 
     res.json({
@@ -723,14 +801,10 @@ router.post('/users/bulk/delete', protect, admin, async (req, res) => {
       });
     }
 
-    let deletedCount = 0;
-    for (const userId of userIds) {
-      const index = users.findIndex(u => u._id === parseInt(userId));
-      if (index !== -1 && users[index]._id !== req.user._id) {
-        users.splice(index, 1);
-        deletedCount++;
-      }
-    }
+    const filteredIds = userIds.filter(id => id !== req.user._id.toString());
+    const deletedCount = filteredIds.length;
+
+    await User.deleteMany({ _id: { $in: filteredIds } });
 
     console.log(`✅ ${deletedCount} users deleted`);
 
@@ -767,16 +841,15 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
       });
     }
 
-    let updatedCount = 0;
-    for (const userId of userIds) {
-      const index = users.findIndex(u => u._id === parseInt(userId));
-      if (index !== -1 && users[index]._id !== req.user._id) {
-        users[index].isActive = isActive;
-        updatedCount++;
-      }
-    }
+    const filteredIds = userIds.filter(id => id !== req.user._id.toString());
+    const updatedCount = filteredIds.length;
 
-    console.log(`✅ ${updatedCount} users updated`);
+    await User.updateMany(
+      { _id: { $in: filteredIds } },
+      { $set: { isActive: isActive } }
+    );
+
+    console.log(`✅ ${updatedCount} users updated to ${isActive ? 'active' : 'inactive'}`);
 
     res.json({
       success: true,
@@ -788,85 +861,6 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
       success: false, 
       error: 'Server error' 
     });
-  }
-});
-
-router.get('/dashboard/stats', protect, admin, async (req, res) => {
-  console.log('📊 GET /api/admin/dashboard/stats - by:', req.user?.email);
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-    weekStart.setHours(0, 0, 0, 0);
-    
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
-    
-    const [todaySalesResult, weekSalesResult, monthSalesResult, pendingReturns, unreadMessages, totalTransactions] = await Promise.all([
-      Transaction.aggregate([
-        { $match: { createdAt: { $gte: today }, status: 'COMPLETED' } },
-        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
-      ]),
-      Transaction.aggregate([
-        { $match: { createdAt: { $gte: weekStart }, status: 'COMPLETED' } },
-        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
-      ]),
-      Transaction.aggregate([
-        { $match: { createdAt: { $gte: monthStart }, status: 'COMPLETED' } },
-        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
-      ]),
-      Return.countDocuments({ status: 'PENDING' }),
-      Message.countDocuments({ status: 'unread' }),
-      Transaction.countDocuments({ status: 'COMPLETED' })
-    ]);
-    
-    res.json({
-      success: true,
-      data: {
-        todaySales: todaySalesResult[0]?.total || 0,
-        weekSales: weekSalesResult[0]?.total || 0,
-        monthSales: monthSalesResult[0]?.total || 0,
-        pendingReturns: pendingReturns,
-        unreadMessages: unreadMessages,
-        totalTransactions: totalTransactions
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching dashboard stats:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ===== RECENT TRANSACTIONS ENDPOINT =====
-router.get('/transactions/recent', protect, admin, async (req, res) => {
-  console.log('📋 GET /api/admin/transactions/recent - by:', req.user?.email);
-  try {
-    const limit = parseInt(req.query.limit) || 5;
-    
-    const transactions = await Transaction.find({ status: 'COMPLETED' })
-      .sort({ createdAt: -1 })
-      .limit(limit);
-    
-    // Format transactions to match frontend expectations
-    const formattedTransactions = transactions.map(t => ({
-      _id: t._id,
-      transactionId: t.transactionId,
-      riceType: t.riceType,
-      quantityKg: t.quantityKg,
-      totalAmount: t.amountPaid,
-      createdAt: t.createdAt
-    }));
-    
-    res.json({
-      success: true,
-      data: formattedTransactions
-    });
-  } catch (error) {
-    console.error('Error fetching recent transactions:', error);
-    res.status(500).json({ success: false, error: error.message });
   }
 });
 

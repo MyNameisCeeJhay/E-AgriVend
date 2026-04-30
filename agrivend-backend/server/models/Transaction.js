@@ -11,26 +11,26 @@ const transactionSchema = new mongoose.Schema({
     ref: 'User',
     required: false
   },
-  riceType: {
+  productName: {
     type: String,
-    enum: ['Sinandomeng', 'Dinorado'],
-    required: true
+    required: [true, 'Product name is required'],
+    trim: true
   },
   quantityKg: {
     type: Number,
-    required: true,
-    min: 0.1,
-    max: 5
+    required: [true, 'Quantity is required'],
+    min: [0.1, 'Quantity must be at least 0.1 kg'],
+    max: [5, 'Maximum 5 kg per transaction']
   },
   pricePerKg: {
     type: Number,
-    required: true,
-    min: 0
+    required: [true, 'Price per kg is required'],
+    min: [0, 'Price cannot be negative']
   },
   amountPaid: {
     type: Number,
-    required: true,
-    min: 0
+    required: [true, 'Amount is required'],
+    min: [0, 'Amount cannot be negative']
   },
   paymentMethod: {
     type: String,
@@ -39,17 +39,27 @@ const transactionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['COMPLETED', 'FAILED', 'REFUNDED'],
+    enum: ['COMPLETED', 'FAILED', 'REFUNDED', 'PENDING'],
     default: 'COMPLETED'
+  },
+  recordedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false
+  },
+  notes: {
+    type: String,
+    default: ''
   }
 }, {
   timestamps: true
 });
 
-// Index for efficient queries
+// Indexes for efficient queries
 transactionSchema.index({ user: 1, createdAt: -1 });
 transactionSchema.index({ transactionId: 1 });
 transactionSchema.index({ createdAt: -1 });
+transactionSchema.index({ productName: 1 });
 
 const Transaction = mongoose.model('Transaction', transactionSchema);
 export default Transaction;

@@ -13,7 +13,8 @@ const AdminTransactions = () => {
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState({
     totalTransactions: 0,
-    totalQuantity: 0
+    totalQuantity: 0,
+    totalRevenue: 0
   });
   const [pagination, setPagination] = useState({
     page: 1,
@@ -24,79 +25,61 @@ const AdminTransactions = () => {
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
-    riceType: 'all',
-    search: '',
-    paymentMethod: 'all'
+    productName: 'all',
+    search: ''
   });
   const [showFilters, setShowFilters] = useState(false);
   const [notification, setNotification] = useState(null);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
 
-  // Sample data for demonstration
-  const sampleTransactions = [
-    { _id: '1', transactionId: 'TXN-0001', createdAt: '2026-04-22T10:15:00', riceType: 'Sinandomeng', quantityKg: 2.5, totalAmount: 135, paymentMethod: 'Cash' },
-    { _id: '2', transactionId: 'TXN-0002', createdAt: '2026-04-22T10:32:00', riceType: 'Dinorado', quantityKg: 1.5, totalAmount: 97.5, paymentMethod: 'Cash' },
-    { _id: '3', transactionId: 'TXN-0003', createdAt: '2026-04-22T11:05:00', riceType: 'Jasmine', quantityKg: 3, totalAmount: 180, paymentMethod: 'Cash' },
-    { _id: '4', transactionId: 'TXN-0004', createdAt: '2026-04-22T11:40:00', riceType: 'Premium', quantityKg: 1, totalAmount: 85, paymentMethod: 'Cash' },
-    { _id: '5', transactionId: 'TXN-0005', createdAt: '2026-04-22T12:10:00', riceType: 'Sinandomeng', quantityKg: 4, totalAmount: 216, paymentMethod: 'Cash' },
-    { _id: '6', transactionId: 'TXN-0006', createdAt: '2026-04-22T13:20:00', riceType: 'Dinorado', quantityKg: 2, totalAmount: 130, paymentMethod: 'Cash' },
-    { _id: '7', transactionId: 'TXN-0007', createdAt: '2026-04-22T14:45:00', riceType: 'Jasmine', quantityKg: 1.5, totalAmount: 90, paymentMethod: 'Cash' },
-    { _id: '8', transactionId: 'TXN-0008', createdAt: '2026-04-22T15:30:00', riceType: 'Premium', quantityKg: 2, totalAmount: 170, paymentMethod: 'Cash' },
-    { _id: '9', transactionId: 'TXN-0009', createdAt: '2026-04-22T16:15:00', riceType: 'Sinandomeng', quantityKg: 3, totalAmount: 162, paymentMethod: 'Cash' },
-    { _id: '10', transactionId: 'TXN-0010', createdAt: '2026-04-22T17:00:00', riceType: 'Dinorado', quantityKg: 2.5, totalAmount: 162.5, paymentMethod: 'Cash' },
-  ];
-
   useEffect(() => {
     fetchTransactions();
-    calculateSummary();
+    fetchSummary();
 
     if (socket) {
       socket.on('new_transaction', () => {
         fetchTransactions();
-        calculateSummary();
+        fetchSummary();
+        showNotification('success', 'New transaction added');
       });
 
       return () => {
         socket.off('new_transaction');
       };
     }
-  }, [socket, pagination.page, filters, sortBy, sortOrder]);
-
-  useEffect(() => {
-    if (notification) {
-      const timer = setTimeout(() => setNotification(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [notification]);
+  }, [socket, pagination.page, filters]);
 
   const fetchTransactions = async () => {
     try {
       setLoading(true);
-      // Simulate API call
-      setTimeout(() => {
-        let filtered = [...sampleTransactions];
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.get(`${API_URL}/transactions/all`, {
+        params: {
+          page: pagination.page,
+          limit: pagination.limit,
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+          productName: filters.productName,
+          search: filters.search
+        },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        let data = response.data.data || [];
         
-        // Apply filters
-        if (filters.riceType !== 'all') {
-          filtered = filtered.filter(t => t.riceType === filters.riceType);
-        }
-        if (filters.paymentMethod !== 'all') {
-          filtered = filtered.filter(t => t.paymentMethod === filters.paymentMethod);
-        }
-        if (filters.search) {
-          filtered = filtered.filter(t => 
-            t.transactionId.toLowerCase().includes(filters.search.toLowerCase())
-          );
-        }
-        
-        // Apply sorting
-        filtered.sort((a, b) => {
+        data.sort((a, b) => {
           let aVal = a[sortBy];
           let bVal = b[sortBy];
           if (sortBy === 'createdAt') {
             aVal = new Date(aVal);
             bVal = new Date(bVal);
+          }
+          if (sortBy === 'productName') {
+            aVal = a.productName || a.riceType;
+            bVal = b.productName || b.riceType;
           }
           if (sortOrder === 'desc') {
             return aVal > bVal ? -1 : 1;
@@ -105,37 +88,43 @@ const AdminTransactions = () => {
           }
         });
         
-        const total = filtered.length;
-        const start = (pagination.page - 1) * pagination.limit;
-        const paginated = filtered.slice(start, start + pagination.limit);
-        
-        setTransactions(paginated);
-        setPagination(prev => ({
-          ...prev,
-          total,
-          pages: Math.ceil(total / prev.limit)
-        }));
-        setLoading(false);
-      }, 500);
+        setTransactions(data);
+        setPagination(response.data.pagination || {
+          page: 1,
+          total: data.length,
+          pages: Math.ceil(data.length / pagination.limit)
+        });
+        setSummary(response.data.summary || {
+          totalTransactions: data.length,
+          totalQuantity: data.reduce((s, t) => s + (t.quantityKg || 0), 0),
+          totalRevenue: data.reduce((s, t) => s + (t.amountPaid || 0), 0)
+        });
+      }
     } catch (error) {
       console.error('Error fetching transactions:', error);
-      showNotification('error', 'Failed to load transactions');
+      showNotification('error', error.response?.data?.error || 'Failed to load transactions');
+    } finally {
       setLoading(false);
     }
   };
 
-  const calculateSummary = () => {
-    const totalTransactions = sampleTransactions.length;
-    const totalQuantity = sampleTransactions.reduce((sum, t) => sum + t.quantityKg, 0);
-    
-    setSummary({
-      totalTransactions,
-      totalQuantity
-    });
+  const fetchSummary = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/transactions/admin/stats`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data.success) {
+        setSummary(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching summary:', error);
+    }
   };
 
   const showNotification = (type, message) => {
     setNotification({ type, message });
+    setTimeout(() => setNotification(null), 5000);
   };
 
   const handleFilterChange = (key, value) => {
@@ -150,7 +139,6 @@ const AdminTransactions = () => {
       setSortBy(column);
       setSortOrder('desc');
     }
-    setPagination({ ...pagination, page: 1 });
   };
 
   const formatCurrency = (amount) => {
@@ -178,9 +166,14 @@ const AdminTransactions = () => {
     return sortOrder === 'desc' ? <span className="sort-icon">↓</span> : <span className="sort-icon">↑</span>;
   };
 
+  const productNames = ['Sinandomeng', 'Dinorado', 'Jasmine', 'Premium', 'Brown Rice', 'Glutinous Rice', 'Organic Rice'];
+
+  const getDisplayProductName = (transaction) => {
+    return transaction.productName || transaction.riceType || 'Unknown';
+  };
+
   return (
     <div className="transactions-container">
-      {/* Notification Toast */}
       {notification && (
         <div className={`transaction-toast ${notification.type}`}>
           <div className="toast-content">
@@ -191,11 +184,10 @@ const AdminTransactions = () => {
         </div>
       )}
 
-      {/* Header Section */}
       <div className="transactions-header">
         <div className="header-title-section">
-          <h1 className="page-title">Transaction History</h1>
-          <p className="page-subtitle">View and manage all vending machine transactions</p>
+          <h1>Transaction History</h1>
+          <p>View all vending machine transactions</p>
         </div>
         <div className="header-actions">
           <button 
@@ -207,7 +199,6 @@ const AdminTransactions = () => {
         </div>
       </div>
 
-      {/* Summary Cards */}
       <div className="summary-cards">
         <div className="summary-card">
           <div className="card-content">
@@ -219,13 +210,19 @@ const AdminTransactions = () => {
         <div className="summary-card">
           <div className="card-content">
             <div className="card-label">Total Quantity</div>
-            <div className="card-value">{summary.totalQuantity.toFixed(1)} kg</div>
+            <div className="card-value">{summary.totalQuantity} kg</div>
             <div className="card-trend">Rice dispensed</div>
+          </div>
+        </div>
+        <div className="summary-card">
+          <div className="card-content">
+            <div className="card-label">Total Revenue</div>
+            <div className="card-value">{formatCurrency(summary.totalRevenue)}</div>
+            <div className="card-trend">Total sales</div>
           </div>
         </div>
       </div>
 
-      {/* Filters Section */}
       {showFilters && (
         <div className="filters-panel">
           <div className="filters-grid">
@@ -248,17 +245,16 @@ const AdminTransactions = () => {
               />
             </div>
             <div className="filter-group">
-              <label>Rice Type</label>
+              <label>Product Name</label>
               <select
-                value={filters.riceType}
-                onChange={(e) => handleFilterChange('riceType', e.target.value)}
+                value={filters.productName}
+                onChange={(e) => handleFilterChange('productName', e.target.value)}
                 className="filter-select"
               >
-                <option value="all">All Types</option>
-                <option value="Sinandomeng">Sinandomeng</option>
-                <option value="Dinorado">Dinorado</option>
-                <option value="Jasmine">Jasmine</option>
-                <option value="Premium">Premium</option>
+                <option value="all">All Products</option>
+                {productNames.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
               </select>
             </div>
             <div className="filter-group search-group">
@@ -277,7 +273,7 @@ const AdminTransactions = () => {
                 Apply Filters
               </button>
               <button className="btn-clear" onClick={() => {
-                setFilters({ startDate: '', endDate: '', riceType: 'all', search: '', paymentMethod: 'all' });
+                setFilters({ startDate: '', endDate: '', productName: 'all', search: '' });
                 setPagination({ ...pagination, page: 1 });
                 fetchTransactions();
               }}>
@@ -288,7 +284,6 @@ const AdminTransactions = () => {
         </div>
       )}
 
-      {/* Transactions Table */}
       <div className="transactions-table-container">
         {loading ? (
           <div className="loading-overlay">
@@ -313,14 +308,14 @@ const AdminTransactions = () => {
                     <th onClick={() => handleSort('createdAt')}>
                       Date & Time <SortIcon column="createdAt" />
                     </th>
-                    <th onClick={() => handleSort('riceType')}>
-                      Product Type <SortIcon column="riceType" />
+                    <th onClick={() => handleSort('productName')}>
+                      Product Name <SortIcon column="productName" />
                     </th>
                     <th onClick={() => handleSort('quantityKg')}>
                       Quantity <SortIcon column="quantityKg" />
                     </th>
-                    <th onClick={() => handleSort('totalAmount')}>
-                      Amount <SortIcon column="totalAmount" />
+                    <th onClick={() => handleSort('amountPaid')}>
+                      Amount <SortIcon column="amountPaid" />
                     </th>
                     <th>Payment Method</th>
                   </tr>
@@ -330,17 +325,16 @@ const AdminTransactions = () => {
                     <tr key={transaction._id} className="transaction-row">
                       <td className="tx-id">{transaction.transactionId}</td>
                       <td className="date-cell">{formatDate(transaction.createdAt)}</td>
-                      <td className="product-cell">{transaction.riceType}</td>
+                      <td className="product-cell">{getDisplayProductName(transaction)}</td>
                       <td className="quantity-cell">{transaction.quantityKg} kg</td>
-                      <td className="amount-cell">{formatCurrency(transaction.totalAmount)}</td>
-                      <td className="payment-cell">{transaction.paymentMethod}</td>
+                      <td className="amount-cell">{formatCurrency(transaction.amountPaid)}</td>
+                      <td className="payment-cell">{transaction.paymentMethod || 'CASH'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            {/* Pagination */}
             {pagination.pages > 1 && (
               <div className="pagination-container">
                 <button
@@ -351,12 +345,8 @@ const AdminTransactions = () => {
                   Previous
                 </button>
                 <div className="pagination-info">
-                  <span className="page-info">
-                    Page {pagination.page} of {pagination.pages}
-                  </span>
-                  <span className="total-info">
-                    ({pagination.total} transactions)
-                  </span>
+                  <span className="page-info">Page {pagination.page} of {pagination.pages}</span>
+                  <span className="total-info">({pagination.total} transactions)</span>
                 </div>
                 <button
                   onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}

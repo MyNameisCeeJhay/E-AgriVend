@@ -1,7 +1,8 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { API_URL } from '../config';
+
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const AuthContext = createContext();
 
@@ -39,7 +40,7 @@ export const AuthProvider = ({ children }) => {
   // Configure axios defaults
   axios.defaults.baseURL = API_URL;
   axios.defaults.headers.common['Content-Type'] = 'application/json';
-  axios.defaults.timeout = 10000; // 10 second timeout
+  axios.defaults.timeout = 10000;
   
   if (token) {
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -66,18 +67,6 @@ export const AuthProvider = ({ children }) => {
         
         const userData = response.data.user || response.data;
         
-        // Check if user is admin
-        if (userData.role !== 'admin') {
-          console.log('❌ Non-admin user attempted to access');
-          localStorage.removeItem('token');
-          setToken(null);
-          delete axios.defaults.headers.common['Authorization'];
-          setError('Access denied. Admin privileges required.');
-          navigate('/login');
-          setLoading(false);
-          return;
-        }
-        
         setUser(userData);
         setError(null);
       } catch (error) {
@@ -98,7 +87,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     fetchUser();
-  }, [token, isOffline, navigate]);
+  }, [token, isOffline]);
 
   const login = async (email, password) => {
     setError(null);
@@ -110,7 +99,6 @@ export const AuthProvider = ({ children }) => {
     
     try {
       console.log('🔑 Attempting login for:', email);
-      console.log('📍 API URL:', `${API_URL}/auth/login`);
       
       const response = await axios.post('/auth/login', { 
         email, 
@@ -120,13 +108,6 @@ export const AuthProvider = ({ children }) => {
       console.log('✅ Login response:', response.data);
       
       const { token, user } = response.data;
-      
-      // Check if user is admin - only allow admin access
-      if (user.role !== 'admin') {
-        console.log('❌ Non-admin login attempt denied');
-        setError('Access denied. This portal is for administrators only.');
-        return { success: false, error: 'Admin access required' };
-      }
       
       // Save token to localStorage
       localStorage.setItem('token', token);
@@ -139,8 +120,14 @@ export const AuthProvider = ({ children }) => {
       setUser(user);
       setError(null);
       
-      // Always redirect to admin dashboard
-      navigate('/admin/dashboard');
+      // Redirect based on role
+      if (user.role === 'admin') {
+        navigate('/admin/dashboard');
+      } else if (user.role === 'staff') {
+        navigate('/staff/dashboard');
+      } else {
+        navigate('/customer/dashboard');
+      }
       
       return { success: true, user };
     } catch (error) {
@@ -175,11 +162,7 @@ export const AuthProvider = ({ children }) => {
     
     try {
       console.log('📝 Attempting registration...');
-      
-      // Force role to admin
-      const adminData = { ...userData, role: 'admin' };
-      
-      const response = await axios.post('/auth/register', adminData);
+      const response = await axios.post('/auth/register', userData);
       console.log('✅ Registration successful:', response.data);
       return { success: true };
     } catch (error) {
@@ -201,6 +184,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    console.log('🔓 Logging out...');
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
@@ -217,6 +201,7 @@ export const AuthProvider = ({ children }) => {
     logout,
     isAuthenticated: !!user,
     isAdmin: user?.role === 'admin',
+    isStaff: user?.role === 'staff',
     isOffline
   };
 

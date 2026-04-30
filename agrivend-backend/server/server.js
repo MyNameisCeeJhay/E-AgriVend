@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import bcrypt from 'bcryptjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,6 +81,10 @@ import adminRoutes from './routes/adminRoutes.js';
 import machineRatingRoutes from './routes/machineRatingRoutes.js';
 import esp32Routes from './routes/esp32Routes.js';
 import refundRoutes from './routes/refundRoutes.js';
+import machineRoutes from './routes/machineRoutes.js';  // ADD THIS
+import staffRoutes from './routes/staffRoutes.js';
+import User from './models/User.js';
+
 
 // Initialize express
 const app = express();
@@ -92,7 +97,7 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-  transports: ['websocket', 'polling'],  // Allow both
+  transports: ['websocket', 'polling'],
   allowEIO3: true
 });
 
@@ -113,7 +118,9 @@ io.on('connection', (socket) => {
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('✅ MongoDB Connected successfully'))
+  .then(() => {
+    console.log('✅ MongoDB Connected successfully');
+  })
   .catch(err => {
     console.error('❌ MongoDB connection error:', err);
     process.exit(1);
@@ -161,6 +168,9 @@ console.log('   /api/messages → messageRoutes');
 console.log('   /api/admin → adminRoutes');
 console.log('   /api/esp32 → esp32Routes');
 console.log('   /api/refund → refundRoutes');
+console.log('   /api/machine → machineRoutes');
+console.log('   /api/staff → staffRoutes');
+
 
 app.use('/api/auth', authRoutes);
 app.use('/api/terms', termsRoutes);
@@ -173,6 +183,220 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/esp32', esp32Routes);
 app.use('/api/refund', refundRoutes);
+app.use('/api/machine', machineRoutes);
+app.use('/api/staff', staffRoutes);
+
+
+// ===== CREATE DEFAULT STAFF ACCOUNTS ON SERVER START =====
+const createDefaultStaffAccounts = async () => {
+  try {
+    console.log('\n👥 Checking for staff accounts...');
+    
+    const staffAccounts = [
+      {
+        email: 'staff@agrivend.com',
+        password: 'staff123',
+        firstName: 'John',
+        lastName: 'Doe',
+        phone: '09123456789',
+        address: 'Staff Office, Marilao, Bulacan'
+      },
+      {
+        email: 'maria@agrivend.com',
+        password: 'staff123',
+        firstName: 'Maria',
+        lastName: 'Santos',
+        phone: '09123456780',
+        address: 'Staff Office 2, Marilao, Bulacan'
+      }
+    ];
+    
+    for (const staffData of staffAccounts) {
+      const existingStaff = await User.findOne({ email: staffData.email });
+      
+      if (!existingStaff) {
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(staffData.password, salt);
+        
+        const staff = new User({
+          ...staffData,
+          password: hashedPassword,
+          role: 'staff',
+          termsAccepted: true,
+          isActive: true
+        });
+        
+        await staff.save();
+        console.log(`✅ Staff account created: ${staffData.email} / ${staffData.password}`);
+      } else if (existingStaff.role !== 'staff') {
+        // Update existing user to staff role
+        existingStaff.role = 'staff';
+        existingStaff.isActive = true;
+        await existingStaff.save();
+        console.log(`✅ User updated to staff: ${staffData.email}`);
+      } else {
+        console.log(`⚠️ Staff account already exists: ${staffData.email}`);
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error creating staff accounts:', error.message);
+  }
+};
+
+// Call this after MongoDB connection is established
+mongoose.connection.once('open', async () => {
+  console.log('🔧 MongoDB connection established, creating default staff accounts...');
+  await createDefaultStaffAccounts();
+});
+
+// ===== STAFF ACCOUNT CREATION ENDPOINT (Alternative method via API) =====
+app.post('/api/auth/create-staff', async (req, res) => {
+  try {
+    const { email, password, firstName, lastName, phone, address } = req.body;
+    
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'User already exists' 
+      });
+    }
+    
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    // Create staff user
+    const staff = new User({
+      email,
+      password: hashedPassword,
+      firstName,
+      lastName,
+      phone: phone || '',
+      address: address || '',
+      role: 'staff',
+      termsAccepted: true,
+      isActive: true
+    });
+    
+    await staff.save();
+    
+    console.log(`✅ Staff account created via API: ${email}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Staff account created successfully',
+      user: {
+        email: staff.email,
+        firstName: staff.firstName,
+        lastName: staff.lastName,
+        role: staff.role
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error creating staff:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ===== STORE MANAGEMENT API =====
+// Get store settings
+app.get('/api/store/settings', async (req, res) => {
+  try {
+    const StoreSettings = mongoose.model('StoreSettings');
+    let settings = await StoreSettings.findOne();
+    if (!settings) {
+      settings = { name: 'AgriVend', address: 'Loma De Gato, Marilao, Bulacan', phone: '09123456789', email: 'support@agrivend.com' };
+    }
+    res.json({ success: true, data: settings });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update store settings
+app.put('/api/store/settings', async (req, res) => {
+  try {
+    const StoreSettings = mongoose.model('StoreSettings');
+    const settings = await StoreSettings.findOneAndUpdate(
+      {},
+      req.body,
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, data: settings });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ===== REFUND ADMIN ROUTES =====
+// Get all refund requests
+app.get('/api/admin/refunds', async (req, res) => {
+  try {
+    const RefundRequest = mongoose.model('RefundRequest');
+    const refunds = await RefundRequest.find().sort({ createdAt: -1 });
+    
+    const stats = {
+      total: refunds.length,
+      pending: refunds.filter(r => r.status === 'PENDING').length,
+      approved: refunds.filter(r => r.status === 'APPROVED').length,
+      rejected: refunds.filter(r => r.status === 'REJECTED').length
+    };
+    
+    res.json({ success: true, refunds, stats });
+  } catch (error) {
+    console.error('Error fetching refunds:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update refund status
+app.put('/api/admin/refunds/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status, adminNotes } = req.body;
+  
+  try {
+    const RefundRequest = mongoose.model('RefundRequest');
+    const refund = await RefundRequest.findById(id);
+    
+    if (!refund) {
+      return res.status(404).json({ success: false, error: 'Refund not found' });
+    }
+    
+    refund.status = status;
+    refund.adminNotes = adminNotes || '';
+    refund.processedAt = new Date();
+    refund.processedBy = req.headers['x-user-email'] || 'admin';
+    
+    await refund.save();
+    
+    res.json({ success: true, message: `Refund ${status} successfully` });
+  } catch (error) {
+    console.error('Error updating refund:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get refund statistics
+app.get('/api/admin/refunds/stats', async (req, res) => {
+  try {
+    const RefundRequest = mongoose.model('RefundRequest');
+    const refunds = await RefundRequest.find();
+    
+    const stats = {
+      total: refunds.length,
+      pending: refunds.filter(r => r.status === 'PENDING').length,
+      approved: refunds.filter(r => r.status === 'APPROVED').length,
+      rejected: refunds.filter(r => r.status === 'REJECTED').length
+    };
+    
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.error('Error fetching refund stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Test route
 app.get('/api/test', (req, res) => {
@@ -215,55 +439,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Get all refund requests (Admin only - add auth middleware)
-app.get('/api/admin/refunds', async (req, res) => {
-  try {
-    const refunds = await db.collection('refunds')
-      .orderBy('createdAt', 'desc')
-      .get();
-    
-    const refundList = [];
-    refunds.forEach(doc => {
-      refundList.push({
-        id: doc.id,
-        ...doc.data()
-      });
-    });
-    
-    const stats = {
-      total: refundList.length,
-      pending: refundList.filter(r => r.status === 'pending').length,
-      approved: refundList.filter(r => r.status === 'approved').length,
-      rejected: refundList.filter(r => r.status === 'rejected').length
-    };
-    
-    res.json({ success: true, refunds: refundList, stats });
-  } catch (error) {
-    console.error('Error fetching refunds:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update refund status (Approve/Reject)
-app.put('/api/admin/refunds/:id', async (req, res) => {
-  const { id } = req.params;
-  const { status, adminNotes } = req.body;
-  
-  try {
-    await db.collection('refunds').doc(id).update({
-      status: status, // 'approved' or 'rejected'
-      adminNotes: adminNotes || '',
-      processedAt: new Date(),
-      processedBy: req.user?.email || 'admin'
-    });
-    
-    res.json({ success: true, message: `Refund ${status} successfully` });
-  } catch (error) {
-    console.error('Error updating refund:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
@@ -275,4 +450,12 @@ server.listen(PORT, () => {
   console.log(`📦 MongoDB: Connected`);
   console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configured ⚠️'}`);
   console.log('=================================\n');
+  console.log('📝 Login Credentials:');
+  console.log('   Admin: admin@agrivend.com / admin123');
+  console.log('   Staff: staff@agrivend.com / staff123');
+  console.log('   Staff: maria@agrivend.com / staff123');
+  console.log('   Customer: customer@test.com / customer123');
+  console.log('=================================\n');
 });
+
+export default app;

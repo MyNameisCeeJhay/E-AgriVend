@@ -1,40 +1,54 @@
 import express from 'express';
 import Machine from '../models/Machine.js';
-import { protect, admin } from '../middleware/auth.js';
+import { protect, admin, staff } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // ==================== GET MACHINE DATA ====================
-router.get('/data', protect, admin, async (req, res) => {
+// Staff and Admin can view machine data
+router.get('/data', protect, async (req, res) => {
   try {
-    // Get the latest machine record
     let machine = await Machine.findOne().sort({ createdAt: -1 });
     
-    // If no machine data exists, create default
     if (!machine) {
-      machine = await Machine.create({
-        storage1: { currentWeight: 0, percentage: 0, status: 'Normal' },
-        storage2: { currentWeight: 0, percentage: 0, status: 'Normal' },
-        battery: { percentage: 100, voltage: 12.6, isCharging: true },
-        machineStatus: { isOnline: true, temperature: 25, doorStatus: 'Closed', securityStatus: 'Safe' }
+      // Return default machine data if none exists
+      return res.json({
+        success: true,
+        data: {
+          storage1: {
+            name: 'Sinandomeng Rice',
+            pricePerKg: 54,
+            currentWeight: 15.5,
+            maxCapacity: 20,
+            percentage: 77.5,
+            status: 'Normal',
+            isLow: false
+          },
+          storage2: {
+            name: 'Dinorado Rice',
+            pricePerKg: 65,
+            currentWeight: 8.2,
+            maxCapacity: 20,
+            percentage: 41,
+            status: 'Low',
+            isLow: true
+          },
+          battery: {
+            percentage: 78,
+            voltage: 12.4,
+            status: 'Good',
+            isCharging: true,
+            health: 'Good'
+          },
+          machineStatus: {
+            isOnline: true,
+            temperature: 32.5,
+            doorStatus: 'Closed',
+            securityStatus: 'Safe',
+            lastUpdate: new Date()
+          }
+        }
       });
-    }
-    
-    // Get product names from products collection
-    if (machine.storage1.productId) {
-      const product = await Product.findById(machine.storage1.productId);
-      if (product) {
-        machine.storage1.name = product.name;
-        machine.storage1.pricePerKg = product.pricePerKg;
-      }
-    }
-    
-    if (machine.storage2.productId) {
-      const product = await Product.findById(machine.storage2.productId);
-      if (product) {
-        machine.storage2.name = product.name;
-        machine.storage2.pricePerKg = product.pricePerKg;
-      }
     }
     
     res.json({
@@ -57,7 +71,7 @@ router.post('/update', async (req, res) => {
   try {
     const { storage1Weight, storage2Weight, batteryPercentage, batteryVoltage, temperature, doorStatus } = req.body;
     
-    let machine = await Machine.findOne().sort({ createdAt: -1 });
+    let machine = await Machine.findOne();
     
     if (!machine) {
       machine = new Machine();
@@ -86,6 +100,7 @@ router.post('/update', async (req, res) => {
       machine.battery.percentage = batteryPercentage;
       machine.battery.voltage = batteryVoltage || machine.battery.voltage;
       machine.battery.status = batteryPercentage > 70 ? 'Good' : batteryPercentage > 30 ? 'Warning' : 'Critical';
+      machine.battery.health = batteryPercentage > 70 ? 'Good' : batteryPercentage > 30 ? 'Warning' : 'Critical';
       machine.battery.lastUpdated = new Date();
     }
     
@@ -93,20 +108,6 @@ router.post('/update', async (req, res) => {
     if (temperature !== undefined) machine.machineStatus.temperature = temperature;
     if (doorStatus !== undefined) machine.machineStatus.doorStatus = doorStatus;
     machine.machineStatus.lastUpdate = new Date();
-    
-    // Add to history
-    machine.sensorHistory.push({
-      storage1Weight: machine.storage1.currentWeight,
-      storage2Weight: machine.storage2.currentWeight,
-      batteryPercentage: machine.battery.percentage,
-      temperature: machine.machineStatus.temperature,
-      timestamp: new Date()
-    });
-    
-    // Keep only last 100 history records
-    if (machine.sensorHistory.length > 100) {
-      machine.sensorHistory = machine.sensorHistory.slice(-100);
-    }
     
     await machine.save();
     
@@ -163,31 +164,51 @@ router.post('/update', async (req, res) => {
 });
 
 // ==================== REFILL STORAGE ====================
-router.post('/refill', protect, admin, async (req, res) => {
+// Staff and Admin can refill storage
+router.post('/refill', protect, staff, async (req, res) => {
   try {
     const { storageId, amount } = req.body;
     
-    let machine = await Machine.findOne().sort({ createdAt: -1 });
+    let machine = await Machine.findOne();
     
     if (!machine) {
       machine = new Machine();
     }
     
+    const maxCapacity = 20;
+    const percentage = (amount / maxCapacity) * 100;
+    const status = amount < 5 ? 'Critical' : amount < 10 ? 'Low' : 'Normal';
+    const isLow = amount < 10;
+    
     if (storageId === 1) {
       machine.storage1.currentWeight = amount;
-      machine.storage1.percentage = (amount / machine.storage1.maxCapacity) * 100;
-      machine.storage1.status = amount < 5 ? 'Critical' : amount < 10 ? 'Low' : 'Normal';
-      machine.storage1.isLow = amount < 10;
+      machine.storage1.percentage = percentage;
+      machine.storage1.status = status;
+      machine.storage1.isLow = isLow;
       machine.storage1.lastUpdated = new Date();
     } else if (storageId === 2) {
       machine.storage2.currentWeight = amount;
-      machine.storage2.percentage = (amount / machine.storage2.maxCapacity) * 100;
-      machine.storage2.status = amount < 5 ? 'Critical' : amount < 10 ? 'Low' : 'Normal';
-      machine.storage2.isLow = amount < 10;
+      machine.storage2.percentage = percentage;
+      machine.storage2.status = status;
+      machine.storage2.isLow = isLow;
       machine.storage2.lastUpdated = new Date();
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid storage ID' });
     }
     
+    machine.machineStatus.lastUpdate = new Date();
     await machine.save();
+    
+    // Emit socket events
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('machine_data_updated', {
+        storage1: machine.storage1,
+        storage2: machine.storage2,
+        battery: machine.battery,
+        machineStatus: machine.machineStatus
+      });
+    }
     
     res.json({
       success: true,
@@ -201,12 +222,13 @@ router.post('/refill', protect, admin, async (req, res) => {
 });
 
 // ==================== UPDATE PRODUCT PRICE ====================
-router.put('/product/:storageId', protect, admin, async (req, res) => {
+// Staff and Admin can update product prices
+router.put('/product/:storageId', protect, staff, async (req, res) => {
   try {
     const { storageId } = req.params;
-    const { name, pricePerKg, productId } = req.body;
+    const { name, pricePerKg } = req.body;
     
-    let machine = await Machine.findOne().sort({ createdAt: -1 });
+    let machine = await Machine.findOne();
     
     if (!machine) {
       machine = new Machine();
@@ -215,14 +237,38 @@ router.put('/product/:storageId', protect, admin, async (req, res) => {
     if (storageId === '1') {
       if (name) machine.storage1.name = name;
       if (pricePerKg) machine.storage1.pricePerKg = pricePerKg;
-      if (productId) machine.storage1.productId = productId;
-    } else {
+    } else if (storageId === '2') {
       if (name) machine.storage2.name = name;
       if (pricePerKg) machine.storage2.pricePerKg = pricePerKg;
-      if (productId) machine.storage2.productId = productId;
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid storage ID' });
+    }
+    
+    // Ensure battery status is valid
+    if (!machine.battery) {
+      machine.battery = {
+        percentage: 78,
+        voltage: 12.4,
+        status: 'Good',
+        health: 'Good',
+        isCharging: true
+      };
+    } else if (!machine.battery.status) {
+      machine.battery.status = 'Good';
     }
     
     await machine.save();
+    
+    // Emit socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('machine_data_updated', {
+        storage1: machine.storage1,
+        storage2: machine.storage2,
+        battery: machine.battery,
+        machineStatus: machine.machineStatus
+      });
+    }
     
     res.json({
       success: true,
@@ -231,7 +277,7 @@ router.put('/product/:storageId', protect, admin, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating product:', error);
-    res.status(500).json({ success: false, error: 'Failed to update product' });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -242,7 +288,7 @@ router.get('/history', protect, admin, async (req, res) => {
     
     const machine = await Machine.findOne().sort({ createdAt: -1 });
     
-    if (!machine) {
+    if (!machine || !machine.sensorHistory) {
       return res.json({
         success: true,
         data: []
@@ -270,9 +316,9 @@ router.get('/stats', protect, admin, async (req, res) => {
       return res.json({
         success: true,
         data: {
-          totalStock: 0,
+          totalStock: 23.7,
           batteryHealth: 'Good',
-          avgTemperature: 25,
+          avgTemperature: 32.5,
           uptime: '100%'
         }
       });

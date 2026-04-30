@@ -65,7 +65,7 @@ router.post('/register', async (req, res) => {
   console.log('Request body:', req.body);
   
   try {
-    const { email, password, firstName, lastName, phone, address } = req.body;
+    const { email, password, firstName, lastName, phone, address, role } = req.body;
 
     if (!email || !password || !firstName || !lastName) {
       console.log('❌ Missing required fields');
@@ -84,6 +84,9 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    // Allow role to be set to 'staff' or default to 'admin' for registered users
+    const userRole = role === 'staff' ? 'staff' : 'admin';
+
     const user = new User({
       email,
       password,
@@ -91,11 +94,12 @@ router.post('/register', async (req, res) => {
       lastName,
       phone: phone || '',
       address: address || '',
-      role: 'admin'
+      role: userRole
     });
 
     await user.save();
     console.log('✅ User saved to database:', user._id);
+    console.log('✅ User role:', user.role);
 
     const token = jwt.sign(
       { id: user._id },
@@ -175,6 +179,7 @@ router.post('/login', async (req, res) => {
     );
 
     console.log('✅ Login successful for:', email);
+    console.log('✅ User role:', user.role);
 
     res.json({
       success: true,
@@ -195,6 +200,73 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: 'Server error during login' 
+    });
+  }
+});
+
+// ===== CREATE STAFF ACCOUNT (Admin only or temporary endpoint) =====
+router.post('/create-staff', async (req, res) => {
+  console.log('👥 POST /api/auth/create-staff - Creating staff account');
+  
+  try {
+    const { email, password, firstName, lastName, phone, address } = req.body;
+
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Please provide all required fields' 
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      // If user exists, update role to staff
+      existingUser.role = 'staff';
+      existingUser.isActive = true;
+      await existingUser.save();
+      console.log('✅ Existing user updated to staff:', email);
+      return res.json({ 
+        success: true, 
+        message: 'User updated to staff role',
+        user: {
+          email: existingUser.email,
+          role: existingUser.role
+        }
+      });
+    }
+
+    const user = new User({
+      email,
+      password,
+      firstName,
+      lastName,
+      phone: phone || '',
+      address: address || '',
+      role: 'staff',
+      termsAccepted: true,
+      isActive: true
+    });
+
+    await user.save();
+    console.log('✅ Staff account created:', email);
+
+    res.status(201).json({
+      success: true,
+      message: 'Staff account created successfully',
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating staff:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
     });
   }
 });
@@ -482,6 +554,7 @@ router.get('/me', async (req, res) => {
     }
 
     console.log('✅ User found:', user.email);
+    console.log('✅ User role:', user.role);
 
     res.json({
       success: true,
