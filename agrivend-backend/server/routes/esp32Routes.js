@@ -1,98 +1,157 @@
 import express from 'express';
 import Transaction from '../models/Transaction.js';
 import { protect, admin } from '../middleware/auth.js';
+import SensorData from '../models/SensorData.js';
 
 const router = express.Router();
 
-// ============ ESP32 ENDPOINTS (No authentication required) ============
+// ============================================
+// PUBLIC ENDPOINTS (No authentication required)
+// These are for your website dashboard
+// ============================================
 
-// ESP32 sends sensor data (stock, battery, security)
-router.post('/sensors/update', async (req, res) => {
-  console.log('📡 ESP32 Sensor data received:', new Date().toISOString());
-  
+// Get latest sensor data for public dashboard
+router.get('/public/latest', async (req, res) => {
   try {
-    const {
-      container1Level,
-      container2Level,
-      collectionBinWeight,
-      batteryVoltage,
-      batteryPercentage,
-      temperature,
-      humidity,
-      doorStatus,
-      vibrationDetected,
-      machineStatus,
-      container1Stock,
-      container2Stock,
-      deviceId
-    } = req.body;
-
-    const sensorData = new SensorData({
-      container1Level,
-      container2Level,
-      collectionBinWeight: collectionBinWeight || 0,
-      batteryVoltage,
-      batteryPercentage,
-      temperature,
-      humidity,
-      doorStatus: doorStatus || 'CLOSED',
-      machineStatus: machineStatus || 'ACTIVE',
-      container1Stock: container1Stock || (container1Level >= 5 ? 'OK' : (container1Level > 0 ? 'LOW' : 'EMPTY')),
-      container2Stock: container2Stock || (container2Level >= 5 ? 'OK' : (container2Level > 0 ? 'LOW' : 'EMPTY'))
-    });
-
-    await sensorData.save();
-
-    // Emit real-time update via Socket.io
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('sensor_update', sensorData);
-      
-      // Check for alerts
-      const alerts = [];
-      if (sensorData.container1Stock === 'LOW' || sensorData.container1Stock === 'EMPTY') {
-        alerts.push({ type: 'LOW_STOCK', container: 'Sinandomeng', level: container1Level });
-      }
-      if (sensorData.container2Stock === 'LOW' || sensorData.container2Stock === 'EMPTY') {
-        alerts.push({ type: 'LOW_STOCK', container: 'Dinorado', level: container2Level });
-      }
-      if (batteryPercentage < 20) {
-        alerts.push({ type: 'LOW_BATTERY', percentage: batteryPercentage });
-      }
-      if (doorStatus === 'OPEN') {
-        alerts.push({ type: 'SECURITY', message: 'Door is open!' });
-      }
-      if (vibrationDetected) {
-        alerts.push({ type: 'SECURITY', message: 'Vibration detected!' });
-      }
-      
-      if (alerts.length > 0) {
-        io.emit('alerts', alerts);
-      }
+    const latestData = await SensorData.findOne().sort({ createdAt: -1 });
+    
+    if (!latestData) {
+      return res.json({
+        success: true,
+        data: {
+          container1Level: 0,
+          container2Level: 0,
+          totalStock: 0,
+          batteryPercentage: 100,
+          doorStatus: 'CLOSED',
+          machineStatus: 'ACTIVE',
+          lastUpdate: null
+        }
+      });
     }
-
-    res.json({ success: true, message: 'Sensor data saved' });
+    
+    res.json({
+      success: true,
+      data: {
+        container1Level: latestData.container1Level,
+        container2Level: latestData.container2Level,
+        totalStock: latestData.container1Level + latestData.container2Level,
+        batteryPercentage: latestData.batteryPercentage,
+        doorStatus: latestData.doorStatus,
+        machineStatus: latestData.machineStatus,
+        container1Stock: latestData.container1Stock,
+        container2Stock: latestData.container2Stock,
+        lastUpdate: latestData.updatedAt || latestData.createdAt
+      }
+    });
   } catch (error) {
-    console.error('❌ Error saving sensor data:', error);
+    console.error('❌ Error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// ESP32 confirms transaction
-router.post('/transaction/confirm', async (req, res) => {
-  console.log('💰 ESP32 Transaction confirmation received');
+// Get specific storage data
+router.get('/public/storage/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const latestData = await SensorData.findOne().sort({ createdAt: -1 });
+    const maxLevel = 20;
+    
+    if (!latestData) {
+      return res.json({
+        success: true,
+        data: { level: 0, maxLevel, percentage: 0, fillLevel: '0%', status: 'OK', remainingKg: 0 }
+      });
+    }
+    
+    const level = id === '1' ? latestData.container1Level : latestData.container2Level;
+    const percentage = (level / maxLevel) * 100;
+    const stockStatus = id === '1' ? latestData.container1Stock : latestData.container2Stock;
+    
+    res.json({
+      success: true,
+      data: {
+        level: level,
+        maxLevel: maxLevel,
+        percentage: percentage,
+        fillLevel: percentage.toFixed(1) + '%',
+        status: stockStatus,
+        remainingKg: level
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get machine summary
+router.get('/public/summary', async (req, res) => {
+  try {
+    const latestData = await SensorData.findOne().sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      data: {
+        totalStock: latestData ? (latestData.container1Level + latestData.container2Level) : 0,
+        batteryPercentage: latestData?.batteryPercentage || 100,
+        doorStatus: latestData?.doorStatus || 'CLOSED',
+        machineStatus: latestData?.machineStatus || 'ACTIVE'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
+// ESP32 ENDPOINTS (No authentication)
+// ============================================
+
+router.post('/sensors/update', async (req, res) => {
+  console.log('📡 ESP32 Sensor data received');
   
   try {
     const {
-      transactionId,
-      riceType,
-      quantityKg,
-      amountPaid,
-      status,
-      deviceId
+      container1Level, container2Level, collectionBinWeight,
+      batteryVoltage, batteryPercentage, temperature, humidity,
+      doorStatus, vibrationDetected, machineStatus,
+      container1Stock, container2Stock, deviceId
     } = req.body;
+
+    const sensorData = new SensorData({
+      container1Level: container1Level || 0,
+      container2Level: container2Level || 0,
+      collectionBinWeight: collectionBinWeight || 0,
+      batteryVoltage: batteryVoltage || 12.5,
+      batteryPercentage: batteryPercentage || 100,
+      temperature: temperature || 25,
+      humidity: humidity || 60,
+      doorStatus: doorStatus || 'CLOSED',
+      vibrationDetected: vibrationDetected || false,
+      machineStatus: machineStatus || 'ACTIVE',
+      container1Stock: container1Stock || (container1Level >= 5 ? 'OK' : (container1Level > 0 ? 'LOW' : 'EMPTY')),
+      container2Stock: container2Stock || (container2Level >= 5 ? 'OK' : (container2Level > 0 ? 'LOW' : 'EMPTY')),
+      deviceId: deviceId || 'AGRIVEND_001'
+    });
+
+    await sensorData.save();
+    console.log(`✅ Saved: Stock1=${container1Level}kg, Stock2=${container2Level}kg`);
+
+    const io = req.app.get('io');
+    if (io) io.emit('sensor_update', sensorData);
+
+    res.json({ success: true, message: 'Sensor data saved' });
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/transaction/confirm', async (req, res) => {
+  try {
+    const { transactionId, riceType, quantityKg, amountPaid, status } = req.body;
     
-    // Save transaction
     const transaction = new Transaction({
       transactionId: transactionId || `TXN-${Date.now()}`,
       riceType: riceType || 'Sinandomeng',
@@ -105,65 +164,37 @@ router.post('/transaction/confirm', async (req, res) => {
     
     await transaction.save();
     
-    // Emit socket event
     const io = req.app.get('io');
-    if (io) {
-      io.emit('new_transaction', transaction);
-    }
+    if (io) io.emit('new_transaction', transaction);
     
     res.json({ success: true, message: 'Transaction recorded' });
   } catch (error) {
-    console.error('❌ Error recording transaction:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// ESP32 sends security alert
 router.post('/security/alert', async (req, res) => {
-  console.log('🚨 ESP32 Security alert received');
+  console.log('🚨 Security alert:', req.body.alertType);
   
-  try {
-    const { alertType, deviceId, doorStatus, timestamp } = req.body;
-    
-    console.log(`⚠️ ALERT: ${alertType} from device ${deviceId}`);
-    console.log(`   Door status: ${doorStatus}`);
-    
-    // Emit security alert to admin dashboard
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('security_alert', {
-        deviceId,
-        alertType,
-        doorStatus,
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('❌ Error handling security alert:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
+  const io = req.app.get('io');
+  if (io) io.emit('security_alert', req.body);
+  
+  res.json({ success: true });
 });
 
-// ============ ADMIN ENDPOINTS (Requires authentication) ============
+// ============================================
+// ADMIN PROTECTED ENDPOINTS
+// ============================================
 
-// Get machine status (last known sensor data)
 router.get('/machine/status', protect, admin, async (req, res) => {
   try {
     const latestData = await SensorData.findOne().sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      data: latestData || null
-    });
+    res.json({ success: true, data: latestData || null });
   } catch (error) {
-    console.error('❌ Error fetching machine status:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Get sensor history
 router.get('/sensors/history', protect, admin, async (req, res) => {
   try {
     const { limit = 100, days = 7 } = req.query;
@@ -172,13 +203,10 @@ router.get('/sensors/history', protect, admin, async (req, res) => {
     
     const history = await SensorData.find({
       createdAt: { $gte: cutoffDate }
-    })
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit));
+    }).sort({ createdAt: -1 }).limit(parseInt(limit));
     
     res.json({ success: true, data: history });
   } catch (error) {
-    console.error('❌ Error fetching sensor history:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

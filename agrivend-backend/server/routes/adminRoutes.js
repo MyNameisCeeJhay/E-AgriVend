@@ -864,4 +864,136 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
   }
 });
 
+<<<<<<< HEAD
+=======
+router.get('/dashboard/stats', protect, admin, async (req, res) => {
+  console.log('📊 GET /api/admin/dashboard/stats - by:', req.user?.email);
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+    weekStart.setHours(0, 0, 0, 0);
+    
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    
+    // Use try-catch for each aggregation to prevent complete failure
+    let todaySalesResult = [];
+    let weekSalesResult = [];
+    let monthSalesResult = [];
+    let pendingReturns = 0;
+    let unreadMessages = 0;
+    let totalTransactions = 0;
+    
+    try {
+      todaySalesResult = await Transaction.aggregate([
+        { $match: { createdAt: { $gte: today } } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]);
+    } catch (err) {
+      console.log('No transactions found for today');
+    }
+    
+    try {
+      weekSalesResult = await Transaction.aggregate([
+        { $match: { createdAt: { $gte: weekStart } } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]);
+    } catch (err) {
+      console.log('No transactions found for week');
+    }
+    
+    try {
+      monthSalesResult = await Transaction.aggregate([
+        { $match: { createdAt: { $gte: monthStart } } },
+        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+      ]);
+    } catch (err) {
+      console.log('No transactions found for month');
+    }
+    
+    try {
+      pendingReturns = await Return?.countDocuments({ status: 'PENDING' }) || 0;
+    } catch (err) {
+      console.log('Return model not available');
+    }
+    
+    try {
+      unreadMessages = await Message?.countDocuments({ status: 'unread' }) || 0;
+    } catch (err) {
+      console.log('Message model not available');
+    }
+    
+    try {
+      totalTransactions = await Transaction.countDocuments({});
+    } catch (err) {
+      console.log('Error counting transactions');
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        todaySales: todaySalesResult[0]?.total || 0,
+        weekSales: weekSalesResult[0]?.total || 0,
+        monthSales: monthSalesResult[0]?.total || 0,
+        pendingReturns: pendingReturns,
+        unreadMessages: unreadMessages,
+        totalTransactions: totalTransactions
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      data: {
+        todaySales: 0,
+        weekSales: 0,
+        monthSales: 0,
+        pendingReturns: 0,
+        unreadMessages: 0,
+        totalTransactions: 0
+      }
+    });
+  }
+});
+
+// ===== RECENT TRANSACTIONS ENDPOINT =====
+router.get('/transactions/recent', protect, admin, async (req, res) => {
+  console.log('📋 GET /api/admin/transactions/recent - by:', req.user?.email);
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    
+    // Don't filter by status if the field doesn't exist
+    const transactions = await Transaction.find({})
+      .sort({ createdAt: -1 })
+      .limit(limit);
+    
+    // Format transactions to match frontend expectations
+    const formattedTransactions = transactions.map(t => ({
+      _id: t._id,
+      transactionId: t.transactionId || t._id.toString().slice(-8),
+      riceType: t.riceType || 'N/A',
+      quantityKg: t.quantityKg || 0,
+      totalAmount: t.amountPaid || t.totalAmount || 0,
+      createdAt: t.createdAt || new Date()
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedTransactions
+    });
+  } catch (error) {
+    console.error('Error fetching recent transactions:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+>>>>>>> cca433336844cb1b03e3a222e9fe2190a43ee80b
 export default router;

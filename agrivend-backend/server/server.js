@@ -18,10 +18,9 @@ const __dirname = path.dirname(__filename);
 const isProduction = process.env.NODE_ENV === 'production';
 
 if (!isProduction) {
-  // Development: Load .env from parent directory (since server.js is in /server folder)
   const envPath = path.resolve(__dirname, '../.env');
   console.log('🔍 Loading .env from:', envPath);
-  
+
   if (fs.existsSync(envPath)) {
     const result = dotenv.config({ path: envPath });
     if (result.error) {
@@ -39,22 +38,20 @@ if (!isProduction) {
   console.log('📋 Using environment variables from Render dashboard');
 }
 
-// Check required variables (PORT is optional in production - Render provides it)
+// Check required variables
 const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET'];
-const missingVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+const missingVars = requiredEnvVars.filter((envVar) => !process.env[envVar]);
 
 if (missingVars.length > 0) {
   console.error('❌ Missing required environment variables:', missingVars.join(', '));
   if (!isProduction) process.exit(1);
 }
 
-// Set default PORT for production if not set
 if (!process.env.PORT && isProduction) {
   process.env.PORT = 10000;
   console.log('⚠️  PORT not set, using default:', process.env.PORT);
 }
 
-// Check optional configurations
 if (!process.env.FRONTEND_URL && isProduction) {
   console.warn('⚠️  FRONTEND_URL not set. CORS might not work correctly.');
   console.warn('   Make sure to set FRONTEND_URL in Render environment variables');
@@ -81,31 +78,71 @@ import adminRoutes from './routes/adminRoutes.js';
 import machineRatingRoutes from './routes/machineRatingRoutes.js';
 import esp32Routes from './routes/esp32Routes.js';
 import refundRoutes from './routes/refundRoutes.js';
-import machineRoutes from './routes/machineRoutes.js';  // ADD THIS
+import machineRoutes from './routes/machineRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
 import User from './models/User.js';
-
 
 // Initialize express
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.io
+// ===== CORS CONFIGURATION =====
+// Production origins (explicitly listed from environment variable)
+const allowedOrigins = [
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+];
+
+// FIX: Regex to match ANY localhost port
+// Flutter Web picks a random port on every run (60767, 61713, etc.)
+// We cannot hardcode specific ports — this regex allows all of them
+const localhostRegex = /^http:\/\/localhost(:\d+)?$/;
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow Flutter mobile apps (Android/iOS send no Origin header)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // Allow any localhost port — Flutter Web dev on any random port
+    if (localhostRegex.test(origin)) {
+      return callback(null, true);
+    }
+
+    // Allow production origins listed in FRONTEND_URL env var
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn(`⚠️  CORS blocked request from origin: ${origin}`);
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
+
+// Initialize Socket.io with matching CORS config
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL, 'http://localhost:3000'] : '*',
+    origin: function (origin, callback) {
+      if (!origin || localhostRegex.test(origin) || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed`));
+    },
     methods: ['GET', 'POST'],
-    credentials: true
+    credentials: true,
   },
   transports: ['websocket', 'polling'],
-  allowEIO3: true
+  allowEIO3: true,
 });
 
 app.set('io', io);
 
 io.on('connection', (socket) => {
   console.log('🟢 New client connected:', socket.id);
-  
+
   socket.on('join_user_room', (userId) => {
     socket.join(`user_${userId}`);
     console.log(`User ${userId} joined their room`);
@@ -120,32 +157,33 @@ io.on('connection', (socket) => {
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
     console.log('✅ MongoDB Connected successfully');
+    // Create default staff accounts after connection
+    createDefaultStaffAccounts();
   })
-  .catch(err => {
+  .catch((err) => {
     console.error('❌ MongoDB connection error:', err);
     process.exit(1);
   });
 
-// Middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
+// ===== MIDDLEWARE =====
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
 
-// Configure CORS
-const allowedOrigins = process.env.FRONTEND_URL 
-  ? [process.env.FRONTEND_URL, 'http://localhost:3000']
-  : ['http://localhost:3000'];
+// FIX: Apply CORS middleware BEFORE all route definitions
+app.use(cors(corsOptions));
 
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
-}));
+// FIX: Explicitly handle preflight OPTIONS requests for every route
+// Browsers always send OPTIONS before cross-origin POST/PUT/DELETE
+app.options('*', cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// Create uploads directory if it doesn't exist (for production)
+// Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -171,7 +209,6 @@ console.log('   /api/refund → refundRoutes');
 console.log('   /api/machine → machineRoutes');
 console.log('   /api/staff → staffRoutes');
 
-
 app.use('/api/auth', authRoutes);
 app.use('/api/terms', termsRoutes);
 app.use('/api/sensors', sensorRoutes);
@@ -186,8 +223,7 @@ app.use('/api/refund', refundRoutes);
 app.use('/api/machine', machineRoutes);
 app.use('/api/staff', staffRoutes);
 
-
-// ===== CREATE DEFAULT STAFF ACCOUNTS ON SERVER START =====
+// ===== CREATE DEFAULT STAFF ACCOUNTS =====
 const createDefaultStaffAccounts = async () => {
   try {
     console.log('\n👥 Checking for staff accounts...');
@@ -242,12 +278,6 @@ const createDefaultStaffAccounts = async () => {
     console.error('❌ Error creating staff accounts:', error.message);
   }
 };
-
-// Call this after MongoDB connection is established
-mongoose.connection.once('open', async () => {
-  console.log('🔧 MongoDB connection established, creating default staff accounts...');
-  await createDefaultStaffAccounts();
-});
 
 // ===== STAFF ACCOUNT CREATION ENDPOINT (Alternative method via API) =====
 app.post('/api/auth/create-staff', async (req, res) => {
@@ -400,11 +430,11 @@ app.get('/api/admin/refunds/stats', async (req, res) => {
 
 // Test route
 app.get('/api/test', (req, res) => {
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: 'API is working',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
+    environment: process.env.NODE_ENV,
   });
 });
 
@@ -417,25 +447,30 @@ app.get('/api/health', (req, res) => {
     environment: process.env.NODE_ENV,
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     emailConfigured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
-    frontendUrl: process.env.FRONTEND_URL || 'not set'
+    frontendUrl: process.env.FRONTEND_URL || 'not set',
+    cors: {
+      productionOrigins: allowedOrigins,
+      localhostAllowed: true,
+      mobileAllowed: true,
+    },
   });
 });
 
 // 404 handler
 app.use('*', (req, res) => {
   console.log(`❌ 404 - Route not found: ${req.originalUrl}`);
-  res.status(404).json({ 
+  res.status(404).json({
     success: false,
-    error: `Route ${req.originalUrl} not found` 
+    error: `Route ${req.originalUrl} not found`,
   });
 });
 
 // Error handler
 app.use((err, req, res, next) => {
   console.error('❌ Server error:', err);
-  res.status(500).json({ 
+  res.status(500).json({
     success: false,
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
   });
 });
 
@@ -448,6 +483,7 @@ server.listen(PORT, () => {
   console.log(`🚀 Port: ${PORT}`);
   console.log(`🌐 Frontend: ${process.env.FRONTEND_URL || 'Not set'}`);
   console.log(`📦 MongoDB: Connected`);
+  console.log(`🔒 CORS: All localhost ports allowed + Flutter mobile`);
   console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configured ⚠️'}`);
   console.log('=================================\n');
   console.log('📝 Login Credentials:');
