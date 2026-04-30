@@ -394,4 +394,23 @@ router.get('/admin/stats/summary', protect, admin, async (req, res) => {
   }
 });
 
+// DEBUG: List recent transactions (admin only)
+router.get('/debug/transactions', protect, admin, async (req, res) => {
+  try {
+    const transactions = await Transaction.find({})
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select('transactionId status amountPaid createdAt');
+    
+    console.log('📊 Recent transactions:', transactions.map(t => t.transactionId));
+    
+    res.json({
+      success: true,
+      data: transactions
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

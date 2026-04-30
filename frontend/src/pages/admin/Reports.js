@@ -1,8 +1,10 @@
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import './Reports.css';
-import { API_URL } from '../../config';
+
 
 const AdminReports = () => {
   const { user } = useAuth();

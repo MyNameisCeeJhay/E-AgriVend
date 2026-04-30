@@ -195,6 +195,18 @@ void sendSensorDataToBackend() {
     return;
   }
   
+  // Don't send if we're using default values and Mega is not connected
+  if (!megaConnected) {
+    Serial.println("⚠️ Mega not connected - Skipping data send");
+    return;
+  }
+  
+  // Don't send if we haven't received any valid data yet
+  if (lastMegaData == 0) {
+    Serial.println("⚠️ No data received from Mega yet - Skipping");
+    return;
+  }
+  
   HTTPClient http;
   String url = String(BACKEND_URL) + ENDPOINT_SENSORS;
   http.begin(url);
@@ -216,27 +228,18 @@ void sendSensorDataToBackend() {
   doc["machineStatus"] = machineStatus;
   doc["container1Stock"] = getContainer1StockStatus();
   doc["container2Stock"] = getContainer2StockStatus();
-  
-  // Add machine state info
   doc["machineState"] = machineState;
   doc["transactionCount"] = transactionCount;
   
   String jsonString;
   serializeJson(doc, jsonString);
   
-  Serial.print("Sending sensor data to: ");
-  Serial.println(url);
-  
   int httpResponseCode = http.POST(jsonString);
   
-  if (httpResponseCode > 0) {
-    if (httpResponseCode == 200) {
-      Serial.println("✅ Sensor data sent to backend successfully!");
-    } else {
-      Serial.printf("📤 Response code: %d\n", httpResponseCode);
-    }
+  if (httpResponseCode == 200) {
+    Serial.println("✅ Real sensor data sent to backend!");
   } else {
-    Serial.printf("❌ Error sending sensor data: %d\n", httpResponseCode);
+    Serial.printf("❌ Error sending data: %d\n", httpResponseCode);
   }
   
   http.end();
@@ -478,15 +481,26 @@ void printStatus() {
 }
 
 // ============================================
-// MAIN LOOP
+// MAIN LOOP - FIXED: Only send when Mega is connected
 // ============================================
 void loop() {
   processMegaData();
   checkMegaConnection();
   
+  // ONLY send to backend if Mega is ACTUALLY connected AND we have received real data
   if (millis() - lastSendToBackend >= BACKEND_INTERVAL) {
-    if (megaConnected && WiFi.status() == WL_CONNECTED) {
-      sendSensorDataToBackend();
+    // Check if we've received any valid data from Mega (not just garbage)
+    if (megaConnected && lastMegaData > 0 && WiFi.status() == WL_CONNECTED) {
+      // Only send if we've received a valid DATA packet (not just garbage)
+      if (transactionCount > 0 || machineState > 0 || container1Level != 20.0) {
+        // We have real data, send it
+        sendSensorDataToBackend();
+        Serial.println("📤 Sending REAL Mega data to backend");
+      } else {
+        Serial.println("⚠️ Mega connected but no valid data received yet - waiting...");
+      }
+    } else if (!megaConnected) {
+      Serial.println("⏳ Waiting for Mega connection... (no data sent)");
     }
     lastSendToBackend = millis();
   }

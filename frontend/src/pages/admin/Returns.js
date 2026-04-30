@@ -1,9 +1,11 @@
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
 import './Returns.css';
-import { API_URL } from '../../config';
+
 
 const AdminReturns = () => {
   const { user } = useAuth();
