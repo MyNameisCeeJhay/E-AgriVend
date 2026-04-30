@@ -864,136 +864,492 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
   }
 });
 
-<<<<<<< HEAD
-=======
-router.get('/dashboard/stats', protect, admin, async (req, res) => {
-  console.log('📊 GET /api/admin/dashboard/stats - by:', req.user?.email);
+router.get('/users', protect, admin, async (req, res) => {
+  console.log('👥 GET /api/admin/users - by:', req.user?.email);
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { 
+      page = 1, 
+      limit = 10, 
+      search = '', 
+      role = 'all', 
+      status = 'all',
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    console.log('Query params:', { page, limit, search, role, status, sortBy, sortOrder });
+
+    let query = {};
     
-    const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-    weekStart.setHours(0, 0, 0, 0);
+    // Filter by role - IMPORTANT: Use 'staff' not 'admin' for staff management
+    if (role === 'staff') {
+      query.role = 'staff';
+    } else if (role === 'admin') {
+      query.role = 'admin';
+    } else if (role === 'customer') {
+      query.role = 'customer';
+    }
+    // If role === 'all', don't add role filter
     
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
-    
-    // Use try-catch for each aggregation to prevent complete failure
-    let todaySalesResult = [];
-    let weekSalesResult = [];
-    let monthSalesResult = [];
-    let pendingReturns = 0;
-    let unreadMessages = 0;
-    let totalTransactions = 0;
-    
-    try {
-      todaySalesResult = await Transaction.aggregate([
-        { $match: { createdAt: { $gte: today } } },
-        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
-      ]);
-    } catch (err) {
-      console.log('No transactions found for today');
+    // Filter by status
+    if (status !== 'all') {
+      query.isActive = status === 'active';
     }
     
-    try {
-      weekSalesResult = await Transaction.aggregate([
-        { $match: { createdAt: { $gte: weekStart } } },
-        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
-      ]);
-    } catch (err) {
-      console.log('No transactions found for week');
+    // Search by name or email
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
     }
     
-    try {
-      monthSalesResult = await Transaction.aggregate([
-        { $match: { createdAt: { $gte: monthStart } } },
-        { $group: { _id: null, total: { $sum: '$amountPaid' } } }
-      ]);
-    } catch (err) {
-      console.log('No transactions found for month');
-    }
+    // Sort order
+    const sortOption = {};
+    sortOption[sortBy] = sortOrder === 'desc' ? -1 : 1;
     
-    try {
-      pendingReturns = await Return?.countDocuments({ status: 'PENDING' }) || 0;
-    } catch (err) {
-      console.log('Return model not available');
-    }
+    const users = await User.find(query)
+      .select('-password')
+      .sort(sortOption)
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
     
-    try {
-      unreadMessages = await Message?.countDocuments({ status: 'unread' }) || 0;
-    } catch (err) {
-      console.log('Message model not available');
-    }
+    const total = await User.countDocuments(query);
     
-    try {
-      totalTransactions = await Transaction.countDocuments({});
-    } catch (err) {
-      console.log('Error counting transactions');
+    // Calculate stats based on role filter
+    let statsQuery = {};
+    if (role === 'staff') {
+      statsQuery.role = 'staff';
+    } else if (role === 'admin') {
+      statsQuery.role = 'admin';
     }
+    // For 'all', statsQuery is empty
     
+    const totalStats = await User.countDocuments(statsQuery);
+    const activeStats = await User.countDocuments({ ...statsQuery, isActive: true });
+    const inactiveStats = await User.countDocuments({ ...statsQuery, isActive: false });
+    const newTodayStats = await User.countDocuments({
+      ...statsQuery,
+      createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+    });
+    
+    const stats = {
+      total: totalStats,
+      active: activeStats,
+      inactive: inactiveStats,
+      admins: await User.countDocuments({ role: 'admin' }),
+      customers: await User.countDocuments({ role: 'customer' }),
+      newToday: newTodayStats
+    };
+
+    console.log(`✅ Found ${users.length} users (total: ${total})`);
+
     res.json({
       success: true,
-      data: {
-        todaySales: todaySalesResult[0]?.total || 0,
-        weekSales: weekSalesResult[0]?.total || 0,
-        monthSales: monthSalesResult[0]?.total || 0,
-        pendingReturns: pendingReturns,
-        unreadMessages: unreadMessages,
-        totalTransactions: totalTransactions
-      }
+      data: users,
+      pagination: {
+        total,
+        page: parseInt(page),
+        pages: Math.ceil(total / parseInt(limit))
+      },
+      stats
     });
   } catch (error) {
-    console.error('Error fetching dashboard stats:', error);
+    console.error('❌ Error fetching users:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message,
-      data: {
-        todaySales: 0,
-        weekSales: 0,
-        monthSales: 0,
-        pendingReturns: 0,
-        unreadMessages: 0,
-        totalTransactions: 0
-      }
+      error: 'Server error' 
     });
   }
 });
 
-// ===== RECENT TRANSACTIONS ENDPOINT =====
-router.get('/transactions/recent', protect, admin, async (req, res) => {
-  console.log('📋 GET /api/admin/transactions/recent - by:', req.user?.email);
+// Get single user details
+router.get('/users/:userId', protect, admin, async (req, res) => {
+  console.log('👤 GET /api/admin/users/:userId - by:', req.user?.email);
   try {
-    const limit = parseInt(req.query.limit) || 5;
+    const user = await User.findById(req.params.userId).select('-password');
     
-    // Don't filter by status if the field doesn't exist
-    const transactions = await Transaction.find({})
-      .sort({ createdAt: -1 })
-      .limit(limit);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    // Get user statistics from transactions
+    const transactionCount = await Transaction.countDocuments({ user: user._id });
+    const totalSpent = await Transaction.aggregate([
+      { $match: { user: user._id } },
+      { $group: { _id: null, total: { $sum: '$amountPaid' } } }
+    ]);
     
-    // Format transactions to match frontend expectations
-    const formattedTransactions = transactions.map(t => ({
-      _id: t._id,
-      transactionId: t.transactionId || t._id.toString().slice(-8),
-      riceType: t.riceType || 'N/A',
-      quantityKg: t.quantityKg || 0,
-      totalAmount: t.amountPaid || t.totalAmount || 0,
-      createdAt: t.createdAt || new Date()
-    }));
-    
+    const returnCount = await Return.countDocuments({ user: user._id });
+    const messageCount = await Message.countDocuments({ user: user._id });
+    const ratingCount = await Rating.countDocuments({ user: user._id });
+
     res.json({
       success: true,
-      data: formattedTransactions
+      data: {
+        ...user.toObject(),
+        stats: {
+          transactionCount,
+          totalSpent: totalSpent[0]?.total || 0,
+          returnCount,
+          messageCount,
+          ratingCount
+        }
+      }
     });
   } catch (error) {
-    console.error('Error fetching recent transactions:', error);
+    console.error('❌ Error fetching user:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: 'Server error' 
     });
   }
 });
 
->>>>>>> cca433336844cb1b03e3a222e9fe2190a43ee80b
+// Create new user (staff account)
+router.post('/users', protect, admin, async (req, res) => {
+  console.log('➕ POST /api/admin/users - Creating new user by:', req.user?.email);
+  try {
+    const { email, password, firstName, lastName, phone, address, role, isActive } = req.body;
+
+    console.log('Request body:', { email, firstName, lastName, role, isActive });
+
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email, password, first name, and last name are required' 
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email already registered' 
+      });
+    }
+
+    const newUser = new User({
+      email,
+      password,
+      firstName,
+      lastName,
+      phone: phone || '',
+      address: address || '',
+      role: role || 'staff',
+      isActive: isActive !== undefined ? isActive : true
+    });
+
+    await newUser.save();
+
+    console.log('✅ User created successfully:', newUser.email);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('staff_created', {
+        userId: newUser._id,
+        name: `${newUser.firstName} ${newUser.lastName}`,
+        email: newUser.email
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id: newUser._id,
+        email: newUser.email,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        role: newUser.role,
+        isActive: newUser.isActive
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error creating user:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
+  }
+});
+
+// Update user
+router.put('/users/:userId', protect, admin, async (req, res) => {
+  console.log('✏️ PUT /api/admin/users/:userId - Updating user by:', req.user?.email);
+  try {
+    const { firstName, lastName, email, phone, address, role, isActive } = req.body;
+
+    const user = await User.findById(req.params.userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    if (email && email !== user.email) {
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Email already in use' 
+        });
+      }
+      user.email = email;
+    }
+
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (phone !== undefined) user.phone = phone;
+    if (address !== undefined) user.address = address;
+    if (role) user.role = role;
+    if (isActive !== undefined) user.isActive = isActive;
+
+    await user.save();
+
+    console.log('✅ User updated successfully:', user.email);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('staff_updated', {
+        userId: user._id,
+        name: `${user.firstName} ${user.lastName}`,
+        email: user.email
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        isActive: user.isActive
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error updating user:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
+  }
+});
+
+// Delete user
+router.delete('/users/:userId', protect, admin, async (req, res) => {
+  console.log('🗑️ DELETE /api/admin/users/:userId - Deleting user by:', req.user?.email);
+  try {
+    const user = await User.findById(req.params.userId);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    if (user._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Cannot delete your own account' 
+      });
+    }
+
+    await User.findByIdAndDelete(req.params.userId);
+
+    console.log('✅ User deleted successfully:', user.email);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('staff_deleted', {
+        userId: user._id,
+        email: user.email
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+  } catch (error) {
+    console.error('❌ Error deleting user:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
+  }
+});
+
+// Toggle user active status
+router.patch('/users/:userId/toggle-status', protect, admin, async (req, res) => {
+  console.log('🔄 PATCH /api/admin/users/:userId/toggle-status - by:', req.user?.email);
+  try {
+    const user = await User.findById(req.params.userId);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    if (user._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Cannot modify your own account status' 
+      });
+    }
+
+    user.isActive = !user.isActive;
+    await user.save();
+
+    const action = user.isActive ? 'activated' : 'deactivated';
+    console.log(`✅ User ${action}:`, user.email);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('staff_status_changed', {
+        userId: user._id,
+        isActive: user.isActive,
+        action
+      });
+    }
+
+    res.json({
+      success: true,
+      data: user,
+      message: `User ${action} successfully`
+    });
+  } catch (error) {
+    console.error('❌ Error toggling user status:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
+  }
+});
+
+// Reset user password
+router.post('/users/:userId/reset-password', protect, admin, async (req, res) => {
+  console.log('🔑 POST /api/admin/users/:userId/reset-password - by:', req.user?.email);
+  try {
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Password must be at least 6 characters' 
+      });
+    }
+
+    const user = await User.findById(req.params.userId);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    console.log('✅ Password reset for user:', user.email);
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('❌ Error resetting password:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
+  }
+});
+
+// Bulk delete users
+router.post('/users/bulk/delete', protect, admin, async (req, res) => {
+  console.log('🗑️ POST /api/admin/users/bulk/delete - Bulk delete by:', req.user?.email);
+  try {
+    const { userIds } = req.body;
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'User IDs array is required' 
+      });
+    }
+
+    const filteredIds = userIds.filter(id => id !== req.user._id.toString());
+    const deletedCount = filteredIds.length;
+
+    await User.deleteMany({ _id: { $in: filteredIds } });
+
+    console.log(`✅ ${deletedCount} users deleted`);
+
+    res.json({
+      success: true,
+      message: `${deletedCount} users deleted successfully`
+    });
+  } catch (error) {
+    console.error('❌ Error bulk deleting users:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
+  }
+});
+
+// Bulk update user status
+router.post('/users/bulk/status', protect, admin, async (req, res) => {
+  console.log('🔄 POST /api/admin/users/bulk/status - Bulk status update by:', req.user?.email);
+  try {
+    const { userIds, isActive } = req.body;
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'User IDs array is required' 
+      });
+    }
+
+    if (isActive === undefined) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'isActive status is required' 
+      });
+    }
+
+    const filteredIds = userIds.filter(id => id !== req.user._id.toString());
+    const updatedCount = filteredIds.length;
+
+    await User.updateMany(
+      { _id: { $in: filteredIds } },
+      { $set: { isActive: isActive } }
+    );
+
+    console.log(`✅ ${updatedCount} users updated to ${isActive ? 'active' : 'inactive'}`);
+
+    res.json({
+      success: true,
+      message: `${updatedCount} users updated successfully`
+    });
+  } catch (error) {
+    console.error('❌ Error bulk updating users:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
+  }
+});
+
 export default router;
