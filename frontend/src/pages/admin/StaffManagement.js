@@ -1,10 +1,11 @@
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
 import './StaffManagement.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const StaffManagement = () => {
   const { user } = useAuth();
@@ -94,29 +95,36 @@ const StaffManagement = () => {
   };
 
   const fetchStaff = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`${API_URL}/admin/users`, {
-        params: {
-          page: pagination.page,
-          limit: 10,
-          search: filters.search,
-          status: filters.status,
-          sortBy: filters.sortBy,
-          sortOrder: filters.sortOrder,
-          role: 'staff'
-        }
-      });
-      setStaffMembers(response.data.data);
-      setPagination(response.data.pagination);
-      setStats(response.data.stats);
-    } catch (error) {
-      console.error('Error fetching staff:', error);
-      showNotification('error', 'Failed to load staff members');
-    } finally {
-      setLoading(false);
-    }
-  };
+  try {
+    setLoading(true);
+    const response = await axios.get(`${API_URL}/admin/users`, {
+      params: {
+        page: pagination.page,
+        limit: 10,
+        search: filters.search,
+        status: filters.status,
+        sortBy: filters.sortBy,
+        sortOrder: filters.sortOrder,
+        role: 'staff'
+      }
+    });
+    // PROBLEM IS HERE - Check the actual response structure
+    console.log('Full response:', response.data); // Add this for debugging
+    console.log('API Response:', response.data);
+    console.log('Staff data:', response.data.data);
+    console.log('Staff count:', response.data.data?.length);
+    
+    // Try this instead:
+    setStaffMembers(response.data.data || []);  // Your current code
+    setPagination(response.data.pagination);
+    setStats(response.data.stats);
+  } catch (error) {
+    console.error('Error fetching staff:', error);
+    showNotification('error', 'Failed to load staff members');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleSearch = (e) => {
     e.preventDefault();

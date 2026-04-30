@@ -5,7 +5,19 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './RefundRequest.css';
 
+// Helper function to format transaction ID for display/validation
+const formatTransactionId = (transactionNumber) => {
+  // Remove any whitespace and convert to uppercase
+  return transactionNumber.trim().toUpperCase();
+};
 
+// Helper function to validate transaction ID format
+const isValidTransactionFormat = (transactionNumber) => {
+  // Matches format: TXN-YYYYMMDD-HHMMSS-XXX
+  // Example: TXN-20250430-143025-042
+  const regex = /^TXN-\d{8}-\d{6}-\d{3}$/;
+  return regex.test(transactionNumber);
+};
 
 const RefundRequest = () => {
   const navigate = useNavigate();
@@ -36,8 +48,16 @@ const RefundRequest = () => {
 
   // Validate transaction when user clicks validate button
   const handleValidateTransaction = async () => {
-    if (!formData.transactionNumber) {
+    const formattedTransactionNumber = formatTransactionId(formData.transactionNumber);
+    
+    if (!formattedTransactionNumber) {
       setError('Please enter a transaction number');
+      return;
+    }
+    
+    // Validate format before making API call
+    if (!isValidTransactionFormat(formattedTransactionNumber)) {
+      setError('Invalid transaction number format. Expected format: TXN-YYYYMMDD-HHMMSS-XXX (e.g., TXN-20250430-143025-042)');
       return;
     }
     
@@ -47,13 +67,13 @@ const RefundRequest = () => {
     setTransactionData(null);
     
     try {
-      const response = await axios.get(`${API_URL}/refund/validate/${formData.transactionNumber}`);
+      const response = await axios.get(`${API_URL}/refund/validate/${formattedTransactionNumber}`);
       
       if (response.data.success) {
         const transaction = response.data.data;
         
         // Check if refund already exists for this transaction
-        const checkRefund = await axios.get(`${API_URL}/refund/check/${formData.transactionNumber}`);
+        const checkRefund = await axios.get(`${API_URL}/refund/check/${formattedTransactionNumber}`);
         if (checkRefund.data.exists) {
           setError('A refund request has already been submitted for this transaction.');
           setValidating(false);
@@ -64,9 +84,10 @@ const RefundRequest = () => {
         setTransactionData(transaction);
         setTransactionValid(true);
         
-        // Auto-fill product details from transaction
+        // Update form with formatted transaction number
         setFormData(prev => ({
           ...prev,
+          transactionNumber: formattedTransactionNumber,
           transactionDate: new Date(transaction.createdAt).toLocaleDateString('en-US'),
           transactionTime: new Date(transaction.createdAt).toLocaleTimeString('en-US', {
             hour: '2-digit',
@@ -256,6 +277,18 @@ const RefundRequest = () => {
 
   const grainTypes = ['Sinandomeng', 'Dinorado', 'Jasmine', 'Premium'];
 
+  // Helper function to provide example format
+  const getTransactionFormatExample = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    return `TXN-${year}${month}${day}-${hours}${minutes}${seconds}-XXX`;
+  };
+
   return (
     <div className="refund-container">
       <div className="refund-card">
@@ -342,7 +375,7 @@ const RefundRequest = () => {
                     name="transactionNumber"
                     value={formData.transactionNumber}
                     onChange={handleChange}
-                    placeholder="e.g., TXN-MM7UBRUF"
+                    placeholder={`Format: ${getTransactionFormatExample()}`}
                     required
                     className="transaction-input"
                     disabled={!isWithinTimeLimit}
@@ -356,6 +389,9 @@ const RefundRequest = () => {
                     {validating ? 'Validating...' : 'Validate'}
                   </button>
                 </div>
+                <small className="format-hint">
+                  Format: TXN-YYYYMMDD-HHMMSS-XXX (e.g., TXN-20250430-143025-042)
+                </small>
                 {transactionValid && (
                   <div className="validation-success">
                     ✓ Transaction validated successfully
@@ -373,6 +409,10 @@ const RefundRequest = () => {
                 <div className="summary-row">
                   <span className="summary-label">Transaction Time:</span>
                   <span className="summary-value">{formData.transactionTime}</span>
+                </div>
+                <div className="summary-row">
+                  <span className="summary-label">Transaction ID:</span>
+                  <span className="summary-value transaction-id">{formData.transactionNumber}</span>
                 </div>
               </div>
             )}
@@ -410,6 +450,7 @@ const RefundRequest = () => {
                   required
                   disabled={!transactionValid || !isWithinTimeLimit}
                   className={transactionValid ? 'auto-filled' : ''}
+                  step="0.5"
                 />
                 {transactionValid && <small className="auto-filled-note">Auto-filled from transaction</small>}
               </div>
@@ -424,6 +465,7 @@ const RefundRequest = () => {
                   required
                   disabled={!transactionValid || !isWithinTimeLimit}
                   className={transactionValid ? 'auto-filled' : ''}
+                  step="0.01"
                 />
                 {transactionValid && <small className="auto-filled-note">Auto-filled from transaction</small>}
               </div>

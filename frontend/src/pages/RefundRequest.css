@@ -580,3 +580,32 @@ body {
     font-size: 36px;
   }
 }
+
+.format-hint {
+  display: block;
+  font-size: 12px;
+  color: #666;
+  margin-top: 5px;
+}
+
+.transaction-id {
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+input.transaction-input {
+  font-family: monospace;
+  letter-spacing: 0.5px;
+}
+
+.validation-success {
+  margin-top: 8px;
+  color: #28a745;
+  font-size: 14px;
+  font-weight: 500;
+}

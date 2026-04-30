@@ -1,9 +1,9 @@
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 import React, { useState, useEffect } from 'react';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
 import './StaffTransactions.css';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const StaffTransactions = () => {
   const { socket } = useSocket();
