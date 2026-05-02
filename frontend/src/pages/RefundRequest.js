@@ -7,16 +7,14 @@ import './RefundRequest.css';
 
 // Helper function to format transaction ID for display/validation
 const formatTransactionId = (transactionNumber) => {
-  // Remove any whitespace and convert to uppercase
   return transactionNumber.trim().toUpperCase();
 };
 
-// Helper function to validate transaction ID format - relaxed for your actual formats
+// Helper function to validate transaction ID format
 const isValidTransactionFormat = (transactionNumber) => {
   if (!transactionNumber || !transactionNumber.startsWith('TXN-')) {
     return false;
   }
-  // Accept any TXN- format - backend will validate existence
   return transactionNumber.length > 4;
 };
 
@@ -47,13 +45,10 @@ const RefundRequest = () => {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [validating, setValidating] = useState(false);
   
-  // State for dynamic products from staff management
+  // State for dynamic products
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
-  const [productsError, setProductsError] = useState(false);
-  const [validatedTransactionProduct, setValidatedTransactionProduct] = useState(null);
 
-  // Complete default products list (including all rice varieties)
   const DEFAULT_PRODUCTS = [
     { id: 1, name: 'Sinandomeng Rice', price: 54.00 },
     { id: 2, name: 'Dinorado Rice', price: 65.00 },
@@ -65,7 +60,6 @@ const RefundRequest = () => {
     { id: 8, name: 'Malagkit Rice', price: 65.00 }
   ];
 
-  // Fetch products when component mounts
   useEffect(() => {
     fetchProducts();
   }, []);
@@ -73,78 +67,42 @@ const RefundRequest = () => {
   const fetchProducts = async () => {
     try {
       setLoadingProducts(true);
-      setProductsError(false);
-      
-      // Try to get products from the staff products endpoint
       const token = localStorage.getItem('token');
       
-      let response;
       try {
-        // Try with authentication first (if available)
-        response = await axios.get(`${API_URL}/staff/products`, {
+        const response = await axios.get(`${API_URL}/staff/products`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
-      } catch (authError) {
-        // If auth fails, try public endpoint if available
-        console.log('Auth failed, trying public endpoint...');
-        try {
-          response = await axios.get(`${API_URL}/products/public`);
-        } catch (publicError) {
-          throw new Error('No products endpoint available');
+        
+        if (response.data && response.data.success) {
+          const activeProducts = response.data.data.filter(product => !product.isArchived);
+          const formattedProducts = activeProducts.map(product => ({
+            id: product.id || product._id,
+            name: product.name,
+            price: product.price
+          }));
+          
+          const allProductNames = new Set(formattedProducts.map(p => p.name));
+          const mergedProducts = [...formattedProducts];
+          
+          DEFAULT_PRODUCTS.forEach(defaultProduct => {
+            if (!allProductNames.has(defaultProduct.name)) {
+              mergedProducts.push(defaultProduct);
+            }
+          });
+          
+          setProducts(mergedProducts);
+        } else {
+          setProducts(DEFAULT_PRODUCTS);
         }
-      }
-      
-      if (response.data && response.data.success) {
-        // Filter only active products (not archived)
-        const activeProducts = response.data.data.filter(product => !product.isArchived);
-        
-        // Map the products to ensure they have the correct format
-        const formattedProducts = activeProducts.map(product => ({
-          id: product.id || product._id,
-          name: product.name,
-          price: product.price
-        }));
-        
-        // Merge with default products to ensure all common products are included
-        const allProductNames = new Set(formattedProducts.map(p => p.name));
-        const mergedProducts = [...formattedProducts];
-        
-        // Add any default products that aren't already in the list
-        DEFAULT_PRODUCTS.forEach(defaultProduct => {
-          if (!allProductNames.has(defaultProduct.name)) {
-            mergedProducts.push(defaultProduct);
-          }
-        });
-        
-        setProducts(mergedProducts);
-        console.log('Products loaded:', mergedProducts);
-      } else {
-        // Use default products if API fails
+      } catch (error) {
+        console.error('Error fetching products:', error);
         setProducts(DEFAULT_PRODUCTS);
       }
-    } catch (error) {
-      console.error('Error fetching products:', error);
-      setProductsError(true);
-      // Use default products as fallback
-      setProducts(DEFAULT_PRODUCTS);
     } finally {
       setLoadingProducts(false);
     }
   };
-
-  // Get all unique product names (including any from validated transaction)
-  const getAvailableGrainTypes = () => {
-    const productNames = products.map(product => product.name);
-    
-    // If we have a validated transaction product that's not in the list, add it temporarily
-    if (validatedTransactionProduct && !productNames.includes(validatedTransactionProduct)) {
-      return [...productNames, validatedTransactionProduct];
-    }
-    
-    return productNames;
-  };
-
-  const grainTypes = getAvailableGrainTypes();
 
   const handleValidateTransaction = async () => {
     const formattedTransactionNumber = formatTransactionId(formData.transactionNumber);
@@ -154,38 +112,36 @@ const RefundRequest = () => {
       return;
     }
     
-    // Validate format before making API call
     if (!isValidTransactionFormat(formattedTransactionNumber)) {
-      setError('Invalid transaction number format. Expected format: TXN-YYYYMMDD-HHMMSS-XXX (e.g., TXN-20250430-143025-042)');
+      setError('Invalid transaction number format');
       return;
     }
     
     setValidating(true);
     setError('');
-    setTransactionValid(false);
-    setTransactionData(null);
-    setValidatedTransactionProduct(null);
     
     try {
-      // The validate endpoint already checks if refund exists
+      console.log('Validating transaction:', formattedTransactionNumber);
       const response = await axios.get(`${API_URL}/refund/validate/${formattedTransactionNumber}`);
+      
+      console.log('Validation response:', response.data);
       
       if (response.data.success) {
         const transaction = response.data.data;
         
-        // Store transaction data
-        setTransactionData(transaction);
+        console.log('Transaction data:', transaction);
         
-        // Get the product name from transaction (could be riceType or productName)
+        // Get the product name from transaction
         const transactionProduct = transaction.productName || transaction.riceType;
-        console.log('Transaction product found:', transactionProduct);
+        console.log('Product name:', transactionProduct);
+        console.log('Quantity:', transaction.quantityKg);
+        console.log('Amount:', transaction.amountPaid);
         
-        // Store the validated product name
-        setValidatedTransactionProduct(transactionProduct);
-        
+        // Store transaction data and mark as valid
+        setTransactionData(transaction);
         setTransactionValid(true);
         
-        // Update form with formatted transaction number - AUTO-FILL PRODUCT DETAILS
+        // Auto-fill the product details from transaction
         setFormData(prev => ({
           ...prev,
           transactionNumber: formattedTransactionNumber,
@@ -195,10 +151,9 @@ const RefundRequest = () => {
             minute: '2-digit',
             hour12: true
           }),
-          grainType: transactionProduct, // Auto-filled from transaction
-          selectedQuantity: transaction.quantityKg, // Auto-filled from transaction
-          amountInserted: transaction.amountPaid // Auto-filled from transaction
-          // Note: refundReason and description are NOT auto-filled - customer must fill manually
+          grainType: transactionProduct || '',
+          selectedQuantity: transaction.quantityKg?.toString() || '',
+          amountInserted: transaction.amountPaid?.toString() || ''
         }));
         
         // Check 4-hour time limit
@@ -208,22 +163,24 @@ const RefundRequest = () => {
         
         if (hoursDiff > 4) {
           setIsWithinTimeLimit(false);
-          setError('This transaction is outside the 4-hour refund window. Refunds are only accepted within 4 hours of purchase.');
+          setError('This transaction is outside the 4-hour refund window.');
           setTransactionValid(false);
         } else {
           setIsWithinTimeLimit(true);
           startCountdown(transactionTime);
           setError('');
         }
+      } else {
+        setError('Transaction validation failed');
       }
     } catch (error) {
       console.error('Error validating transaction:', error);
       if (error.response?.status === 404) {
-        setError('Transaction not found. Please check your transaction number and try again.');
+        setError('Transaction not found. Please check your transaction number.');
       } else if (error.response?.status === 400) {
-        setError(error.response.data?.error || 'A refund request has already been submitted for this transaction.');
+        setError(error.response.data?.error || 'A refund request already exists for this transaction.');
       } else {
-        setError('Unable to validate transaction. Please try again later.');
+        setError('Unable to validate transaction. Please try again.');
       }
       setTransactionValid(false);
       setTransactionData(null);
@@ -243,7 +200,7 @@ const RefundRequest = () => {
         clearInterval(interval);
         setIsWithinTimeLimit(false);
         setTimeRemaining(null);
-        setError('Refund window has expired. You can no longer request a refund for this transaction.');
+        setError('Refund window has expired.');
         setTransactionValid(false);
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -259,12 +216,10 @@ const RefundRequest = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    // Clear transaction validation when user changes transaction number
     if (name === 'transactionNumber') {
       setTransactionValid(false);
       setTransactionData(null);
       setError('');
-      setValidatedTransactionProduct(null);
     }
   };
 
@@ -294,7 +249,6 @@ const RefundRequest = () => {
     setError('');
     setSuccess('');
 
-    // Validate transaction is valid and within time limit
     if (!transactionValid) {
       setError('Please validate your transaction number first.');
       setLoading(false);
@@ -307,7 +261,6 @@ const RefundRequest = () => {
       return;
     }
 
-    // Validate all required fields
     if (!formData.fullName || !formData.email || !formData.refundReason || !formData.description || !formData.receiptImage) {
       setError('Please fill in all required fields and upload your receipt.');
       setLoading(false);
@@ -333,7 +286,7 @@ const RefundRequest = () => {
       });
       
       if (response.data.success) {
-        setSuccess('Your refund request has been submitted successfully! The administrator will review it.');
+        setSuccess('Your refund request has been submitted successfully!');
         setTimeout(() => {
           navigate('/refund/success');
         }, 3000);
@@ -367,7 +320,6 @@ const RefundRequest = () => {
     setTransactionData(null);
     setIsWithinTimeLimit(true);
     setTimeRemaining(null);
-    setValidatedTransactionProduct(null);
   };
 
   const refundReasons = [
@@ -379,7 +331,6 @@ const RefundRequest = () => {
     'Other issue'
   ];
 
-  // Helper function to provide example format
   const getTransactionFormatExample = () => {
     const now = new Date();
     const year = now.getFullYear();
@@ -394,35 +345,29 @@ const RefundRequest = () => {
   return (
     <div className="refund-container">
       <div className="refund-card">
-        {/* Header */}
         <div className="refund-header">
           <h1>AgriVend</h1>
           <h2>Customer Refund Request Portal</h2>
         </div>
 
-        {/* Submit a Refund Request Section */}
         <div className="refund-intro">
           <h3>Submit a Refund Request</h3>
           <p>
             This form is intended only for customers who experienced an actual problem with their 
-            product or transaction. Please provide complete and accurate details so the administrator 
-            can review your request using the recorded transaction data stored in the system.
+            product or transaction. Please provide complete and accurate details.
           </p>
         </div>
 
-        {/* Important Notice */}
         <div className="important-notice">
           <h3>⚠️ Important Notice</h3>
           <p>
-            Refund requests are accepted only within <strong>four (4) hours</strong> after the transaction 
-            has been processed by the machine. Requests submitted beyond this period will no longer be accepted.
+            Refund requests are accepted only within <strong>four (4) hours</strong> after the transaction.
           </p>
         </div>
 
-        {/* Countdown Timer */}
         {transactionValid && isWithinTimeLimit && timeRemaining && (
           <div className="countdown-timer">
-            <div className="countdown-label">Time remaining to submit refund:</div>
+            <div className="countdown-label">Time remaining:</div>
             <div className="countdown">
               {timeRemaining.hours}h {timeRemaining.minutes}m {timeRemaining.seconds}s
             </div>
@@ -432,9 +377,8 @@ const RefundRequest = () => {
         {error && <div className="error-message">{error}</div>}
         {success && <div className="success-message">{success}</div>}
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="refund-form">
-          {/* Personal Information Section - Customer fills manually */}
+          {/* Personal Information */}
           <div className="form-section">
             <h3>Personal Information</h3>
             <div className="form-row">
@@ -465,7 +409,7 @@ const RefundRequest = () => {
             </div>
           </div>
 
-          {/* Transaction Details Section - Auto-filled after validation */}
+          {/* Transaction Details */}
           <div className="form-section">
             <h3>Transaction Details</h3>
             <div className="form-row">
@@ -492,11 +436,11 @@ const RefundRequest = () => {
                   </button>
                 </div>
                 <small className="format-hint">
-                  Format: TXN-YYYYMMDD-HHMMSS-XXX (e.g., TXN-20250430-143025-042)
+                  Format: TXN-YYYYMMDD-HHMMSS-XXX
                 </small>
                 {transactionValid && (
                   <div className="validation-success">
-                    ✓ Transaction validated successfully
+                    ✓ Transaction validated successfully!
                   </div>
                 )}
               </div>
@@ -520,14 +464,9 @@ const RefundRequest = () => {
             )}
           </div>
 
-          {/* Product Details Section - AUTO-FILLED from transaction (READ ONLY) */}
+          {/* Product Details - AUTO-FILLED (Read Only) */}
           <div className="form-section">
-            <h3>Product Details <span className="auto-fill-badge">(Auto-filled from transaction)</span></h3>
-            {productsError && (
-              <div className="warning-message">
-                ⚠️ Unable to load products from server. Showing default products.
-              </div>
-            )}
+            <h3>Product Details <span className="auto-badge">(Auto-filled from transaction)</span></h3>
             <div className="form-row">
               <div className="form-group">
                 <label>Grain Type *</label>
@@ -535,64 +474,53 @@ const RefundRequest = () => {
                   type="text"
                   name="grainType"
                   value={formData.grainType}
-                  onChange={handleChange}
-                  required
-                  disabled={true} // DISABLED - Auto-filled from transaction
-                  className="auto-filled-input"
-                  placeholder="Will be auto-filled after validation"
+                  readOnly
+                  className="readonly-field"
+                  placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
-                {transactionValid && (
-                  <small className="auto-filled-note">✓ Auto-loaded from your transaction</small>
-                )}
-                {!transactionValid && (
-                  <small className="info-note">Please validate transaction number first</small>
+                {transactionValid && formData.grainType && (
+                  <small className="auto-filled-note">✓ Loaded: {formData.grainType}</small>
                 )}
               </div>
               <div className="form-group">
                 <label>Selected Quantity (kg) *</label>
                 <input
-                  type="number"
+                  type="text"
                   name="selectedQuantity"
                   value={formData.selectedQuantity}
-                  onChange={handleChange}
-                  required
-                  disabled={true} // DISABLED - Auto-filled from transaction
-                  className="auto-filled-input"
-                  step="0.5"
-                  placeholder="Will be auto-filled after validation"
+                  readOnly
+                  className="readonly-field"
+                  placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
-                {transactionValid && (
-                  <small className="auto-filled-note">✓ Auto-loaded from your transaction</small>
+                {transactionValid && formData.selectedQuantity && (
+                  <small className="auto-filled-note">✓ Loaded: {formData.selectedQuantity} kg</small>
                 )}
               </div>
               <div className="form-group">
                 <label>Amount Inserted (₱) *</label>
                 <input
-                  type="number"
+                  type="text"
                   name="amountInserted"
                   value={formData.amountInserted}
-                  onChange={handleChange}
-                  required
-                  disabled={true} // DISABLED - Auto-filled from transaction
-                  className="auto-filled-input"
-                  step="0.01"
-                  placeholder="Will be auto-filled after validation"
+                  readOnly
+                  className="readonly-field"
+                  placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
-                {transactionValid && (
-                  <small className="auto-filled-note">✓ Auto-loaded from your transaction</small>
+                {transactionValid && formData.amountInserted && (
+                  <small className="auto-filled-note">✓ Loaded: ₱{formData.amountInserted}</small>
                 )}
               </div>
             </div>
             {!transactionValid && (
               <div className="info-message">
-                ℹ️ Please validate your transaction number first to auto-fill product details
+                ℹ️ Please click "Validate" to auto-fill product details from your transaction
               </div>
             )}
           </div>
 
-          {/* Refund Request Details Section - Customer fills manually */}
+          {/* Refund Request Details - MANUAL INPUT */}
           <div className="form-section">
-            <h3>Refund Request Details <span className="manual-fill-badge">(Please fill manually)</span></h3>
+            <h3>Refund Request Details <span className="manual-badge">(Please fill manually)</span></h3>
             <div className="form-group">
               <label>Reason for Refund Request *</label>
               <select
@@ -607,6 +535,9 @@ const RefundRequest = () => {
                   <option key={reason} value={reason}>{reason}</option>
                 ))}
               </select>
+              {!transactionValid && (
+                <small className="info-note">Validate transaction first to enable</small>
+              )}
             </div>
             <div className="form-group">
               <label>Description / Comment *</label>
@@ -619,10 +550,13 @@ const RefundRequest = () => {
                 required
                 disabled={!transactionValid || !isWithinTimeLimit}
               />
+              {!transactionValid && (
+                <small className="info-note">Validate transaction first to enable</small>
+              )}
             </div>
           </div>
 
-          {/* Proof of Transaction Section - Customer uploads */}
+          {/* Proof of Transaction */}
           <div className="form-section">
             <h3>Proof of Transaction</h3>
             <div className="form-group">
@@ -652,6 +586,9 @@ const RefundRequest = () => {
                   }}>Remove</button>
                 </div>
               )}
+              {!transactionValid && (
+                <small className="info-note">Validate transaction first to enable upload</small>
+              )}
             </div>
           </div>
 
@@ -659,24 +596,23 @@ const RefundRequest = () => {
           <div className="terms-section">
             <h3>Terms and Conditions</h3>
             <ul>
-              <li>This QR code and refund form are intended only for actual product or transaction issues.</li>
-              <li>The administrator will use recorded transaction data as the primary reference for evaluation.</li>
+              <li>This form is intended only for actual product or transaction issues.</li>
+              <li>The administrator will use recorded transaction data for evaluation.</li>
               <li>Only requests submitted within four (4) hours after the transaction will be accepted.</li>
-              <li>Refunds will only be considered if the dispensed product is proven defective, spoiled, or of poor quality.</li>
-              <li>The staff may inspect the grain vending machine and its contents for validation.</li>
+              <li>Refunds will only be considered if the product is proven defective.</li>
             </ul>
-            <p className="terms-note">
-              Please make sure your <strong>name</strong>, <strong>email address</strong>, <strong>transaction number</strong>, 
-              <strong>receipt image</strong>, and <strong>description of the issue</strong> are complete before submitting your request.
-            </p>
           </div>
 
           {/* Form Actions */}
           <div className="form-actions">
-            <button type="button" onClick={handleReset} className="btn-reset" disabled={!isWithinTimeLimit}>
+            <button type="button" onClick={handleReset} className="btn-reset">
               Reset Form
             </button>
-            <button type="submit" className="btn-submit" disabled={loading || !isWithinTimeLimit || !transactionValid}>
+            <button 
+              type="submit" 
+              className="btn-submit" 
+              disabled={loading || !isWithinTimeLimit || !transactionValid}
+            >
               {loading ? 'Submitting...' : 'Submit Refund Request'}
             </button>
           </div>
