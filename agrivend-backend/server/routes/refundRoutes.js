@@ -12,13 +12,6 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-// Helper function to generate unique request ID
-const generateRequestId = () => {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 10).toUpperCase();
-  return `REF-${timestamp}-${random}`;
-};
-
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -70,14 +63,6 @@ router.get('/validate/:transactionId', async (req, res) => {
       });
     }
     
-    console.log('✅ Transaction found:', {
-      transactionId: transaction.transactionId,
-      productName: transaction.productName,
-      quantityKg: transaction.quantityKg,
-      amountPaid: transaction.amountPaid,
-      createdAt: transaction.createdAt
-    });
-    
     // Check if refund already requested
     const existingRefund = await RefundRequest.findOne({ 
       transactionNumber: transactionId 
@@ -90,7 +75,6 @@ router.get('/validate/:transactionId', async (req, res) => {
       });
     }
     
-    // Return transaction data
     res.json({
       success: true,
       data: {
@@ -112,11 +96,12 @@ router.get('/validate/:transactionId', async (req, res) => {
   }
 });
 
-// Submit refund request
+// Submit refund request - FIXED VERSION
 router.post('/request', upload.single('receiptImage'), async (req, res) => {
   try {
     console.log('📝 Processing refund request...');
     console.log('Request body:', req.body);
+    console.log('File:', req.file);
     
     const {
       fullName,
@@ -131,17 +116,20 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       description
     } = req.body;
     
-    if (!fullName || !email || !transactionNumber || !refundReason || !description) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Please fill in all required fields' 
-      });
-    }
+    // Validate required fields
+    const missingFields = [];
+    if (!fullName) missingFields.push('fullName');
+    if (!email) missingFields.push('email');
+    if (!transactionNumber) missingFields.push('transactionNumber');
+    if (!refundReason) missingFields.push('refundReason');
+    if (!description) missingFields.push('description');
+    if (!req.file) missingFields.push('receiptImage');
     
-    if (!req.file) {
+    if (missingFields.length > 0) {
+      console.log('❌ Missing fields:', missingFields);
       return res.status(400).json({ 
         success: false, 
-        error: 'Receipt image is required' 
+        error: `Missing required fields: ${missingFields.join(', ')}` 
       });
     }
     
@@ -152,6 +140,7 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     });
     
     if (!transaction) {
+      console.log('❌ Transaction not found:', transactionNumber);
       return res.status(404).json({ 
         success: false, 
         error: 'Transaction not found' 
@@ -162,6 +151,8 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     const transactionTimeDate = new Date(transaction.createdAt);
     const now = new Date();
     const hoursDiff = (now - transactionTimeDate) / (1000 * 60 * 60);
+    
+    console.log(`⏰ Time difference: ${hoursDiff.toFixed(2)} hours`);
     
     if (hoursDiff > 4) {
       return res.status(400).json({ 
@@ -176,23 +167,23 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     });
     
     if (existingRefund) {
+      console.log('❌ Refund already exists for this transaction');
       return res.status(400).json({ 
         success: false, 
         error: 'A refund request has already been submitted for this transaction.' 
       });
     }
     
-    // Create refund request with generated requestId
+    // Create refund request - NO requestId field
     const refundRequest = new RefundRequest({
-      requestId: generateRequestId(), // ADD THIS LINE - generates unique ID like REF-XXXXXX-XXXXXXXX
       fullName,
       email,
       transactionNumber,
-      transactionDate,
-      transactionTime,
+      transactionDate: transactionDate || new Date(transaction.createdAt).toLocaleDateString('en-US'),
+      transactionTime: transactionTime || new Date(transaction.createdAt).toLocaleTimeString('en-US'),
       grainType: grainType || transaction.productName,
-      selectedQuantity: Number(selectedQuantity),
-      amountInserted: Number(amountInserted),
+      selectedQuantity: Number(selectedQuantity) || transaction.quantityKg,
+      amountInserted: Number(amountInserted) || transaction.amountPaid,
       refundReason,
       description,
       receiptFilename: req.file.filename,
@@ -203,19 +194,23 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     
     await refundRequest.save();
     
-    console.log('✅ Refund request saved:', refundRequest._id, 'Request ID:', refundRequest.requestId);
+    console.log('✅ Refund request saved successfully!');
+    console.log('Refund ID:', refundRequest._id);
+    console.log('Transaction Number:', refundRequest.transactionNumber);
+    console.log('Status:', refundRequest.status);
     
-    // Emit socket event
+    // Emit socket event for real-time updates
     const io = req.app.get('io');
     if (io) {
       io.emit('new_refund_notification', {
         id: refundRequest._id,
-        requestId: refundRequest.requestId,
-        transactionId: refundRequest.transactionNumber,
+        transactionNumber: refundRequest.transactionNumber,
         fullName: refundRequest.fullName,
         amountInserted: refundRequest.amountInserted,
+        status: refundRequest.status,
         createdAt: refundRequest.createdAt
       });
+      console.log('📡 Socket event emitted: new_refund_notification');
     }
     
     res.json({
@@ -223,12 +218,19 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       message: 'Refund request submitted successfully!',
       data: {
         refundId: refundRequest._id,
-        requestId: refundRequest.requestId,
-        status: refundRequest.status
+        status: refundRequest.status,
+        transactionNumber: refundRequest.transactionNumber
       }
     });
   } catch (error) {
-    console.error('Error submitting refund request:', error);
+    console.error('❌ Error submitting refund request:', error);
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'A refund request has already been submitted for this transaction.' 
+      });
+    }
     res.status(500).json({ 
       success: false, 
       error: error.message || 'Failed to submit refund request' 
@@ -256,13 +258,15 @@ router.get('/status/:transactionId', async (req, res) => {
       success: true,
       data: {
         id: refundRequest._id,
-        requestId: refundRequest.requestId,
         status: refundRequest.status,
         fullName: refundRequest.fullName,
         transactionNumber: refundRequest.transactionNumber,
         amountInserted: refundRequest.amountInserted,
+        grainType: refundRequest.grainType,
+        selectedQuantity: refundRequest.selectedQuantity,
         refundReason: refundRequest.refundReason,
         description: refundRequest.description,
+        receiptImage: refundRequest.receiptImage,
         adminNotes: refundRequest.adminNotes,
         submittedAt: refundRequest.createdAt,
         processedAt: refundRequest.processedAt,
@@ -280,7 +284,7 @@ router.get('/status/:transactionId', async (req, res) => {
 
 // ==================== ADMIN ROUTES ====================
 
-// Get all refund requests
+// Get all refund requests - FIXED to return complete data
 router.get('/admin/all', protect, admin, async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
@@ -298,6 +302,8 @@ router.get('/admin/all', protect, admin, async (req, res) => {
       .limit(parseInt(limit));
     
     const total = await RefundRequest.countDocuments(query);
+    
+    console.log(`📋 Found ${refunds.length} refund requests (Total: ${total})`);
     
     res.json({
       success: true,
@@ -318,12 +324,41 @@ router.get('/admin/all', protect, admin, async (req, res) => {
   }
 });
 
+// Get single refund request by ID
+router.get('/admin/:refundId', protect, admin, async (req, res) => {
+  try {
+    const { refundId } = req.params;
+    
+    const refundRequest = await RefundRequest.findById(refundId);
+    
+    if (!refundRequest) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Refund request not found' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: refundRequest
+    });
+  } catch (error) {
+    console.error('Error fetching refund:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch refund request' 
+    });
+  }
+});
+
 // Get pending count
 router.get('/admin/pending/count', protect, admin, async (req, res) => {
   try {
     const count = await RefundRequest.countDocuments({ status: 'PENDING' });
+    console.log(`📊 Pending refund count: ${count}`);
     res.json({ success: true, data: { pending: count } });
   } catch (error) {
+    console.error('Error fetching pending count:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch count' });
   }
 });
@@ -370,7 +405,6 @@ router.put('/admin/:refundId/process', protect, admin, async (req, res) => {
     if (io) {
       io.emit('refund_processed', {
         id: refundRequest._id,
-        requestId: refundRequest.requestId,
         status: refundRequest.status,
         transactionNumber: refundRequest.transactionNumber
       });
@@ -419,23 +453,16 @@ router.get('/admin/stats/summary', protect, admin, async (req, res) => {
   }
 });
 
-// DEBUG: List recent transactions (admin only)
-router.get('/debug/transactions', protect, admin, async (req, res) => {
+// DEBUG: List recent refunds
+router.get('/debug/refunds', protect, admin, async (req, res) => {
   try {
-    const transactions = await Transaction.find({})
+    const refunds = await RefundRequest.find({})
       .sort({ createdAt: -1 })
-      .limit(10)
-      .select('transactionId productName status amountPaid createdAt');
-    
-    console.log('📊 Recent transactions:', transactions.map(t => ({ 
-      id: t.transactionId, 
-      product: t.productName,
-      status: t.status 
-    })));
+      .limit(10);
     
     res.json({
       success: true,
-      data: transactions
+      data: refunds
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
