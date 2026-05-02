@@ -55,14 +55,14 @@ const RefundRequest = () => {
 
   // Complete default products list (including all rice varieties)
   const DEFAULT_PRODUCTS = [
-    { id: 1, name: 'Sinandomeng', price: 54.00 },
-    { id: 2, name: 'Dinorado', price: 65.00 },
-    { id: 3, name: 'Jasmine', price: 70.00 },
-    { id: 4, name: 'Premium', price: 85.00 },
+    { id: 1, name: 'Sinandomeng Rice', price: 54.00 },
+    { id: 2, name: 'Dinorado Rice', price: 65.00 },
+    { id: 3, name: 'Jasmine Rice', price: 70.00 },
+    { id: 4, name: 'Premium Rice', price: 85.00 },
     { id: 5, name: 'Brown Rice', price: 60.00 },
     { id: 6, name: 'Glutinous Rice', price: 75.00 },
     { id: 7, name: 'Organic Rice', price: 90.00 },
-    { id: 8, name: 'Malagkit Rice', price: 65.00 }  // Added Malagkit Rice
+    { id: 8, name: 'Malagkit Rice', price: 65.00 }
   ];
 
   // Fetch products when component mounts
@@ -177,7 +177,7 @@ const RefundRequest = () => {
         setTransactionData(transaction);
         
         // Get the product name from transaction (could be riceType or productName)
-        const transactionProduct = transaction.riceType || transaction.productName;
+        const transactionProduct = transaction.productName || transaction.riceType;
         console.log('Transaction product found:', transactionProduct);
         
         // Store the validated product name
@@ -185,7 +185,7 @@ const RefundRequest = () => {
         
         setTransactionValid(true);
         
-        // Update form with formatted transaction number
+        // Update form with formatted transaction number - AUTO-FILL PRODUCT DETAILS
         setFormData(prev => ({
           ...prev,
           transactionNumber: formattedTransactionNumber,
@@ -195,9 +195,10 @@ const RefundRequest = () => {
             minute: '2-digit',
             hour12: true
           }),
-          grainType: transactionProduct, // Set the actual product from transaction
-          selectedQuantity: transaction.quantityKg,
-          amountInserted: transaction.amountPaid
+          grainType: transactionProduct, // Auto-filled from transaction
+          selectedQuantity: transaction.quantityKg, // Auto-filled from transaction
+          amountInserted: transaction.amountPaid // Auto-filled from transaction
+          // Note: refundReason and description are NOT auto-filled - customer must fill manually
         }));
         
         // Check 4-hour time limit
@@ -433,7 +434,7 @@ const RefundRequest = () => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="refund-form">
-          {/* Personal Information Section */}
+          {/* Personal Information Section - Customer fills manually */}
           <div className="form-section">
             <h3>Personal Information</h3>
             <div className="form-row">
@@ -464,7 +465,7 @@ const RefundRequest = () => {
             </div>
           </div>
 
-          {/* Transaction Details Section */}
+          {/* Transaction Details Section - Auto-filled after validation */}
           <div className="form-section">
             <h3>Transaction Details</h3>
             <div className="form-row">
@@ -519,55 +520,32 @@ const RefundRequest = () => {
             )}
           </div>
 
-          {/* Product Details Section - Auto-filled after validation */}
+          {/* Product Details Section - AUTO-FILLED from transaction (READ ONLY) */}
           <div className="form-section">
-            <h3>Product Details</h3>
+            <h3>Product Details <span className="auto-fill-badge">(Auto-filled from transaction)</span></h3>
             {productsError && (
               <div className="warning-message">
-                ⚠️ Unable to load products from server. Showing default products. Contact staff if you don't see your product.
+                ⚠️ Unable to load products from server. Showing default products.
               </div>
             )}
             <div className="form-row">
               <div className="form-group">
                 <label>Grain Type *</label>
-                {loadingProducts ? (
-                  <div className="loading-products">
-                    Loading available products...
-                  </div>
-                ) : (
-                  <>
-                    <select
-                      name="grainType"
-                      value={formData.grainType}
-                      onChange={handleChange}
-                      required
-                      disabled={!transactionValid || !isWithinTimeLimit}
-                      className={transactionValid ? 'auto-filled' : ''}
-                    >
-                      <option value="">Select grain type</option>
-                      {grainTypes.map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                    {products.length > 0 && (
-                      <small className="products-count">
-                        {grainTypes.length} product{grainTypes.length !== 1 ? 's' : ''} available
-                      </small>
-                    )}
-                    {validatedTransactionProduct && !products.some(p => p.name === validatedTransactionProduct) && (
-                      <small className="warning-note">
-                        ⚠️ Note: "{validatedTransactionProduct}" is from your transaction but not in the master product list
-                      </small>
-                    )}
-                  </>
+                <input
+                  type="text"
+                  name="grainType"
+                  value={formData.grainType}
+                  onChange={handleChange}
+                  required
+                  disabled={true} // DISABLED - Auto-filled from transaction
+                  className="auto-filled-input"
+                  placeholder="Will be auto-filled after validation"
+                />
+                {transactionValid && (
+                  <small className="auto-filled-note">✓ Auto-loaded from your transaction</small>
                 )}
-                {transactionValid && !loadingProducts && (
-                  <small className="auto-filled-note">
-                    ✓ Auto-filled from transaction: {formData.grainType}
-                  </small>
-                )}
-                {!loadingProducts && products.length === 0 && (
-                  <small className="error-note">No products available. Please contact administrator.</small>
+                {!transactionValid && (
+                  <small className="info-note">Please validate transaction number first</small>
                 )}
               </div>
               <div className="form-group">
@@ -577,13 +555,15 @@ const RefundRequest = () => {
                   name="selectedQuantity"
                   value={formData.selectedQuantity}
                   onChange={handleChange}
-                  placeholder="1"
                   required
-                  disabled={!transactionValid || !isWithinTimeLimit}
-                  className={transactionValid ? 'auto-filled' : ''}
+                  disabled={true} // DISABLED - Auto-filled from transaction
+                  className="auto-filled-input"
                   step="0.5"
+                  placeholder="Will be auto-filled after validation"
                 />
-                {transactionValid && <small className="auto-filled-note">Auto-filled from transaction</small>}
+                {transactionValid && (
+                  <small className="auto-filled-note">✓ Auto-loaded from your transaction</small>
+                )}
               </div>
               <div className="form-group">
                 <label>Amount Inserted (₱) *</label>
@@ -592,20 +572,27 @@ const RefundRequest = () => {
                   name="amountInserted"
                   value={formData.amountInserted}
                   onChange={handleChange}
-                  placeholder="0.00"
                   required
-                  disabled={!transactionValid || !isWithinTimeLimit}
-                  className={transactionValid ? 'auto-filled' : ''}
+                  disabled={true} // DISABLED - Auto-filled from transaction
+                  className="auto-filled-input"
                   step="0.01"
+                  placeholder="Will be auto-filled after validation"
                 />
-                {transactionValid && <small className="auto-filled-note">Auto-filled from transaction</small>}
+                {transactionValid && (
+                  <small className="auto-filled-note">✓ Auto-loaded from your transaction</small>
+                )}
               </div>
             </div>
+            {!transactionValid && (
+              <div className="info-message">
+                ℹ️ Please validate your transaction number first to auto-fill product details
+              </div>
+            )}
           </div>
 
-          {/* Refund Request Details Section */}
+          {/* Refund Request Details Section - Customer fills manually */}
           <div className="form-section">
-            <h3>Refund Request Details</h3>
+            <h3>Refund Request Details <span className="manual-fill-badge">(Please fill manually)</span></h3>
             <div className="form-group">
               <label>Reason for Refund Request *</label>
               <select
@@ -627,7 +614,7 @@ const RefundRequest = () => {
                 name="description"
                 value={formData.description}
                 onChange={handleChange}
-                placeholder="Briefly explain the problem encountered during the transaction..."
+                placeholder="Please explain in detail what problem you encountered during the transaction..."
                 rows="4"
                 required
                 disabled={!transactionValid || !isWithinTimeLimit}
@@ -635,7 +622,7 @@ const RefundRequest = () => {
             </div>
           </div>
 
-          {/* Proof of Transaction Section */}
+          {/* Proof of Transaction Section - Customer uploads */}
           <div className="form-section">
             <h3>Proof of Transaction</h3>
             <div className="form-group">
