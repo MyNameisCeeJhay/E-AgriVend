@@ -32,15 +32,20 @@ const AdminTransactions = () => {
   const [notification, setNotification] = useState(null);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
+  
+  // State for dynamic product names from database
+  const [productNames, setProductNames] = useState([]);
 
   useEffect(() => {
     fetchTransactions();
     fetchSummary();
+    fetchUniqueProductNames(); // Fetch unique product names from database
 
     if (socket) {
       socket.on('new_transaction', () => {
         fetchTransactions();
         fetchSummary();
+        fetchUniqueProductNames(); // Refresh product names when new transaction added
         showNotification('success', 'New transaction added');
       });
 
@@ -48,7 +53,36 @@ const AdminTransactions = () => {
         socket.off('new_transaction');
       };
     }
-  }, [socket, pagination.page, filters]);
+  }, [socket, pagination.page]);
+
+  // Fetch transactions when filters change
+  useEffect(() => {
+    if (pagination.page === 1) {
+      fetchTransactions();
+    } else {
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }
+  }, [filters]);
+
+  const fetchUniqueProductNames = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/transactions/products/list`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setProductNames(response.data.data);
+      } else {
+        // Fallback to default product names based on database entries
+        setProductNames(['Sinandomeng Rice', 'Malagkit Rice', 'Premium Rice', 'Jasmine Rice', 'Dinorado Rice']);
+      }
+    } catch (error) {
+      console.error('Error fetching product names:', error);
+      // Fallback to default product names based on database entries
+      setProductNames(['Sinandomeng Rice', 'Malagkit Rice', 'Premium Rice', 'Jasmine Rice', 'Dinorado Rice']);
+    }
+  };
 
   const fetchTransactions = async () => {
     try {
@@ -61,7 +95,7 @@ const AdminTransactions = () => {
           limit: pagination.limit,
           startDate: filters.startDate,
           endDate: filters.endDate,
-          productName: filters.productName,
+          productName: filters.productName === 'all' ? null : filters.productName,
           search: filters.search
         },
         headers: { Authorization: `Bearer ${token}` }
@@ -70,6 +104,7 @@ const AdminTransactions = () => {
       if (response.data.success) {
         let data = response.data.data || [];
         
+        // Apply client-side sorting
         data.sort((a, b) => {
           let aVal = a[sortBy];
           let bVal = b[sortBy];
@@ -90,15 +125,18 @@ const AdminTransactions = () => {
         
         setTransactions(data);
         setPagination(response.data.pagination || {
-          page: 1,
+          page: pagination.page,
           total: data.length,
           pages: Math.ceil(data.length / pagination.limit)
         });
-        setSummary(response.data.summary || {
+        
+        // Update summary based on filtered data
+        const filteredSummary = {
           totalTransactions: data.length,
           totalQuantity: data.reduce((s, t) => s + (t.quantityKg || 0), 0),
           totalRevenue: data.reduce((s, t) => s + (t.amountPaid || 0), 0)
-        });
+        };
+        setSummary(filteredSummary);
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -139,6 +177,8 @@ const AdminTransactions = () => {
       setSortBy(column);
       setSortOrder('desc');
     }
+    // Re-sort current transactions
+    fetchTransactions();
   };
 
   const formatCurrency = (amount) => {
@@ -166,10 +206,19 @@ const AdminTransactions = () => {
     return sortOrder === 'desc' ? <span className="sort-icon">↓</span> : <span className="sort-icon">↑</span>;
   };
 
-  const productNames = ['Sinandomeng', 'Dinorado', 'Jasmine', 'Premium', 'Brown Rice', 'Glutinous Rice', 'Organic Rice'];
-
   const getDisplayProductName = (transaction) => {
     return transaction.productName || transaction.riceType || 'Unknown';
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setFilters({ 
+      startDate: '', 
+      endDate: '', 
+      productName: 'all', 
+      search: '' 
+    });
+    setPagination({ ...pagination, page: 1 });
   };
 
   return (
@@ -272,11 +321,7 @@ const AdminTransactions = () => {
               <button className="btn-apply" onClick={fetchTransactions}>
                 Apply Filters
               </button>
-              <button className="btn-clear" onClick={() => {
-                setFilters({ startDate: '', endDate: '', productName: 'all', search: '' });
-                setPagination({ ...pagination, page: 1 });
-                fetchTransactions();
-              }}>
+              <button className="btn-clear" onClick={clearFilters}>
                 Clear All
               </button>
             </div>

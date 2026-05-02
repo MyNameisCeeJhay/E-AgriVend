@@ -243,6 +243,37 @@ router.post('/', protect, async (req, res) => {
   }
 });
 
+// ===== GET UNIQUE PRODUCT NAMES (For filter dropdown) =====
+router.get('/products/list', protect, async (req, res) => {
+  try {
+    // Get unique product names from transactions
+    const products = await Transaction.distinct('productName');
+    
+    // Also check for riceType field for backward compatibility
+    const riceTypes = await Transaction.distinct('riceType');
+    
+    // Combine and remove duplicates and null/empty values
+    const allProducts = [...new Set([...products, ...riceTypes].filter(p => p && p !== 'null' && p !== 'undefined'))];
+    
+    // Sort alphabetically
+    allProducts.sort();
+    
+    console.log(`📦 Found ${allProducts.length} unique product names:`, allProducts);
+    
+    res.json({ 
+      success: true, 
+      data: allProducts,
+      count: allProducts.length
+    });
+  } catch (error) {
+    console.error('Error fetching product names:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch product names' 
+    });
+  }
+});
+
 // ===== GET TRANSACTION STATISTICS =====
 router.get('/admin/stats', protect, admin, async (req, res) => {
   try {
@@ -326,8 +357,7 @@ router.get('/:id', protect, async (req, res) => {
   }
 });
 
-// ===== ADD THIS NEW ENDPOINT =====
-// Get recent transactions (for admin dashboard)
+// ===== GET RECENT TRANSACTIONS (for admin dashboard) =====
 router.get('/recent', protect, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
@@ -335,13 +365,13 @@ router.get('/recent', protect, async (req, res) => {
     const transactions = await Transaction.find({})
       .sort({ createdAt: -1 })
       .limit(limit)
-      .select('transactionId riceType quantityKg amountPaid createdAt');
+      .select('transactionId productName riceType quantityKg amountPaid createdAt');
     
     // Format the response
     const formattedTransactions = transactions.map(t => ({
       _id: t._id,
       transactionId: t.transactionId,
-      riceType: t.riceType,
+      productName: t.productName || t.riceType,
       quantityKg: t.quantityKg,
       totalAmount: t.amountPaid,
       createdAt: t.createdAt
