@@ -44,7 +44,7 @@ const upload = multer({
 
 // ==================== CUSTOMER ROUTES ====================
 
-// Validate transaction
+// Validate transaction - FIXED to use productName instead of riceType
 router.get('/validate/:transactionId', async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -56,11 +56,20 @@ router.get('/validate/:transactionId', async (req, res) => {
     });
     
     if (!transaction) {
+      console.log('❌ Transaction not found:', transactionId);
       return res.status(404).json({ 
         success: false, 
         error: 'Transaction not found. Please check your transaction number.' 
       });
     }
+    
+    console.log('✅ Transaction found:', {
+      transactionId: transaction.transactionId,
+      productName: transaction.productName,
+      quantityKg: transaction.quantityKg,
+      amountPaid: transaction.amountPaid,
+      createdAt: transaction.createdAt
+    });
     
     // Check if refund already requested
     const existingRefund = await RefundRequest.findOne({ 
@@ -74,14 +83,17 @@ router.get('/validate/:transactionId', async (req, res) => {
       });
     }
     
+    // Return transaction data - FIXED: use productName instead of riceType
     res.json({
       success: true,
       data: {
         createdAt: transaction.createdAt,
-        riceType: transaction.riceType,
+        productName: transaction.productName, // Changed from riceType to productName
         quantityKg: transaction.quantityKg,
         amountPaid: transaction.amountPaid,
-        transactionId: transaction.transactionId
+        transactionId: transaction.transactionId,
+        pricePerKg: transaction.pricePerKg,
+        paymentMethod: transaction.paymentMethod
       }
     });
   } catch (error) {
@@ -97,6 +109,7 @@ router.get('/validate/:transactionId', async (req, res) => {
 router.post('/request', upload.single('receiptImage'), async (req, res) => {
   try {
     console.log('📝 Processing refund request...');
+    console.log('Request body:', req.body);
     
     const {
       fullName,
@@ -169,7 +182,7 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       transactionNumber,
       transactionDate,
       transactionTime,
-      grainType,
+      grainType: grainType || transaction.productName, // Use provided grainType or from transaction
       selectedQuantity: Number(selectedQuantity),
       amountInserted: Number(amountInserted),
       refundReason,
@@ -400,9 +413,13 @@ router.get('/debug/transactions', protect, admin, async (req, res) => {
     const transactions = await Transaction.find({})
       .sort({ createdAt: -1 })
       .limit(10)
-      .select('transactionId status amountPaid createdAt');
+      .select('transactionId productName status amountPaid createdAt');
     
-    console.log('📊 Recent transactions:', transactions.map(t => t.transactionId));
+    console.log('📊 Recent transactions:', transactions.map(t => ({ 
+      id: t.transactionId, 
+      product: t.productName,
+      status: t.status 
+    })));
     
     res.json({
       success: true,

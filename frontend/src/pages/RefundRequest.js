@@ -5,19 +5,6 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './RefundRequest.css';
 
-// Helper function to format transaction ID for display/validation
-const formatTransactionId = (transactionNumber) => {
-  return transactionNumber.trim().toUpperCase();
-};
-
-// Helper function to validate transaction ID format
-const isValidTransactionFormat = (transactionNumber) => {
-  if (!transactionNumber || !transactionNumber.startsWith('TXN-')) {
-    return false;
-  }
-  return transactionNumber.length > 4;
-};
-
 const RefundRequest = () => {
   const navigate = useNavigate();
   
@@ -40,80 +27,15 @@ const RefundRequest = () => {
   const [success, setSuccess] = useState('');
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [transactionValid, setTransactionValid] = useState(false);
-  const [transactionData, setTransactionData] = useState(null);
   const [isWithinTimeLimit, setIsWithinTimeLimit] = useState(true);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [validating, setValidating] = useState(false);
-  
-  // State for dynamic products
-  const [products, setProducts] = useState([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
-
-  const DEFAULT_PRODUCTS = [
-    { id: 1, name: 'Sinandomeng Rice', price: 54.00 },
-    { id: 2, name: 'Dinorado Rice', price: 65.00 },
-    { id: 3, name: 'Jasmine Rice', price: 70.00 },
-    { id: 4, name: 'Premium Rice', price: 85.00 },
-    { id: 5, name: 'Brown Rice', price: 60.00 },
-    { id: 6, name: 'Glutinous Rice', price: 75.00 },
-    { id: 7, name: 'Organic Rice', price: 90.00 },
-    { id: 8, name: 'Malagkit Rice', price: 65.00 }
-  ];
-
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
-  const fetchProducts = async () => {
-    try {
-      setLoadingProducts(true);
-      const token = localStorage.getItem('token');
-      
-      try {
-        const response = await axios.get(`${API_URL}/staff/products`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
-        });
-        
-        if (response.data && response.data.success) {
-          const activeProducts = response.data.data.filter(product => !product.isArchived);
-          const formattedProducts = activeProducts.map(product => ({
-            id: product.id || product._id,
-            name: product.name,
-            price: product.price
-          }));
-          
-          const allProductNames = new Set(formattedProducts.map(p => p.name));
-          const mergedProducts = [...formattedProducts];
-          
-          DEFAULT_PRODUCTS.forEach(defaultProduct => {
-            if (!allProductNames.has(defaultProduct.name)) {
-              mergedProducts.push(defaultProduct);
-            }
-          });
-          
-          setProducts(mergedProducts);
-        } else {
-          setProducts(DEFAULT_PRODUCTS);
-        }
-      } catch (error) {
-        console.error('Error fetching products:', error);
-        setProducts(DEFAULT_PRODUCTS);
-      }
-    } finally {
-      setLoadingProducts(false);
-    }
-  };
 
   const handleValidateTransaction = async () => {
-    const formattedTransactionNumber = formatTransactionId(formData.transactionNumber);
+    const transactionNumber = formData.transactionNumber.trim().toUpperCase();
     
-    if (!formattedTransactionNumber) {
+    if (!transactionNumber) {
       setError('Please enter a transaction number');
-      return;
-    }
-    
-    if (!isValidTransactionFormat(formattedTransactionNumber)) {
-      setError('Invalid transaction number format');
       return;
     }
     
@@ -121,69 +43,64 @@ const RefundRequest = () => {
     setError('');
     
     try {
-      console.log('Validating transaction:', formattedTransactionNumber);
-      const response = await axios.get(`${API_URL}/refund/validate/${formattedTransactionNumber}`);
+      console.log('🔄 Validating transaction:', transactionNumber);
+      const response = await axios.get(`${API_URL}/refund/validate/${transactionNumber}`);
       
-      console.log('Validation response:', response.data);
+      console.log('📦 Response:', response.data);
       
       if (response.data.success) {
         const transaction = response.data.data;
         
-        console.log('Transaction data:', transaction);
+        console.log('✅ Transaction data:', {
+          productName: transaction.productName,
+          quantity: transaction.quantityKg,
+          amount: transaction.amountPaid
+        });
         
-        // Get the product name from transaction
-        const transactionProduct = transaction.productName || transaction.riceType;
-        console.log('Product name:', transactionProduct);
-        console.log('Quantity:', transaction.quantityKg);
-        console.log('Amount:', transaction.amountPaid);
+        // Format date
+        const transactionDate = new Date(transaction.createdAt);
+        const formattedDate = transactionDate.toLocaleDateString('en-US');
+        const formattedTime = transactionDate.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        });
         
-        // Store transaction data and mark as valid
-        setTransactionData(transaction);
-        setTransactionValid(true);
-        
-        // Auto-fill the product details from transaction
+        // Auto-fill form with transaction data
         setFormData(prev => ({
           ...prev,
-          transactionNumber: formattedTransactionNumber,
-          transactionDate: new Date(transaction.createdAt).toLocaleDateString('en-US'),
-          transactionTime: new Date(transaction.createdAt).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          }),
-          grainType: transactionProduct || '',
+          transactionNumber: transactionNumber,
+          transactionDate: formattedDate,
+          transactionTime: formattedTime,
+          grainType: transaction.productName || '',
           selectedQuantity: transaction.quantityKg?.toString() || '',
           amountInserted: transaction.amountPaid?.toString() || ''
         }));
         
+        setTransactionValid(true);
+        
         // Check 4-hour time limit
-        const transactionTime = new Date(transaction.createdAt);
         const now = new Date();
-        const hoursDiff = (now - transactionTime) / (1000 * 60 * 60);
+        const hoursDiff = (now - transactionDate) / (1000 * 60 * 60);
         
         if (hoursDiff > 4) {
           setIsWithinTimeLimit(false);
-          setError('This transaction is outside the 4-hour refund window.');
-          setTransactionValid(false);
+          setError('⚠️ This transaction is outside the 4-hour refund window.');
         } else {
           setIsWithinTimeLimit(true);
-          startCountdown(transactionTime);
-          setError('');
+          startCountdown(transactionDate);
         }
-      } else {
-        setError('Transaction validation failed');
       }
     } catch (error) {
-      console.error('Error validating transaction:', error);
+      console.error('❌ Error:', error);
       if (error.response?.status === 404) {
-        setError('Transaction not found. Please check your transaction number.');
+        setError('❌ Transaction not found. Please check your transaction number.');
       } else if (error.response?.status === 400) {
         setError(error.response.data?.error || 'A refund request already exists for this transaction.');
       } else {
         setError('Unable to validate transaction. Please try again.');
       }
       setTransactionValid(false);
-      setTransactionData(null);
     } finally {
       setValidating(false);
     }
@@ -218,7 +135,6 @@ const RefundRequest = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
     if (name === 'transactionNumber') {
       setTransactionValid(false);
-      setTransactionData(null);
       setError('');
     }
   };
@@ -286,7 +202,7 @@ const RefundRequest = () => {
       });
       
       if (response.data.success) {
-        setSuccess('Your refund request has been submitted successfully!');
+        setSuccess('✅ Your refund request has been submitted successfully!');
         setTimeout(() => {
           navigate('/refund/success');
         }, 3000);
@@ -317,7 +233,6 @@ const RefundRequest = () => {
     setError('');
     setSuccess('');
     setTransactionValid(false);
-    setTransactionData(null);
     setIsWithinTimeLimit(true);
     setTimeRemaining(null);
   };
@@ -331,17 +246,6 @@ const RefundRequest = () => {
     'Other issue'
   ];
 
-  const getTransactionFormatExample = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    return `TXN-${year}${month}${day}-${hours}${minutes}${seconds}-XXX`;
-  };
-
   return (
     <div className="refund-container">
       <div className="refund-card">
@@ -353,8 +257,7 @@ const RefundRequest = () => {
         <div className="refund-intro">
           <h3>Submit a Refund Request</h3>
           <p>
-            This form is intended only for customers who experienced an actual problem with their 
-            product or transaction. Please provide complete and accurate details.
+            Enter your transaction number to auto-fill your purchase details, then complete the refund request form.
           </p>
         </div>
 
@@ -367,7 +270,7 @@ const RefundRequest = () => {
 
         {transactionValid && isWithinTimeLimit && timeRemaining && (
           <div className="countdown-timer">
-            <div className="countdown-label">Time remaining:</div>
+            <div className="countdown-label">Time remaining to submit refund:</div>
             <div className="countdown">
               {timeRemaining.hours}h {timeRemaining.minutes}m {timeRemaining.seconds}s
             </div>
@@ -391,7 +294,6 @@ const RefundRequest = () => {
                   onChange={handleChange}
                   placeholder="Enter your full name"
                   required
-                  disabled={!isWithinTimeLimit}
                 />
               </div>
               <div className="form-group">
@@ -403,7 +305,6 @@ const RefundRequest = () => {
                   onChange={handleChange}
                   placeholder="Enter your email address"
                   required
-                  disabled={!isWithinTimeLimit}
                 />
               </div>
             </div>
@@ -421,23 +322,19 @@ const RefundRequest = () => {
                     name="transactionNumber"
                     value={formData.transactionNumber}
                     onChange={handleChange}
-                    placeholder={`Format: ${getTransactionFormatExample()}`}
+                    placeholder="Example: TXN-260430-MOL5YQ21-2FBD0Q"
                     required
                     className="transaction-input"
-                    disabled={!isWithinTimeLimit}
                   />
                   <button 
                     type="button" 
                     onClick={handleValidateTransaction}
                     className={`validate-btn ${validating ? 'validating' : ''}`}
-                    disabled={!formData.transactionNumber || validating || !isWithinTimeLimit}
+                    disabled={!formData.transactionNumber || validating}
                   >
                     {validating ? 'Validating...' : 'Validate'}
                   </button>
                 </div>
-                <small className="format-hint">
-                  Format: TXN-YYYYMMDD-HHMMSS-XXX
-                </small>
                 {transactionValid && (
                   <div className="validation-success">
                     ✓ Transaction validated successfully!
@@ -464,7 +361,7 @@ const RefundRequest = () => {
             )}
           </div>
 
-          {/* Product Details - AUTO-FILLED (Read Only) */}
+          {/* Product Details - AUTO-FILLED */}
           <div className="form-section">
             <h3>Product Details <span className="auto-badge">(Auto-filled from transaction)</span></h3>
             <div className="form-row">
@@ -472,57 +369,54 @@ const RefundRequest = () => {
                 <label>Grain Type *</label>
                 <input
                   type="text"
-                  name="grainType"
                   value={formData.grainType}
                   readOnly
                   className="readonly-field"
                   placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
                 {transactionValid && formData.grainType && (
-                  <small className="auto-filled-note">✓ Loaded: {formData.grainType}</small>
+                  <small className="auto-filled-note">✓ {formData.grainType}</small>
                 )}
               </div>
               <div className="form-group">
-                <label>Selected Quantity (kg) *</label>
+                <label>Quantity (kg) *</label>
                 <input
                   type="text"
-                  name="selectedQuantity"
                   value={formData.selectedQuantity}
                   readOnly
                   className="readonly-field"
                   placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
                 {transactionValid && formData.selectedQuantity && (
-                  <small className="auto-filled-note">✓ Loaded: {formData.selectedQuantity} kg</small>
+                  <small className="auto-filled-note">✓ {formData.selectedQuantity} kg</small>
                 )}
               </div>
               <div className="form-group">
-                <label>Amount Inserted (₱) *</label>
+                <label>Amount Paid (₱) *</label>
                 <input
                   type="text"
-                  name="amountInserted"
                   value={formData.amountInserted}
                   readOnly
                   className="readonly-field"
                   placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
                 {transactionValid && formData.amountInserted && (
-                  <small className="auto-filled-note">✓ Loaded: ₱{formData.amountInserted}</small>
+                  <small className="auto-filled-note">✓ ₱{formData.amountInserted}</small>
                 )}
               </div>
             </div>
             {!transactionValid && (
               <div className="info-message">
-                ℹ️ Please click "Validate" to auto-fill product details from your transaction
+                ℹ️ Click "Validate" to auto-fill your transaction details
               </div>
             )}
           </div>
 
-          {/* Refund Request Details - MANUAL INPUT */}
+          {/* Refund Request Details - MANUAL */}
           <div className="form-section">
             <h3>Refund Request Details <span className="manual-badge">(Please fill manually)</span></h3>
             <div className="form-group">
-              <label>Reason for Refund Request *</label>
+              <label>Reason for Refund *</label>
               <select
                 name="refundReason"
                 value={formData.refundReason}
@@ -535,9 +429,6 @@ const RefundRequest = () => {
                   <option key={reason} value={reason}>{reason}</option>
                 ))}
               </select>
-              {!transactionValid && (
-                <small className="info-note">Validate transaction first to enable</small>
-              )}
             </div>
             <div className="form-group">
               <label>Description / Comment *</label>
@@ -545,14 +436,11 @@ const RefundRequest = () => {
                 name="description"
                 value={formData.description}
                 onChange={handleChange}
-                placeholder="Please explain in detail what problem you encountered during the transaction..."
+                placeholder="Please explain in detail what problem you encountered..."
                 rows="4"
                 required
                 disabled={!transactionValid || !isWithinTimeLimit}
               />
-              {!transactionValid && (
-                <small className="info-note">Validate transaction first to enable</small>
-              )}
             </div>
           </div>
 
@@ -560,7 +448,7 @@ const RefundRequest = () => {
           <div className="form-section">
             <h3>Proof of Transaction</h3>
             <div className="form-group">
-              <label>Upload Receipt Image *</label>
+              <label>Upload Receipt *</label>
               <div className="file-upload-area">
                 <input
                   type="file"
@@ -586,24 +474,21 @@ const RefundRequest = () => {
                   }}>Remove</button>
                 </div>
               )}
-              {!transactionValid && (
-                <small className="info-note">Validate transaction first to enable upload</small>
-              )}
             </div>
           </div>
 
-          {/* Terms and Conditions */}
+          {/* Terms */}
           <div className="terms-section">
             <h3>Terms and Conditions</h3>
             <ul>
-              <li>This form is intended only for actual product or transaction issues.</li>
-              <li>The administrator will use recorded transaction data for evaluation.</li>
-              <li>Only requests submitted within four (4) hours after the transaction will be accepted.</li>
-              <li>Refunds will only be considered if the product is proven defective.</li>
+              <li>This form is for actual product or transaction issues only.</li>
+              <li>Requests submitted within 4 hours of transaction will be processed.</li>
+              <li>Administrator will review using recorded transaction data.</li>
+              <li>Refunds approved only if product is proven defective.</li>
             </ul>
           </div>
 
-          {/* Form Actions */}
+          {/* Actions */}
           <div className="form-actions">
             <button type="button" onClick={handleReset} className="btn-reset">
               Reset Form
