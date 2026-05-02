@@ -33,13 +33,21 @@ const AdminTransactions = () => {
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
   
-  // State for dynamic product names from database
-  const [productNames, setProductNames] = useState([]);
+  // Complete list of all products (default + dynamically fetched)
+  const [allProductNames, setAllProductNames] = useState([
+    'Sinandomeng Rice',
+    'Dinorado Rice', 
+    'Jasmine Rice',
+    'Premium Rice',
+    'Brown Rice',
+    'Glutinous Rice',
+    'Organic Rice'
+  ]);
 
   useEffect(() => {
     fetchTransactions();
     fetchSummary();
-    fetchUniqueProductNames(); // Fetch unique product names from database
+    fetchUniqueProductNames(); // Fetch additional products from database
 
     if (socket) {
       socket.on('new_transaction', () => {
@@ -72,15 +80,19 @@ const AdminTransactions = () => {
       });
       
       if (response.data.success) {
-        setProductNames(response.data.data);
-      } else {
-        // Fallback to default product names based on database entries
-        setProductNames(['Sinandomeng Rice', 'Malagkit Rice', 'Premium Rice', 'Jasmine Rice', 'Dinorado Rice']);
+        // Merge default products with database products, remove duplicates
+        const mergedProducts = [...allProductNames];
+        response.data.data.forEach(product => {
+          if (!mergedProducts.includes(product)) {
+            mergedProducts.push(product);
+          }
+        });
+        setAllProductNames(mergedProducts);
+        console.log('All available products:', mergedProducts);
       }
     } catch (error) {
       console.error('Error fetching product names:', error);
-      // Fallback to default product names based on database entries
-      setProductNames(['Sinandomeng Rice', 'Malagkit Rice', 'Premium Rice', 'Jasmine Rice', 'Dinorado Rice']);
+      // Keep default products if fetch fails
     }
   };
 
@@ -301,7 +313,7 @@ const AdminTransactions = () => {
                 className="filter-select"
               >
                 <option value="all">All Products</option>
-                {productNames.map(name => (
+                {allProductNames.map(name => (
                   <option key={name} value={name}>{name}</option>
                 ))}
               </select>
