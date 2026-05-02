@@ -12,6 +12,13 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
+// Helper function to generate unique request ID
+const generateRequestId = () => {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 10).toUpperCase();
+  return `REF-${timestamp}-${random}`;
+};
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -44,7 +51,7 @@ const upload = multer({
 
 // ==================== CUSTOMER ROUTES ====================
 
-// Validate transaction - FIXED to use productName instead of riceType
+// Validate transaction
 router.get('/validate/:transactionId', async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -83,12 +90,12 @@ router.get('/validate/:transactionId', async (req, res) => {
       });
     }
     
-    // Return transaction data - FIXED: use productName instead of riceType
+    // Return transaction data
     res.json({
       success: true,
       data: {
         createdAt: transaction.createdAt,
-        productName: transaction.productName, // Changed from riceType to productName
+        productName: transaction.productName,
         quantityKg: transaction.quantityKg,
         amountPaid: transaction.amountPaid,
         transactionId: transaction.transactionId,
@@ -175,14 +182,15 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       });
     }
     
-    // Create refund request
+    // Create refund request with generated requestId
     const refundRequest = new RefundRequest({
+      requestId: generateRequestId(), // ADD THIS LINE - generates unique ID like REF-XXXXXX-XXXXXXXX
       fullName,
       email,
       transactionNumber,
       transactionDate,
       transactionTime,
-      grainType: grainType || transaction.productName, // Use provided grainType or from transaction
+      grainType: grainType || transaction.productName,
       selectedQuantity: Number(selectedQuantity),
       amountInserted: Number(amountInserted),
       refundReason,
@@ -195,13 +203,14 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     
     await refundRequest.save();
     
-    console.log('✅ Refund request saved:', refundRequest._id);
+    console.log('✅ Refund request saved:', refundRequest._id, 'Request ID:', refundRequest.requestId);
     
     // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('new_refund_notification', {
         id: refundRequest._id,
+        requestId: refundRequest.requestId,
         transactionId: refundRequest.transactionNumber,
         fullName: refundRequest.fullName,
         amountInserted: refundRequest.amountInserted,
@@ -214,6 +223,7 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       message: 'Refund request submitted successfully!',
       data: {
         refundId: refundRequest._id,
+        requestId: refundRequest.requestId,
         status: refundRequest.status
       }
     });
@@ -246,6 +256,7 @@ router.get('/status/:transactionId', async (req, res) => {
       success: true,
       data: {
         id: refundRequest._id,
+        requestId: refundRequest.requestId,
         status: refundRequest.status,
         fullName: refundRequest.fullName,
         transactionNumber: refundRequest.transactionNumber,
@@ -359,6 +370,7 @@ router.put('/admin/:refundId/process', protect, admin, async (req, res) => {
     if (io) {
       io.emit('refund_processed', {
         id: refundRequest._id,
+        requestId: refundRequest.requestId,
         status: refundRequest.status,
         transactionNumber: refundRequest.transactionNumber
       });
