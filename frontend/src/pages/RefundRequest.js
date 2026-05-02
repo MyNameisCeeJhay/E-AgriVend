@@ -11,12 +11,13 @@ const formatTransactionId = (transactionNumber) => {
   return transactionNumber.trim().toUpperCase();
 };
 
-// Helper function to validate transaction ID format
+// Helper function to validate transaction ID format - relaxed for your actual formats
 const isValidTransactionFormat = (transactionNumber) => {
-  // Matches format: TXN-YYYYMMDD-HHMMSS-XXX
-  // Example: TXN-20250430-143025-042
-  const regex = /^TXN-\d{8}-\d{6}-\d{3}$/;
-  return regex.test(transactionNumber);
+  if (!transactionNumber || !transactionNumber.startsWith('TXN-')) {
+    return false;
+  }
+  // Accept any TXN- format - backend will validate existence
+  return transactionNumber.length > 4;
 };
 
 const RefundRequest = () => {
@@ -45,8 +46,106 @@ const RefundRequest = () => {
   const [isWithinTimeLimit, setIsWithinTimeLimit] = useState(true);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [validating, setValidating] = useState(false);
+  
+  // State for dynamic products from staff management
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [productsError, setProductsError] = useState(false);
+  const [validatedTransactionProduct, setValidatedTransactionProduct] = useState(null);
 
-  // Validate transaction when user clicks validate button
+  // Complete default products list (including all rice varieties)
+  const DEFAULT_PRODUCTS = [
+    { id: 1, name: 'Sinandomeng', price: 54.00 },
+    { id: 2, name: 'Dinorado', price: 65.00 },
+    { id: 3, name: 'Jasmine', price: 70.00 },
+    { id: 4, name: 'Premium', price: 85.00 },
+    { id: 5, name: 'Brown Rice', price: 60.00 },
+    { id: 6, name: 'Glutinous Rice', price: 75.00 },
+    { id: 7, name: 'Organic Rice', price: 90.00 },
+    { id: 8, name: 'Malagkit Rice', price: 65.00 }  // Added Malagkit Rice
+  ];
+
+  // Fetch products when component mounts
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      setLoadingProducts(true);
+      setProductsError(false);
+      
+      // Try to get products from the staff products endpoint
+      const token = localStorage.getItem('token');
+      
+      let response;
+      try {
+        // Try with authentication first (if available)
+        response = await axios.get(`${API_URL}/staff/products`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+      } catch (authError) {
+        // If auth fails, try public endpoint if available
+        console.log('Auth failed, trying public endpoint...');
+        try {
+          response = await axios.get(`${API_URL}/products/public`);
+        } catch (publicError) {
+          throw new Error('No products endpoint available');
+        }
+      }
+      
+      if (response.data && response.data.success) {
+        // Filter only active products (not archived)
+        const activeProducts = response.data.data.filter(product => !product.isArchived);
+        
+        // Map the products to ensure they have the correct format
+        const formattedProducts = activeProducts.map(product => ({
+          id: product.id || product._id,
+          name: product.name,
+          price: product.price
+        }));
+        
+        // Merge with default products to ensure all common products are included
+        const allProductNames = new Set(formattedProducts.map(p => p.name));
+        const mergedProducts = [...formattedProducts];
+        
+        // Add any default products that aren't already in the list
+        DEFAULT_PRODUCTS.forEach(defaultProduct => {
+          if (!allProductNames.has(defaultProduct.name)) {
+            mergedProducts.push(defaultProduct);
+          }
+        });
+        
+        setProducts(mergedProducts);
+        console.log('Products loaded:', mergedProducts);
+      } else {
+        // Use default products if API fails
+        setProducts(DEFAULT_PRODUCTS);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      setProductsError(true);
+      // Use default products as fallback
+      setProducts(DEFAULT_PRODUCTS);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  // Get all unique product names (including any from validated transaction)
+  const getAvailableGrainTypes = () => {
+    const productNames = products.map(product => product.name);
+    
+    // If we have a validated transaction product that's not in the list, add it temporarily
+    if (validatedTransactionProduct && !productNames.includes(validatedTransactionProduct)) {
+      return [...productNames, validatedTransactionProduct];
+    }
+    
+    return productNames;
+  };
+
+  const grainTypes = getAvailableGrainTypes();
+
   const handleValidateTransaction = async () => {
     const formattedTransactionNumber = formatTransactionId(formData.transactionNumber);
     
@@ -65,23 +164,25 @@ const RefundRequest = () => {
     setError('');
     setTransactionValid(false);
     setTransactionData(null);
+    setValidatedTransactionProduct(null);
     
     try {
+      // The validate endpoint already checks if refund exists
       const response = await axios.get(`${API_URL}/refund/validate/${formattedTransactionNumber}`);
       
       if (response.data.success) {
         const transaction = response.data.data;
         
-        // Check if refund already exists for this transaction
-        const checkRefund = await axios.get(`${API_URL}/refund/check/${formattedTransactionNumber}`);
-        if (checkRefund.data.exists) {
-          setError('A refund request has already been submitted for this transaction.');
-          setValidating(false);
-          return;
-        }
-        
         // Store transaction data
         setTransactionData(transaction);
+        
+        // Get the product name from transaction (could be riceType or productName)
+        const transactionProduct = transaction.riceType || transaction.productName;
+        console.log('Transaction product found:', transactionProduct);
+        
+        // Store the validated product name
+        setValidatedTransactionProduct(transactionProduct);
+        
         setTransactionValid(true);
         
         // Update form with formatted transaction number
@@ -94,7 +195,7 @@ const RefundRequest = () => {
             minute: '2-digit',
             hour12: true
           }),
-          grainType: transaction.riceType,
+          grainType: transactionProduct, // Set the actual product from transaction
           selectedQuantity: transaction.quantityKg,
           amountInserted: transaction.amountPaid
         }));
@@ -129,7 +230,7 @@ const RefundRequest = () => {
       setValidating(false);
     }
   };
-
+  
   const startCountdown = (transactionTime) => {
     const endTime = new Date(transactionTime.getTime() + 4 * 60 * 60 * 1000);
     
@@ -162,6 +263,7 @@ const RefundRequest = () => {
       setTransactionValid(false);
       setTransactionData(null);
       setError('');
+      setValidatedTransactionProduct(null);
     }
   };
 
@@ -264,6 +366,7 @@ const RefundRequest = () => {
     setTransactionData(null);
     setIsWithinTimeLimit(true);
     setTimeRemaining(null);
+    setValidatedTransactionProduct(null);
   };
 
   const refundReasons = [
@@ -274,8 +377,6 @@ const RefundRequest = () => {
     'Payment error - Charged but no product',
     'Other issue'
   ];
-
-  const grainTypes = ['Sinandomeng', 'Dinorado', 'Jasmine', 'Premium'];
 
   // Helper function to provide example format
   const getTransactionFormatExample = () => {
@@ -421,23 +522,53 @@ const RefundRequest = () => {
           {/* Product Details Section - Auto-filled after validation */}
           <div className="form-section">
             <h3>Product Details</h3>
+            {productsError && (
+              <div className="warning-message">
+                ⚠️ Unable to load products from server. Showing default products. Contact staff if you don't see your product.
+              </div>
+            )}
             <div className="form-row">
               <div className="form-group">
                 <label>Grain Type *</label>
-                <select
-                  name="grainType"
-                  value={formData.grainType}
-                  onChange={handleChange}
-                  required
-                  disabled={!transactionValid || !isWithinTimeLimit}
-                  className={transactionValid ? 'auto-filled' : ''}
-                >
-                  <option value="">Select grain type</option>
-                  {grainTypes.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-                {transactionValid && <small className="auto-filled-note">Auto-filled from transaction</small>}
+                {loadingProducts ? (
+                  <div className="loading-products">
+                    Loading available products...
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      name="grainType"
+                      value={formData.grainType}
+                      onChange={handleChange}
+                      required
+                      disabled={!transactionValid || !isWithinTimeLimit}
+                      className={transactionValid ? 'auto-filled' : ''}
+                    >
+                      <option value="">Select grain type</option>
+                      {grainTypes.map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                    {products.length > 0 && (
+                      <small className="products-count">
+                        {grainTypes.length} product{grainTypes.length !== 1 ? 's' : ''} available
+                      </small>
+                    )}
+                    {validatedTransactionProduct && !products.some(p => p.name === validatedTransactionProduct) && (
+                      <small className="warning-note">
+                        ⚠️ Note: "{validatedTransactionProduct}" is from your transaction but not in the master product list
+                      </small>
+                    )}
+                  </>
+                )}
+                {transactionValid && !loadingProducts && (
+                  <small className="auto-filled-note">
+                    ✓ Auto-filled from transaction: {formData.grainType}
+                  </small>
+                )}
+                {!loadingProducts && products.length === 0 && (
+                  <small className="error-note">No products available. Please contact administrator.</small>
+                )}
               </div>
               <div className="form-group">
                 <label>Selected Quantity (kg) *</label>

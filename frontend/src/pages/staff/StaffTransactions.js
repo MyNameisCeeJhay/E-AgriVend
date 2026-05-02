@@ -83,6 +83,12 @@ const StaffTransactions = () => {
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      
+      // Broadcast product update to all connected clients (including refund form)
+      if (socket) {
+        socket.emit('products_updated');
+        console.log('Product update broadcasted to all clients');
+      }
     } catch (error) {
       console.error('Error saving products:', error);
       showNotification('error', 'Failed to save products to database');
@@ -98,6 +104,7 @@ const StaffTransactions = () => {
       
       socket.on('products_updated', () => {
         fetchProducts();
+        showNotification('info', 'Product list has been updated');
       });
       
       return () => {
@@ -348,7 +355,7 @@ const StaffTransactions = () => {
       {notification && (
         <div className={`transaction-toast ${notification.type}`}>
           <div className="toast-content">
-            <span className="toast-icon">{notification.type === 'success' ? '✓' : '⚠'}</span>
+            <span className="toast-icon">{notification.type === 'success' ? '✓' : notification.type === 'info' ? 'ℹ' : '⚠'}</span>
             <span>{notification.message}</span>
           </div>
           <button className="toast-close" onClick={() => setNotification(null)}>×</button>
