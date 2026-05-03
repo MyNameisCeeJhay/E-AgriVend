@@ -8,10 +8,9 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f5f5f5;
   color: #333;
   line-height: 1.5;
-  min-height: 100vh;
 }
 
 .refund-container {
@@ -20,36 +19,38 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  background: #f5f5f5;
 }
 
 .refund-card {
-  max-width: 1000px;
+  max-width: 900px;
   width: 100%;
   background: #ffffff;
-  border-radius: 32px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
   overflow: hidden;
 }
 
 /* Header */
 .refund-header {
-  background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
-  padding: 40px 48px;
+  background: #ffffff;
+  padding: 30px 40px 20px 40px;
   text-align: center;
+  border-bottom: 1px solid #e8e8e8;
 }
 
 .refund-header h1 {
-  font-size: 32px;
-  font-weight: 700;
-  color: #ffffff;
+  font-size: 28px;
+  font-weight: 600;
+  color: #2e7d32;
   letter-spacing: -0.5px;
   margin-bottom: 8px;
 }
 
 .refund-header h2 {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.85);
+  color: #666;
 }
 
 /* Content Sections */
@@ -57,110 +58,108 @@ body {
 .important-notice,
 .countdown-timer,
 .refund-form {
-  padding: 0 48px;
+  padding: 0 40px;
 }
 
 .refund-intro {
-  padding-top: 40px;
-  text-align: center;
+  padding-top: 30px;
+  text-align: left;
 }
 
 .refund-intro h3 {
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 600;
-  color: #1a472a;
+  color: #333;
   margin-bottom: 12px;
 }
 
 .refund-intro p {
-  font-size: 15px;
-  color: #555;
+  font-size: 14px;
+  color: #666;
   line-height: 1.6;
-  max-width: 80%;
-  margin: 0 auto;
 }
 
 .important-notice {
-  background: #fef3c7;
-  border-left: 4px solid #f59e0b;
-  margin: 24px 48px;
-  padding: 16px 24px;
-  border-radius: 12px;
+  background: #fff8e1;
+  border-left: 4px solid #ff9800;
+  margin: 20px 40px;
+  padding: 14px 20px;
+  border-radius: 4px;
 }
 
 .important-notice h3 {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
-  color: #b45309;
+  color: #e65100;
   margin-bottom: 6px;
 }
 
 .important-notice p {
-  font-size: 13px;
-  color: #78350f;
+  font-size: 12px;
+  color: #5d4e37;
   line-height: 1.5;
 }
 
 .important-notice strong {
   font-weight: 700;
-  color: #b45309;
+  color: #d84315;
 }
 
 /* Countdown Timer */
 .countdown-timer {
-  background: linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%);
-  border: 1px solid #fde68a;
-  border-radius: 16px;
-  padding: 20px;
-  margin: 20px 48px;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 20px 40px;
   text-align: center;
 }
 
 .countdown-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  color: #b45309;
+  color: #e65100;
   margin-bottom: 8px;
 }
 
 .countdown {
-  font-size: 36px;
+  font-size: 28px;
   font-weight: 700;
   font-family: 'Courier New', monospace;
-  color: #dc2626;
+  color: #d84315;
   letter-spacing: 2px;
 }
 
 /* Messages */
 .error-message {
-  background: #fef2f2;
-  border-left: 4px solid #ef4444;
-  color: #b91c1c;
-  padding: 14px 20px;
-  margin: 20px 48px;
-  border-radius: 12px;
-  font-size: 14px;
+  background: #ffebee;
+  border-left: 4px solid #f44336;
+  color: #c62828;
+  padding: 12px 18px;
+  margin: 20px 40px;
+  border-radius: 4px;
+  font-size: 13px;
 }
 
 .success-message {
-  background: #ecfdf5;
-  border-left: 4px solid #10b981;
-  color: #047857;
-  padding: 14px 20px;
-  margin: 20px 48px;
-  border-radius: 12px;
-  font-size: 14px;
+  background: #e8f5e9;
+  border-left: 4px solid #4caf50;
+  color: #2e7d32;
+  padding: 12px 18px;
+  margin: 20px 40px;
+  border-radius: 4px;
+  font-size: 13px;
 }
 
 /* Form */
 .refund-form {
-  padding-bottom: 48px;
+  padding-bottom: 40px;
 }
 
 .form-section {
-  margin-bottom: 36px;
-  border-bottom: 1px solid #e5e7eb;
-  padding-bottom: 28px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 24px;
 }
 
 .form-section:last-of-type {
@@ -169,19 +168,17 @@ body {
 }
 
 .form-section h3 {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
-  color: #1a472a;
-  margin-bottom: 24px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  color: #333;
+  margin-bottom: 20px;
+  padding-bottom: 8px;
 }
 
 .form-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 24px;
+  gap: 20px;
 }
 
 .form-group {
@@ -190,9 +187,9 @@ body {
 
 .form-group label {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: #4b5563;
+  color: #666;
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -202,11 +199,11 @@ body {
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: 12px 16px;
-  font-size: 15px;
+  padding: 10px 14px;
+  font-size: 14px;
   font-family: inherit;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
   transition: all 0.3s ease;
   background: #fff;
 }
@@ -215,15 +212,15 @@ body {
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #1a472a;
-  box-shadow: 0 0 0 3px rgba(26, 71, 42, 0.1);
+  border-color: #4caf50;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
 }
 
 .form-group input:disabled,
 .form-group select:disabled,
 .form-group textarea:disabled {
-  background: #f9fafb;
-  color: #9ca3af;
+  background: #fafafa;
+  color: #999;
   cursor: not-allowed;
 }
 
@@ -239,99 +236,96 @@ body {
 }
 
 .validate-btn {
-  padding: 12px 28px;
-  background: #1a472a;
+  padding: 10px 24px;
+  background: #4caf50;
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: 4px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
   white-space: nowrap;
 }
 
 .validate-btn:hover:not(:disabled) {
-  background: #0e2a1a;
-  transform: translateY(-1px);
+  background: #388e3c;
 }
 
 .validate-btn:disabled {
-  background: #9ca3af;
+  background: #ccc;
   cursor: not-allowed;
 }
 
 .validate-btn.validating {
-  background: #f59e0b;
+  background: #ff9800;
   cursor: wait;
 }
 
 .validation-success {
-  margin-top: 10px;
-  font-size: 13px;
-  color: #10b981;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #4caf50;
   font-weight: 500;
 }
 
 /* Auto-filled styles */
-.auto-badge {
-  font-size: 11px;
-  font-weight: 500;
-  background: #ecfdf5;
-  color: #047857;
-  padding: 4px 10px;
-  border-radius: 20px;
-  letter-spacing: normal;
-}
-
-.manual-badge {
-  font-size: 11px;
-  font-weight: 500;
-  background: #fef3c7;
-  color: #b45309;
-  padding: 4px 10px;
-  border-radius: 20px;
-  letter-spacing: normal;
-}
-
 .readonly-field {
-  background: #f9fafb !important;
-  border-color: #e5e7eb !important;
-  color: #1f2937 !important;
-  font-weight: 500;
+  background: #fafafa !important;
+  border-color: #e8e8e8 !important;
+  color: #333 !important;
+  font-weight: normal;
 }
 
 .auto-filled-note {
   display: block;
-  margin-top: 6px;
+  margin-top: 5px;
   font-size: 11px;
-  color: #10b981;
+  color: #4caf50;
+}
+
+.auto-badge,
+.manual-badge {
+  font-size: 10px;
   font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
+.auto-badge {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.manual-badge {
+  background: #fff3e0;
+  color: #e65100;
 }
 
 .info-message {
-  background: #eff6ff;
-  border-radius: 10px;
-  padding: 12px 16px;
-  margin-top: 16px;
-  font-size: 13px;
-  color: #1e40af;
+  background: #e3f2fd;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-top: 15px;
+  font-size: 12px;
+  color: #1565c0;
   text-align: center;
 }
 
 /* Transaction Summary */
 .transaction-summary {
-  background: #f9fafb;
-  border-radius: 16px;
-  padding: 20px;
-  margin-top: 20px;
+  background: #fafafa;
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: 16px;
 }
 
 .summary-row {
   display: flex;
   justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
 }
 
 .summary-row:last-child {
@@ -339,24 +333,24 @@ body {
 }
 
 .summary-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: #6b7280;
+  color: #666;
 }
 
 .summary-value {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  color: #1f2937;
+  color: #333;
 }
 
 .transaction-id {
   font-family: monospace;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  background: #e5e7eb;
-  padding: 2px 8px;
-  border-radius: 6px;
+  background: #e8e8e8;
+  padding: 2px 6px;
+  border-radius: 4px;
   letter-spacing: 0.5px;
 }
 
@@ -377,86 +371,86 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 24px;
-  background: #f9fafb;
-  border: 2px dashed #d1d5db;
-  border-radius: 16px;
+  padding: 32px 24px;
+  background: #fafafa;
+  border: 2px dashed #ddd;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.3s ease;
   text-align: center;
 }
 
 .upload-label:hover {
-  border-color: #1a472a;
-  background: #ecfdf5;
+  border-color: #4caf50;
+  background: #f1f8e9;
 }
 
 .upload-icon {
-  font-size: 48px;
+  font-size: 40px;
   margin-bottom: 12px;
 }
 
 .upload-text {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
-  color: #4b5563;
+  color: #666;
   margin-bottom: 6px;
 }
 
 .upload-hint {
-  font-size: 12px;
-  color: #9ca3af;
+  font-size: 11px;
+  color: #999;
 }
 
 /* Image Preview */
 .image-preview {
-  margin-top: 20px;
+  margin-top: 16px;
   position: relative;
   display: inline-block;
 }
 
 .image-preview img {
-  max-width: 200px;
-  max-height: 200px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
   padding: 4px;
   background: #fff;
 }
 
 .image-preview button {
   position: absolute;
-  top: -10px;
-  right: -10px;
-  background: #ef4444;
+  top: -8px;
+  right: -8px;
+  background: #f44336;
   color: white;
   border: none;
   border-radius: 50%;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   font-size: 12px;
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .image-preview button:hover {
-  background: #dc2626;
+  background: #d32f2f;
   transform: scale(1.1);
 }
 
 /* Terms Section */
 .terms-section {
-  background: #f9fafb;
-  border-radius: 20px;
-  padding: 28px;
-  margin: 36px 0;
+  background: #fafafa;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 30px 0;
 }
 
 .terms-section h3 {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
-  color: #1f2937;
-  margin-bottom: 16px;
+  color: #333;
+  margin-bottom: 14px;
 }
 
 .terms-section ul {
@@ -465,33 +459,33 @@ body {
 }
 
 .terms-section li {
-  font-size: 13px;
-  color: #4b5563;
-  padding: 6px 0;
-  padding-left: 20px;
+  font-size: 12px;
+  color: #666;
+  padding: 5px 0;
+  padding-left: 18px;
   position: relative;
 }
 
 .terms-section li::before {
-  content: "✓";
-  color: #10b981;
+  content: "•";
+  color: #4caf50;
   font-weight: bold;
   position: absolute;
   left: 0;
 }
 
 .terms-note {
-  margin-top: 16px;
-  font-size: 13px;
-  color: #4b5563;
-  padding: 14px;
+  margin-top: 14px;
+  font-size: 12px;
+  color: #666;
+  padding: 12px;
   background: #fff;
-  border-radius: 12px;
-  border-left: 3px solid #1a472a;
+  border-radius: 8px;
+  border-left: 3px solid #4caf50;
 }
 
 .terms-note strong {
-  color: #1a472a;
+  color: #2e7d32;
 }
 
 /* Form Actions */
@@ -499,62 +493,59 @@ body {
   display: flex;
   gap: 16px;
   justify-content: flex-end;
-  margin-top: 36px;
+  margin-top: 30px;
   padding-top: 20px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #f0f0f0;
 }
 
 .btn-reset,
 .btn-submit {
-  padding: 12px 32px;
-  font-size: 15px;
-  font-weight: 600;
+  padding: 10px 28px;
+  font-size: 14px;
+  font-weight: 500;
   border: none;
-  border-radius: 40px;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .btn-reset {
   background: #fff;
-  color: #6b7280;
-  border: 1.5px solid #e5e7eb;
+  color: #666;
+  border: 1px solid #ddd;
 }
 
 .btn-reset:hover:not(:disabled) {
-  background: #f9fafb;
-  border-color: #d1d5db;
+  background: #f5f5f5;
 }
 
 .btn-submit {
-  background: linear-gradient(135deg, #1a472a 0%, #0d2818 100%);
+  background: #4caf50;
   color: white;
 }
 
 .btn-submit:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(26, 71, 42, 0.3);
+  background: #388e3c;
 }
 
 .btn-reset:disabled,
 .btn-submit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
 }
 
 /* Format Hint */
 .format-hint {
   display: block;
   font-size: 11px;
-  color: #9ca3af;
-  margin-top: 6px;
+  color: #999;
+  margin-top: 5px;
 }
 
 /* Input placeholder */
 input::placeholder,
 textarea::placeholder {
-  color: #d1d5db;
+  color: #bbb;
 }
 
 /* Responsive Design */
@@ -564,40 +555,36 @@ textarea::placeholder {
   }
 
   .refund-header {
-    padding: 28px 24px;
+    padding: 24px 20px;
   }
 
   .refund-header h1 {
-    font-size: 26px;
+    font-size: 24px;
   }
 
   .refund-header h2 {
-    font-size: 15px;
+    font-size: 14px;
   }
 
   .refund-intro,
   .important-notice,
   .countdown-timer,
   .refund-form {
-    padding-left: 24px;
-    padding-right: 24px;
-  }
-
-  .refund-intro p {
-    max-width: 100%;
+    padding-left: 20px;
+    padding-right: 20px;
   }
 
   .important-notice,
   .countdown-timer,
   .error-message,
   .success-message {
-    margin-left: 24px;
-    margin-right: 24px;
+    margin-left: 20px;
+    margin-right: 20px;
   }
 
   .form-row {
     grid-template-columns: 1fr;
-    gap: 20px;
+    gap: 16px;
   }
 
   .transaction-input-group {
@@ -618,14 +605,7 @@ textarea::placeholder {
   }
 
   .countdown {
-    font-size: 28px;
-  }
-
-  .form-section h3 {
-    font-size: 18px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
+    font-size: 24px;
   }
 }
 
@@ -635,18 +615,14 @@ textarea::placeholder {
   }
 
   .refund-header h1 {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .upload-label {
-    padding: 28px 16px;
+    padding: 24px 16px;
   }
 
   .upload-icon {
-    font-size: 36px;
-  }
-
-  .refund-intro h3 {
-    font-size: 20px;
+    font-size: 32px;
   }
 }
