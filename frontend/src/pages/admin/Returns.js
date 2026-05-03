@@ -28,6 +28,7 @@ const AdminReturns = () => {
     pages: 1
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchRefunds();
@@ -42,9 +43,6 @@ const AdminReturns = () => {
         });
         fetchRefunds();
         fetchStats();
-        
-        const audio = new Audio('/notification.mp3');
-        audio.play().catch(() => {});
         
         if (Notification.permission === 'granted') {
           new Notification('New Refund Request', {
@@ -78,7 +76,11 @@ const AdminReturns = () => {
   const fetchRefunds = async () => {
     try {
       setLoading(true);
+      setError(null);
       const token = localStorage.getItem('token');
+      
+      console.log('Fetching refunds with filter:', filter);
+      
       const response = await axios.get(`${API_URL}/refund/admin/all`, {
         params: {
           status: filter !== 'all' ? filter : undefined,
@@ -88,12 +90,16 @@ const AdminReturns = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      console.log('Fetched refunds:', response.data);
-      setRefunds(response.data.data || []);
-      setPagination(response.data.pagination);
+      console.log('API Response:', response.data);
+      
+      // Safely set refunds array
+      const refundsData = response.data?.data || [];
+      setRefunds(refundsData);
+      setPagination(response.data?.pagination || { page: 1, total: 0, pages: 1 });
     } catch (error) {
       console.error('Error fetching refunds:', error);
-      showNotification('error', 'Failed to load refund requests');
+      setError(error.response?.data?.error || 'Failed to load refund requests');
+      setRefunds([]);
     } finally {
       setLoading(false);
     }
@@ -105,11 +111,12 @@ const AdminReturns = () => {
       const response = await axios.get(`${API_URL}/refund/admin/stats/summary`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      const statsData = response.data?.data || {};
       setStats({
-        pending: response.data.data?.pending || 0,
-        approved: response.data.data?.approved || 0,
-        rejected: response.data.data?.rejected || 0,
-        total: response.data.data?.total || 0
+        pending: statsData.pending || 0,
+        approved: statsData.approved || 0,
+        rejected: statsData.rejected || 0,
+        total: statsData.total || 0
       });
     } catch (error) {
       console.error('Error fetching stats:', error);
@@ -188,21 +195,26 @@ const AdminReturns = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return 'Invalid Date';
+    }
   };
 
   const formatCurrency = (amount) => {
+    if (!amount && amount !== 0) return '₱0.00';
     return new Intl.NumberFormat('en-PH', {
       style: 'currency',
       currency: 'PHP'
-    }).format(amount || 0);
+    }).format(amount);
   };
 
   const getStatusClass = (status) => {
@@ -224,34 +236,56 @@ const AdminReturns = () => {
     setPagination({ ...pagination, page: 1 });
   };
 
-  // Safe accessor functions for refund data (handles both old and new field names)
+  // Safe accessor functions
   const getTransactionId = (refund) => {
-    return refund.transactionId || refund.transactionNumber;
+    return refund?.transactionId || refund?.transactionNumber || 'N/A';
   };
 
   const getProductName = (refund) => {
-    return refund.riceType || refund.grainType || 'N/A';
+    return refund?.riceType || refund?.grainType || 'N/A';
   };
 
   const getQuantity = (refund) => {
-    return refund.quantityKg || refund.selectedQuantity || 0;
+    return refund?.quantityKg || refund?.selectedQuantity || 0;
   };
 
   const getAmount = (refund) => {
-    return refund.amountPaid || refund.amountInserted || 0;
+    return refund?.amountPaid || refund?.amountInserted || 0;
   };
 
   const getReason = (refund) => {
-    return refund.returnReason || refund.refundReason || 'N/A';
+    return refund?.returnReason || refund?.refundReason || 'N/A';
   };
 
   const getDescription = (refund) => {
-    return refund.description || '';
+    return refund?.description || '';
   };
 
   const getReceiptPath = (refund) => {
-    return refund.receiptPath || refund.receiptImage;
+    return refund?.receiptPath || refund?.receiptImage;
   };
+
+  // Don't render if loading
+  if (loading && refunds.length === 0) {
+    return (
+      <div className="returns-container">
+        <div className="loading-state">Loading refund requests...</div>
+      </div>
+    );
+  }
+
+  // Don't render if error
+  if (error) {
+    return (
+      <div className="returns-container">
+        <div className="error-state">
+          <h3>Error Loading Refunds</h3>
+          <p>{error}</p>
+          <button onClick={() => fetchRefunds()}>Try Again</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="returns-container">
@@ -314,10 +348,8 @@ const AdminReturns = () => {
         </div>
       )}
 
-      {/* Refunds Table */}
-      {loading ? (
-        <div className="loading-state">Loading refund requests...</div>
-      ) : refunds.length === 0 ? (
+      {/* Refunds Table - Safely check if refunds array exists and has items */}
+      {!refunds || refunds.length === 0 ? (
         <div className="empty-state">
           <h3>No Refund Requests</h3>
           <p>There are no refund requests to display.</p>
@@ -341,14 +373,14 @@ const AdminReturns = () => {
               </thead>
               <tbody>
                 {refunds.map((refund) => (
-                  <tr key={refund._id} className={refund.status === 'PENDING' ? 'pending-row' : ''}>
+                  <tr key={refund._id || refund.returnId} className={refund?.status === 'PENDING' ? 'pending-row' : ''}>
                     <td className="return-id-cell">
-                      <span className="return-id">{refund.returnId || 'N/A'}</span>
+                      <span className="return-id">{refund?.returnId || 'N/A'}</span>
                     </td>
                     <td className="transaction-id-cell">
                       <span className="transaction-id">{getTransactionId(refund)}</span>
                     </td>
-                    <td className="date-cell">{formatDate(refund.createdAt)}</td>
+                    <td className="date-cell">{formatDate(refund?.createdAt)}</td>
                     <td className="product-cell">{getProductName(refund)}</td>
                     <td className="quantity-cell">{getQuantity(refund)} kg</td>
                     <td className="amount-cell">{formatCurrency(getAmount(refund))}</td>
@@ -361,13 +393,13 @@ const AdminReturns = () => {
                     </td>
                     <td className="status-cell">
                       <div className="status-container">
-                        <span className={`status-badge ${getStatusClass(refund.status)}`}>
-                          {refund.status}
+                        <span className={`status-badge ${getStatusClass(refund?.status)}`}>
+                          {refund?.status || 'PENDING'}
                         </span>
                       </div>
                     </td>
                     <td className="actions-cell">
-                      {refund.status === 'PENDING' && (
+                      {refund?.status === 'PENDING' && (
                         <div className="action-buttons">
                           <button 
                             className="btn-approve"
@@ -385,7 +417,7 @@ const AdminReturns = () => {
                           </button>
                         </div>
                       )}
-                      {refund.status !== 'PENDING' && (
+                      {refund?.status !== 'PENDING' && (
                         <button 
                           className="btn-view"
                           onClick={() => setSelectedRefund(refund)}
@@ -430,7 +462,7 @@ const AdminReturns = () => {
         <div className="modal-overlay" onClick={() => setSelectedRefund(null)}>
           <div className="modal-container large" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{selectedRefund.status === 'PENDING' ? 'Process Refund Request' : 'Refund Request Details'}</h2>
+              <h2>{selectedRefund?.status === 'PENDING' ? 'Process Refund Request' : 'Refund Request Details'}</h2>
               <button className="modal-close" onClick={() => setSelectedRefund(null)}>×</button>
             </div>
             
@@ -440,7 +472,7 @@ const AdminReturns = () => {
                 <div className="details-grid">
                   <div className="detail-row">
                     <span className="detail-label">Return ID:</span>
-                    <span className="detail-value highlight">{selectedRefund.returnId || 'N/A'}</span>
+                    <span className="detail-value highlight">{selectedRefund?.returnId || 'N/A'}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Transaction ID:</span>
@@ -448,7 +480,7 @@ const AdminReturns = () => {
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Submitted:</span>
-                    <span className="detail-value">{formatDate(selectedRefund.createdAt)}</span>
+                    <span className="detail-value">{formatDate(selectedRefund?.createdAt)}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Product:</span>
@@ -469,11 +501,11 @@ const AdminReturns = () => {
                   <div className="details-grid">
                     <div className="detail-row">
                       <span className="detail-label">Name:</span>
-                      <span className="detail-value">{selectedRefund.fullName || 'N/A'}</span>
+                      <span className="detail-value">{selectedRefund?.fullName || 'N/A'}</span>
                     </div>
                     <div className="detail-row">
                       <span className="detail-label">Email:</span>
-                      <span className="detail-value">{selectedRefund.email || 'N/A'}</span>
+                      <span className="detail-value">{selectedRefund?.email || 'N/A'}</span>
                     </div>
                   </div>
                 </div>
@@ -500,7 +532,7 @@ const AdminReturns = () => {
                   </div>
                 )}
 
-                {selectedRefund.status !== 'PENDING' && selectedRefund.adminNotes && (
+                {selectedRefund?.status !== 'PENDING' && selectedRefund?.adminNotes && (
                   <div className="admin-notes-display">
                     <h4>Admin Notes</h4>
                     <p>{selectedRefund.adminNotes}</p>
@@ -511,7 +543,7 @@ const AdminReturns = () => {
                 )}
               </div>
 
-              {selectedRefund.status === 'PENDING' && (
+              {selectedRefund?.status === 'PENDING' && (
                 <div className="admin-notes-box">
                   <label className="form-label">Admin Notes (Required for rejection)</label>
                   <textarea
@@ -526,7 +558,7 @@ const AdminReturns = () => {
               )}
             </div>
             
-            {selectedRefund.status === 'PENDING' && (
+            {selectedRefund?.status === 'PENDING' && (
               <div className="modal-footer">
                 <button 
                   className="btn-cancel" 
@@ -539,14 +571,14 @@ const AdminReturns = () => {
                 </button>
                 <button 
                   className="btn-reject-modal"
-                  onClick={() => handleReject(selectedRefund.returnId || selectedRefund._id)}
+                  onClick={() => handleReject(selectedRefund?.returnId || selectedRefund?._id)}
                   disabled={processing || !adminNotes.trim()}
                 >
                   {processing ? 'Processing...' : 'Reject Refund'}
                 </button>
                 <button 
                   className="btn-approve-modal"
-                  onClick={() => handleApprove(selectedRefund.returnId || selectedRefund._id)}
+                  onClick={() => handleApprove(selectedRefund?.returnId || selectedRefund?._id)}
                   disabled={processing}
                 >
                   {processing ? 'Processing...' : 'Approve Refund'}
@@ -554,7 +586,7 @@ const AdminReturns = () => {
               </div>
             )}
             
-            {selectedRefund.status !== 'PENDING' && (
+            {selectedRefund?.status !== 'PENDING' && (
               <div className="modal-footer single">
                 <button 
                   className="btn-close" 
