@@ -33,16 +33,18 @@ body {
 
 /* Header */
 .refund-header {
-  background: #ffffff;
+  background: #2e7d32;
   padding: 30px 40px 20px 40px;
   text-align: center;
   border-bottom: 1px solid #e8e8e8;
 }
 
+#ffffff
+
 .refund-header h1 {
   font-size: 28px;
   font-weight: 600;
-  color: #2e7d32;
+  color: #ffffff;
   letter-spacing: -0.5px;
   margin-bottom: 8px;
 }
@@ -50,7 +52,7 @@ body {
 .refund-header h2 {
   font-size: 16px;
   font-weight: 400;
-  color: #666;
+  color: #ffffff;
 }
 
 /* Content Sections */
