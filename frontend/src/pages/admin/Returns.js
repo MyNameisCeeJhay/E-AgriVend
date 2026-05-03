@@ -1,6 +1,6 @@
 const API_URL = 'https://e-agrivend.onrender.com/api';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
@@ -12,7 +12,6 @@ const AdminReturns = () => {
   const [refunds, setRefunds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRefund, setSelectedRefund] = useState(null);
-  const [adminNotes, setAdminNotes] = useState('');
   const [processing, setProcessing] = useState(false);
   const [notification, setNotification] = useState(null);
   const [stats, setStats] = useState({
@@ -29,6 +28,7 @@ const AdminReturns = () => {
   });
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState(null);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     fetchRefunds();
@@ -43,23 +43,18 @@ const AdminReturns = () => {
         });
         fetchRefunds();
         fetchStats();
-        
-        if (Notification.permission === 'granted') {
-          new Notification('New Refund Request', {
-            body: `Transaction: ${data.transactionId}\nAmount: ₱${data.amountPaid}`,
-            icon: '/logo192.png'
-          });
-        }
       });
 
       return () => {
         socket.off('new_return_notification');
       };
     }
-
-    if (Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [socket]);
 
   useEffect(() => {
@@ -74,12 +69,23 @@ const AdminReturns = () => {
   }, [notification]);
 
   const fetchRefunds = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
     try {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem('token');
       
-      console.log('Fetching refunds with filter:', filter);
+      const authToken = localStorage.getItem('token');
+      
+      if (!authToken) {
+        setError('Please log in as admin to view refund requests');
+        setLoading(false);
+        return;
+      }
       
       const response = await axios.get(`${API_URL}/refund/admin/all`, {
         params: {
@@ -87,18 +93,33 @@ const AdminReturns = () => {
           page: pagination.page,
           limit: 15
         },
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { 
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000,
+        signal: abortControllerRef.current.signal
       });
       
-      console.log('API Response:', response.data);
-      
-      // Safely set refunds array
       const refundsData = response.data?.data || [];
       setRefunds(refundsData);
       setPagination(response.data?.pagination || { page: 1, total: 0, pages: 1 });
     } catch (error) {
+      if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+        return;
+      }
+      
       console.error('Error fetching refunds:', error);
-      setError(error.response?.data?.error || 'Failed to load refund requests');
+      
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        setError('Request timeout. Please try again.');
+      } else if (error.response?.status === 401) {
+        setError('Unauthorized. Please log in as admin.');
+      } else if (error.response?.status === 403) {
+        setError('Access denied. Admin privileges required.');
+      } else {
+        setError(error.response?.data?.error || 'Failed to load refund requests');
+      }
       setRefunds([]);
     } finally {
       setLoading(false);
@@ -107,9 +128,11 @@ const AdminReturns = () => {
 
   const fetchStats = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const authToken = localStorage.getItem('token');
+      
       const response = await axios.get(`${API_URL}/refund/admin/stats/summary`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${authToken}` },
+        timeout: 15000
       });
       const statsData = response.data?.data || {};
       setStats({
@@ -134,18 +157,18 @@ const AdminReturns = () => {
 
     setProcessing(true);
     try {
-      const token = localStorage.getItem('token');
+      const authToken = localStorage.getItem('token');
       await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
         status: 'APPROVED',
-        adminNotes: adminNotes || 'Refund approved by administrator.',
+        adminNotes: 'Refund approved by administrator.',
         processedBy: user?._id,
         processedByName: user?.firstName + ' ' + user?.lastName
       }, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${authToken}` },
+        timeout: 15000
       });
       
       setSelectedRefund(null);
-      setAdminNotes('');
       fetchRefunds();
       fetchStats();
       
@@ -159,28 +182,23 @@ const AdminReturns = () => {
   };
 
   const handleReject = async (refundId) => {
-    if (!adminNotes.trim()) {
-      showNotification('error', 'Please provide a reason for rejection');
-      return;
-    }
-
     const confirmReject = window.confirm('Are you sure you want to reject this refund request?');
     if (!confirmReject) return;
 
     setProcessing(true);
     try {
-      const token = localStorage.getItem('token');
+      const authToken = localStorage.getItem('token');
       await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
         status: 'REJECTED',
-        adminNotes: adminNotes,
+        adminNotes: 'Refund rejected by administrator.',
         processedBy: user?._id,
         processedByName: user?.firstName + ' ' + user?.lastName
       }, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${authToken}` },
+        timeout: 15000
       });
       
       setSelectedRefund(null);
-      setAdminNotes('');
       fetchRefunds();
       fetchStats();
       
@@ -200,9 +218,9 @@ const AdminReturns = () => {
       return date.toLocaleString('en-US', {
         month: 'short',
         day: 'numeric',
-        year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        hour12: true
       });
     } catch (e) {
       return 'Invalid Date';
@@ -226,6 +244,15 @@ const AdminReturns = () => {
     }
   };
 
+  const getStatusText = (status) => {
+    switch(status) {
+      case 'PENDING': return 'PENDING';
+      case 'APPROVED': return 'APPROVED';
+      case 'REJECTED': return 'REJECTED';
+      default: return status || 'PENDING';
+    }
+  };
+
   const toggleFilters = () => {
     setShowFilters(!showFilters);
   };
@@ -236,7 +263,6 @@ const AdminReturns = () => {
     setPagination({ ...pagination, page: 1 });
   };
 
-  // Safe accessor functions
   const getTransactionId = (refund) => {
     return refund?.transactionId || refund?.transactionNumber || 'N/A';
   };
@@ -261,27 +287,34 @@ const AdminReturns = () => {
     return refund?.description || '';
   };
 
-  const getReceiptPath = (refund) => {
-    return refund?.receiptPath || refund?.receiptImage;
+  const viewReceipt = (filename) => {
+    if (!filename) return;
+    const authToken = localStorage.getItem('token');
+    window.open(`${API_URL}/refund/receipt-image/${filename}?token=${authToken}`, '_blank');
   };
 
-  // Don't render if loading
+  // Loading state
   if (loading && refunds.length === 0) {
     return (
       <div className="returns-container">
-        <div className="loading-state">Loading refund requests...</div>
+        <div className="loading-state">
+          <div className="loading-spinner"></div>
+          <p>Loading refund requests...</p>
+        </div>
       </div>
     );
   }
 
-  // Don't render if error
+  // Error state
   if (error) {
     return (
       <div className="returns-container">
         <div className="error-state">
-          <h3>Error Loading Refunds</h3>
+          <h3>⚠️ Error Loading Refunds</h3>
           <p>{error}</p>
-          <button onClick={() => fetchRefunds()}>Try Again</button>
+          <button className="btn-retry" onClick={() => fetchRefunds()}>
+            Try Again
+          </button>
         </div>
       </div>
     );
@@ -297,7 +330,7 @@ const AdminReturns = () => {
         </div>
       )}
 
-      {/* Page Header */}
+      {/* Header with Show Filters Button */}
       <div className="returns-header">
         <div className="returns-header-left">
           <h1>Refund Requests</h1>
@@ -313,24 +346,24 @@ const AdminReturns = () => {
       {/* Stats Cards */}
       <div className="returns-stats">
         <div className="stat-card">
-          <div className="stat-label">Total Refunds</div>
+          <div className="stat-label">TOTAL REFUNDS</div>
           <div className="stat-value">{stats.total}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Pending</div>
+          <div className="stat-label">PENDING</div>
           <div className="stat-value warning">{stats.pending}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Approved</div>
+          <div className="stat-label">APPROVED</div>
           <div className="stat-value success">{stats.approved}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Rejected</div>
+          <div className="stat-label">REJECTED</div>
           <div className="stat-value danger">{stats.rejected}</div>
         </div>
       </div>
 
-      {/* Filters Section */}
+      {/* Filters Section - Shows when showFilters is true */}
       {showFilters && (
         <div className="filters-card">
           <div className="filter-controls">
@@ -348,9 +381,10 @@ const AdminReturns = () => {
         </div>
       )}
 
-      {/* Refunds Table - Safely check if refunds array exists and has items */}
+      {/* Refunds Table */}
       {!refunds || refunds.length === 0 ? (
         <div className="empty-state">
+          <div className="empty-icon">📭</div>
           <h3>No Refund Requests</h3>
           <p>There are no refund requests to display.</p>
         </div>
@@ -360,26 +394,20 @@ const AdminReturns = () => {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Return ID</th>
-                  <th>Transaction ID</th>
-                  <th>Date</th>
-                  <th>Product</th>
-                  <th>Quantity</th>
-                  <th>Amount</th>
-                  <th>Reason</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th>ID</th>
+                  <th>DATE</th>
+                  <th>PRODUCT</th>
+                  <th>QUANTITY</th>
+                  <th>AMOUNT</th>
+                  <th>REASON</th>
+                  <th>STATUS</th>
+                  <th>ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
-                {refunds.map((refund) => (
-                  <tr key={refund._id || refund.returnId} className={refund?.status === 'PENDING' ? 'pending-row' : ''}>
-                    <td className="return-id-cell">
-                      <span className="return-id">{refund?.returnId || 'N/A'}</span>
-                    </td>
-                    <td className="transaction-id-cell">
-                      <span className="transaction-id">{getTransactionId(refund)}</span>
-                    </td>
+                {refunds.map((refund, index) => (
+                  <tr key={refund._id || refund.returnId}>
+                    <td className="id-cell">{index + 1 + (pagination.page - 1) * 15}</td>
                     <td className="date-cell">{formatDate(refund?.createdAt)}</td>
                     <td className="product-cell">{getProductName(refund)}</td>
                     <td className="quantity-cell">{getQuantity(refund)} kg</td>
@@ -392,39 +420,17 @@ const AdminReturns = () => {
                       </div>
                     </td>
                     <td className="status-cell">
-                      <div className="status-container">
-                        <span className={`status-badge ${getStatusClass(refund?.status)}`}>
-                          {refund?.status || 'PENDING'}
-                        </span>
-                      </div>
+                      <span className={`status-badge ${getStatusClass(refund?.status)}`}>
+                        {getStatusText(refund?.status)}
+                      </span>
                     </td>
                     <td className="actions-cell">
-                      {refund?.status === 'PENDING' && (
-                        <div className="action-buttons">
-                          <button 
-                            className="btn-approve"
-                            onClick={() => setSelectedRefund(refund)}
-                            disabled={processing}
-                          >
-                            Approve
-                          </button>
-                          <button 
-                            className="btn-reject"
-                            onClick={() => setSelectedRefund(refund)}
-                            disabled={processing}
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                      {refund?.status !== 'PENDING' && (
-                        <button 
-                          className="btn-view"
-                          onClick={() => setSelectedRefund(refund)}
-                        >
-                          View
-                        </button>
-                      )}
+                      <button 
+                        className="btn-view"
+                        onClick={() => setSelectedRefund(refund)}
+                      >
+                        View
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -457,26 +463,23 @@ const AdminReturns = () => {
         </div>
       )}
 
-      {/* Process Refund Modal */}
+      {/* Modal - No Admin Notes */}
       {selectedRefund && (
         <div className="modal-overlay" onClick={() => setSelectedRefund(null)}>
-          <div className="modal-container large" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{selectedRefund?.status === 'PENDING' ? 'Process Refund Request' : 'Refund Request Details'}</h2>
+              <h2>Refund Request Details</h2>
               <button className="modal-close" onClick={() => setSelectedRefund(null)}>×</button>
             </div>
             
             <div className="modal-body">
-              <div className="refund-details">
+              {/* Transaction Information */}
+              <div className="details-section">
                 <h3>Transaction Information</h3>
                 <div className="details-grid">
                   <div className="detail-row">
-                    <span className="detail-label">Return ID:</span>
-                    <span className="detail-value highlight">{selectedRefund?.returnId || 'N/A'}</span>
-                  </div>
-                  <div className="detail-row">
                     <span className="detail-label">Transaction ID:</span>
-                    <span className="detail-value highlight">{getTransactionId(selectedRefund)}</span>
+                    <span className="detail-value">{getTransactionId(selectedRefund)}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Submitted:</span>
@@ -491,111 +494,95 @@ const AdminReturns = () => {
                     <span className="detail-value">{getQuantity(selectedRefund)} kg</span>
                   </div>
                   <div className="detail-row">
-                    <span className="detail-label">Amount Paid:</span>
+                    <span className="detail-label">Amount:</span>
                     <span className="detail-value amount">{formatCurrency(getAmount(selectedRefund))}</span>
                   </div>
                 </div>
+              </div>
 
-                <div className="customer-info">
-                  <h3>Customer Information</h3>
-                  <div className="details-grid">
-                    <div className="detail-row">
-                      <span className="detail-label">Name:</span>
-                      <span className="detail-value">{selectedRefund?.fullName || 'N/A'}</span>
-                    </div>
-                    <div className="detail-row">
-                      <span className="detail-label">Email:</span>
-                      <span className="detail-value">{selectedRefund?.email || 'N/A'}</span>
-                    </div>
+              {/* Customer Information */}
+              <div className="details-section">
+                <h3>Customer Information</h3>
+                <div className="details-grid">
+                  <div className="detail-row">
+                    <span className="detail-label">Name:</span>
+                    <span className="detail-value">{selectedRefund?.fullName || 'N/A'}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Email:</span>
+                    <span className="detail-value">{selectedRefund?.email || 'N/A'}</span>
                   </div>
                 </div>
+              </div>
 
-                <div className="reason-box">
-                  <h4>Refund Reason</h4>
+              {/* Refund Reason */}
+              <div className="details-section">
+                <h3>Refund Reason</h3>
+                <div className="info-box">
                   <p>{getReason(selectedRefund)}</p>
                 </div>
+              </div>
 
-                <div className="description-box">
-                  <h4>Customer Description</h4>
+              {/* Customer Description */}
+              <div className="details-section">
+                <h3>Customer Description</h3>
+                <div className="info-box">
                   <p>{getDescription(selectedRefund) || 'No description provided.'}</p>
                 </div>
+              </div>
 
-                {getReceiptPath(selectedRefund) && (
-                  <div className="receipt-box">
-                    <h4>Receipt Attachment</h4>
-                    <button 
-                      className="btn-download"
-                      onClick={() => window.open(`${API_URL}${getReceiptPath(selectedRefund)}`, '_blank')}
-                    >
-                      View Receipt
-                    </button>
-                  </div>
-                )}
+              {/* Receipt Attachment */}
+              {selectedRefund?.receiptFilename && (
+                <div className="details-section">
+                  <h3>Receipt Attachment</h3>
+                  <button 
+                    className="btn-view-receipt"
+                    onClick={() => viewReceipt(selectedRefund.receiptFilename)}
+                  >
+                    📄 View Receipt
+                  </button>
+                </div>
+              )}
 
-                {selectedRefund?.status !== 'PENDING' && selectedRefund?.adminNotes && (
-                  <div className="admin-notes-display">
-                    <h4>Admin Notes</h4>
+              {/* Admin Notes - Only show if exists and not pending */}
+              {selectedRefund?.status !== 'PENDING' && selectedRefund?.adminNotes && (
+                <div className="details-section">
+                  <h3>Admin Notes</h3>
+                  <div className="info-box">
                     <p>{selectedRefund.adminNotes}</p>
                     {selectedRefund.processedAt && (
                       <small>Processed on: {formatDate(selectedRefund.processedAt)}</small>
                     )}
                   </div>
-                )}
-              </div>
-
-              {selectedRefund?.status === 'PENDING' && (
-                <div className="admin-notes-box">
-                  <label className="form-label">Admin Notes (Required for rejection)</label>
-                  <textarea
-                    value={adminNotes}
-                    onChange={(e) => setAdminNotes(e.target.value)}
-                    rows="4"
-                    className="form-textarea"
-                    placeholder="Add notes about this refund request..."
-                  />
-                  <small className="form-help-text">Please provide a reason if rejecting the refund</small>
                 </div>
               )}
             </div>
             
-            {selectedRefund?.status === 'PENDING' && (
-              <div className="modal-footer">
-                <button 
-                  className="btn-cancel" 
-                  onClick={() => {
-                    setSelectedRefund(null);
-                    setAdminNotes('');
-                  }}
-                >
-                  Cancel
-                </button>
-                <button 
-                  className="btn-reject-modal"
-                  onClick={() => handleReject(selectedRefund?.returnId || selectedRefund?._id)}
-                  disabled={processing || !adminNotes.trim()}
-                >
-                  {processing ? 'Processing...' : 'Reject Refund'}
-                </button>
-                <button 
-                  className="btn-approve-modal"
-                  onClick={() => handleApprove(selectedRefund?.returnId || selectedRefund?._id)}
-                  disabled={processing}
-                >
-                  {processing ? 'Processing...' : 'Approve Refund'}
-                </button>
-              </div>
-            )}
-            
-            {selectedRefund?.status !== 'PENDING' && (
-              <div className="modal-footer single">
-                <button 
-                  className="btn-close" 
-                  onClick={() => setSelectedRefund(null)}
-                >
+            {/* Footer with Approve/Reject for PENDING, Close for others */}
+            <div className="modal-footer">
+              {selectedRefund?.status === 'PENDING' ? (
+                <>
+                  <button 
+                    className="btn-reject-modal"
+                    onClick={() => handleReject(selectedRefund?.returnId || selectedRefund?._id)}
+                    disabled={processing}
+                  >
+                    {processing ? 'Processing...' : 'Reject Refund'}
+                  </button>
+                  <button 
+                    className="btn-approve-modal"
+                    onClick={() => handleApprove(selectedRefund?.returnId || selectedRefund?._id)}
+                    disabled={processing}
+                  >
+                    {processing ? 'Processing...' : 'Approve Refund'}
+                  </button>
+                </>
+              ) : (
+                <button className="btn-close" onClick={() => setSelectedRefund(null)}>
                   Close
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}

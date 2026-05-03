@@ -489,4 +489,37 @@ router.get('/admin/:returnId/receipt', protect, admin, async (req, res) => {
   }
 });
 
+// Serve receipt image directly
+router.get('/receipt-image/:filename', protect, admin, async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join(__dirname, '../uploads/returns/', filename);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Receipt not found' 
+      });
+    }
+    
+    // Set proper content type based on file extension
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.pdf': 'application/pdf'
+    }[ext] || 'application/octet-stream';
+    
+    res.setHeader('Content-Type', contentType);
+    res.sendFile(filePath);
+  } catch (error) {
+    console.error('Error serving receipt:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to serve receipt' 
+    });
+  }
+});
+
 export default router;
