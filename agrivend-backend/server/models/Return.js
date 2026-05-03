@@ -13,33 +13,43 @@ const returnSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
+    default: null
+  },
+  fullName: {
+    type: String,
+    required: true
+  },
+  email: {
+    type: String,
     required: true
   },
   riceType: {
     type: String,
-    enum: ['Sinandomeng', 'Dinorado'],
     required: true
   },
   quantityKg: {
     type: Number,
-    required: true,
-    min: 0.1
+    required: true
   },
   amountPaid: {
     type: Number,
-    required: true,
-    min: 0
+    required: true
   },
   returnReason: {
     type: String,
-    required: true,
-    maxlength: 500
+    required: true
+  },
+  description: {
+    type: String,
+    default: ''
   },
   receiptFilename: {
-    type: String
+    type: String,
+    required: true
   },
   receiptPath: {
-    type: String
+    type: String,
+    required: true
   },
   status: {
     type: String,
@@ -50,16 +60,31 @@ const returnSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  processedAt: {
+    type: Date
+  },
   processedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
-  processedAt: {
-    type: Date
+  processedByName: {
+    type: String
+  },
+  isRead: {
+    type: Boolean,
+    default: false
+  },
+  seenByCustomer: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
 });
 
-const Return = mongoose.model('Return', returnSchema);
-export default Return;
+// Create indexes
+returnSchema.index({ transactionId: 1 });
+returnSchema.index({ status: 1 });
+returnSchema.index({ createdAt: -1 });
+
+export default mongoose.model('Return', returnSchema);

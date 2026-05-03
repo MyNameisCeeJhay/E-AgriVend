@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import RefundRequest from '../models/RefundRequest.js';
+import Return from '../models/Return.js';  // Change this to Return model
 import Transaction from '../models/Transaction.js';
 import { protect, admin } from '../middleware/auth.js';
 
@@ -15,7 +15,7 @@ const router = express.Router();
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads/refunds/');
+    const uploadDir = path.join(__dirname, '../uploads/returns/');  // Changed to returns folder
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -23,7 +23,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'refund-' + uniqueSuffix + path.extname(file.originalname));
+    cb(null, 'return-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
 
@@ -42,6 +42,13 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// Helper function to generate return ID
+const generateReturnId = () => {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `RET-${timestamp}-${random}`;
+};
+
 // ==================== CUSTOMER ROUTES ====================
 
 // Validate transaction
@@ -56,19 +63,18 @@ router.get('/validate/:transactionId', async (req, res) => {
     });
     
     if (!transaction) {
-      console.log('❌ Transaction not found:', transactionId);
       return res.status(404).json({ 
         success: false, 
         error: 'Transaction not found. Please check your transaction number.' 
       });
     }
     
-    // Check if refund already requested
-    const existingRefund = await RefundRequest.findOne({ 
-      transactionNumber: transactionId 
+    // Check if return already requested for this transaction
+    const existingReturn = await Return.findOne({ 
+      transactionId: transactionId 
     });
     
-    if (existingRefund) {
+    if (existingReturn) {
       return res.status(400).json({ 
         success: false, 
         error: 'A refund request has already been submitted for this transaction.' 
@@ -96,7 +102,7 @@ router.get('/validate/:transactionId', async (req, res) => {
   }
 });
 
-// Submit refund request - FIXED VERSION
+// Submit refund request - SAVES TO RETURNS COLLECTION
 router.post('/request', upload.single('receiptImage'), async (req, res) => {
   try {
     console.log('📝 Processing refund request...');
@@ -126,7 +132,6 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     if (!req.file) missingFields.push('receiptImage');
     
     if (missingFields.length > 0) {
-      console.log('❌ Missing fields:', missingFields);
       return res.status(400).json({ 
         success: false, 
         error: `Missing required fields: ${missingFields.join(', ')}` 
@@ -140,7 +145,6 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     });
     
     if (!transaction) {
-      console.log('❌ Transaction not found:', transactionNumber);
       return res.status(404).json({ 
         success: false, 
         error: 'Transaction not found' 
@@ -152,8 +156,6 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     const now = new Date();
     const hoursDiff = (now - transactionTimeDate) / (1000 * 60 * 60);
     
-    console.log(`⏰ Time difference: ${hoursDiff.toFixed(2)} hours`);
-    
     if (hoursDiff > 4) {
       return res.status(400).json({ 
         success: false, 
@@ -161,70 +163,72 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       });
     }
     
-    // Check if refund already exists
-    const existingRefund = await RefundRequest.findOne({ 
-      transactionNumber: transactionNumber 
+    // Check if return already exists for this transaction
+    const existingReturn = await Return.findOne({ 
+      transactionId: transactionNumber 
     });
     
-    if (existingRefund) {
-      console.log('❌ Refund already exists for this transaction');
+    if (existingReturn) {
       return res.status(400).json({ 
         success: false, 
         error: 'A refund request has already been submitted for this transaction.' 
       });
     }
     
-    // Create refund request - NO requestId field
-    const refundRequest = new RefundRequest({
-      fullName,
-      email,
-      transactionNumber,
-      transactionDate: transactionDate || new Date(transaction.createdAt).toLocaleDateString('en-US'),
-      transactionTime: transactionTime || new Date(transaction.createdAt).toLocaleTimeString('en-US'),
-      grainType: grainType || transaction.productName,
-      selectedQuantity: Number(selectedQuantity) || transaction.quantityKg,
-      amountInserted: Number(amountInserted) || transaction.amountPaid,
-      refundReason,
-      description,
+    // Create return request in RETURNS collection
+    const returnRequest = new Return({
+      returnId: generateReturnId(),
+      transactionId: transactionNumber,
+      user: null, // Will be set if user is logged in, otherwise null for guest
+      fullName: fullName,
+      email: email,
+      riceType: grainType || transaction.productName,
+      quantityKg: Number(selectedQuantity) || transaction.quantityKg,
+      amountPaid: Number(amountInserted) || transaction.amountPaid,
+      returnReason: refundReason,
+      description: description,
       receiptFilename: req.file.filename,
-      receiptImage: `/uploads/refunds/${req.file.filename}`,
+      receiptPath: `/uploads/returns/${req.file.filename}`,
       status: 'PENDING',
-      isRead: false
+      isRead: false,
+      seenByCustomer: false
     });
     
-    await refundRequest.save();
+    await returnRequest.save();
     
-    console.log('✅ Refund request saved successfully!');
-    console.log('Refund ID:', refundRequest._id);
-    console.log('Transaction Number:', refundRequest.transactionNumber);
-    console.log('Status:', refundRequest.status);
+    console.log('✅ Refund request saved to RETURNS collection!');
+    console.log('Return ID:', returnRequest.returnId);
+    console.log('Transaction Number:', returnRequest.transactionId);
+    console.log('Status:', returnRequest.status);
     
-    // Emit socket event for real-time updates
+    // Emit socket event for real-time updates to admin
     const io = req.app.get('io');
     if (io) {
-      io.emit('new_refund_notification', {
-        id: refundRequest._id,
-        transactionNumber: refundRequest.transactionNumber,
-        fullName: refundRequest.fullName,
-        amountInserted: refundRequest.amountInserted,
-        status: refundRequest.status,
-        createdAt: refundRequest.createdAt
+      io.emit('new_return_notification', {
+        returnId: returnRequest.returnId,
+        transactionId: returnRequest.transactionId,
+        fullName: returnRequest.fullName,
+        email: returnRequest.email,
+        riceType: returnRequest.riceType,
+        quantityKg: returnRequest.quantityKg,
+        amountPaid: returnRequest.amountPaid,
+        status: returnRequest.status,
+        createdAt: returnRequest.createdAt
       });
-      console.log('📡 Socket event emitted: new_refund_notification');
+      console.log('📡 Socket event emitted: new_return_notification');
     }
     
     res.json({
       success: true,
       message: 'Refund request submitted successfully!',
       data: {
-        refundId: refundRequest._id,
-        status: refundRequest.status,
-        transactionNumber: refundRequest.transactionNumber
+        returnId: returnRequest.returnId,
+        status: returnRequest.status,
+        transactionNumber: returnRequest.transactionId
       }
     });
   } catch (error) {
     console.error('❌ Error submitting refund request:', error);
-    // Handle duplicate key error
     if (error.code === 11000) {
       return res.status(400).json({ 
         success: false, 
@@ -238,16 +242,16 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
   }
 });
 
-// Get refund status
+// Get refund status (from RETURNS collection)
 router.get('/status/:transactionId', async (req, res) => {
   try {
     const { transactionId } = req.params;
     
-    const refundRequest = await RefundRequest.findOne({ 
-      transactionNumber: transactionId 
+    const returnRequest = await Return.findOne({ 
+      transactionId: transactionId 
     });
     
-    if (!refundRequest) {
+    if (!returnRequest) {
       return res.status(404).json({ 
         success: false, 
         error: 'No refund request found for this transaction.' 
@@ -257,20 +261,21 @@ router.get('/status/:transactionId', async (req, res) => {
     res.json({
       success: true,
       data: {
-        id: refundRequest._id,
-        status: refundRequest.status,
-        fullName: refundRequest.fullName,
-        transactionNumber: refundRequest.transactionNumber,
-        amountInserted: refundRequest.amountInserted,
-        grainType: refundRequest.grainType,
-        selectedQuantity: refundRequest.selectedQuantity,
-        refundReason: refundRequest.refundReason,
-        description: refundRequest.description,
-        receiptImage: refundRequest.receiptImage,
-        adminNotes: refundRequest.adminNotes,
-        submittedAt: refundRequest.createdAt,
-        processedAt: refundRequest.processedAt,
-        processedByName: refundRequest.processedByName
+        id: returnRequest._id,
+        returnId: returnRequest.returnId,
+        status: returnRequest.status,
+        fullName: returnRequest.fullName,
+        transactionNumber: returnRequest.transactionId,
+        amountPaid: returnRequest.amountPaid,
+        riceType: returnRequest.riceType,
+        quantityKg: returnRequest.quantityKg,
+        returnReason: returnRequest.returnReason,
+        description: returnRequest.description,
+        receiptPath: returnRequest.receiptPath,
+        adminNotes: returnRequest.adminNotes,
+        submittedAt: returnRequest.createdAt,
+        processedAt: returnRequest.processedAt,
+        processedByName: returnRequest.processedByName
       }
     });
   } catch (error) {
@@ -282,9 +287,9 @@ router.get('/status/:transactionId', async (req, res) => {
   }
 });
 
-// ==================== ADMIN ROUTES ====================
+// ==================== ADMIN ROUTES - Using RETURNS collection ====================
 
-// Get all refund requests - FIXED to return complete data
+// Get all return requests (admin)
 router.get('/admin/all', protect, admin, async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
@@ -296,18 +301,18 @@ router.get('/admin/all', protect, admin, async (req, res) => {
     
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    const refunds = await RefundRequest.find(query)
+    const returns = await Return.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
     
-    const total = await RefundRequest.countDocuments(query);
+    const total = await Return.countDocuments(query);
     
-    console.log(`📋 Found ${refunds.length} refund requests (Total: ${total})`);
+    console.log(`📋 Found ${returns.length} return requests (Total: ${total})`);
     
     res.json({
       success: true,
-      data: refunds,
+      data: returns,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -316,46 +321,46 @@ router.get('/admin/all', protect, admin, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching refunds:', error);
+    console.error('Error fetching returns:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to fetch refund requests' 
+      error: 'Failed to fetch return requests' 
     });
   }
 });
 
-// Get single refund request by ID
-router.get('/admin/:refundId', protect, admin, async (req, res) => {
+// Get single return request by ID (admin)
+router.get('/admin/:returnId', protect, admin, async (req, res) => {
   try {
-    const { refundId } = req.params;
+    const { returnId } = req.params;
     
-    const refundRequest = await RefundRequest.findById(refundId);
+    const returnRequest = await Return.findOne({ returnId: returnId });
     
-    if (!refundRequest) {
+    if (!returnRequest) {
       return res.status(404).json({ 
         success: false, 
-        error: 'Refund request not found' 
+        error: 'Return request not found' 
       });
     }
     
     res.json({
       success: true,
-      data: refundRequest
+      data: returnRequest
     });
   } catch (error) {
-    console.error('Error fetching refund:', error);
+    console.error('Error fetching return:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to fetch refund request' 
+      error: 'Failed to fetch return request' 
     });
   }
 });
 
-// Get pending count
+// Get pending count (admin)
 router.get('/admin/pending/count', protect, admin, async (req, res) => {
   try {
-    const count = await RefundRequest.countDocuments({ status: 'PENDING' });
-    console.log(`📊 Pending refund count: ${count}`);
+    const count = await Return.countDocuments({ status: 'PENDING' });
+    console.log(`📊 Pending returns count: ${count}`);
     res.json({ success: true, data: { pending: count } });
   } catch (error) {
     console.error('Error fetching pending count:', error);
@@ -363,78 +368,17 @@ router.get('/admin/pending/count', protect, admin, async (req, res) => {
   }
 });
 
-// Process refund request
-router.put('/admin/:refundId/process', protect, admin, async (req, res) => {
-  try {
-    const { refundId } = req.params;
-    const { status, adminNotes, processedBy, processedByName } = req.body;
-    
-    if (!status || !['APPROVED', 'REJECTED'].includes(status)) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Valid status (APPROVED or REJECTED) is required.' 
-      });
-    }
-    
-    const refundRequest = await RefundRequest.findById(refundId);
-    
-    if (!refundRequest) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Refund request not found.' 
-      });
-    }
-    
-    refundRequest.status = status;
-    refundRequest.adminNotes = adminNotes || '';
-    refundRequest.processedAt = new Date();
-    refundRequest.processedBy = processedBy;
-    refundRequest.processedByName = processedByName;
-    
-    await refundRequest.save();
-    
-    // Update transaction status if approved
-    if (status === 'APPROVED') {
-      await Transaction.findOneAndUpdate(
-        { transactionId: refundRequest.transactionNumber },
-        { status: 'REFUNDED' }
-      );
-    }
-    
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('refund_processed', {
-        id: refundRequest._id,
-        status: refundRequest.status,
-        transactionNumber: refundRequest.transactionNumber
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: `Refund ${status.toLowerCase()}`,
-      data: refundRequest
-    });
-  } catch (error) {
-    console.error('Error processing refund:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to process refund request' 
-    });
-  }
-});
-
-// Get refund statistics
+// Get return statistics (admin)
 router.get('/admin/stats/summary', protect, admin, async (req, res) => {
   try {
-    const total = await RefundRequest.countDocuments();
-    const pending = await RefundRequest.countDocuments({ status: 'PENDING' });
-    const approved = await RefundRequest.countDocuments({ status: 'APPROVED' });
-    const rejected = await RefundRequest.countDocuments({ status: 'REJECTED' });
+    const total = await Return.countDocuments();
+    const pending = await Return.countDocuments({ status: 'PENDING' });
+    const approved = await Return.countDocuments({ status: 'APPROVED' });
+    const rejected = await Return.countDocuments({ status: 'REJECTED' });
     
-    const totalAmount = await RefundRequest.aggregate([
+    const totalAmount = await Return.aggregate([
       { $match: { status: 'APPROVED' } },
-      { $group: { _id: null, total: { $sum: '$amountInserted' } } }
+      { $group: { _id: null, total: { $sum: '$amountPaid' } } }
     ]);
     
     res.json({
@@ -453,19 +397,95 @@ router.get('/admin/stats/summary', protect, admin, async (req, res) => {
   }
 });
 
-// DEBUG: List recent refunds
-router.get('/debug/refunds', protect, admin, async (req, res) => {
+// Process return request (approve/reject)
+router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
   try {
-    const refunds = await RefundRequest.find({})
-      .sort({ createdAt: -1 })
-      .limit(10);
+    const { returnId } = req.params;
+    const { status, adminNotes, processedBy, processedByName } = req.body;
+    
+    if (!status || !['APPROVED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Valid status (APPROVED or REJECTED) is required.' 
+      });
+    }
+    
+    const returnRequest = await Return.findOne({ returnId: returnId });
+    
+    if (!returnRequest) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Return request not found.' 
+      });
+    }
+    
+    returnRequest.status = status;
+    returnRequest.adminNotes = adminNotes || '';
+    returnRequest.processedAt = new Date();
+    returnRequest.processedBy = processedBy;
+    returnRequest.processedByName = processedByName;
+    
+    await returnRequest.save();
+    
+    // Update transaction status if approved
+    if (status === 'APPROVED') {
+      await Transaction.findOneAndUpdate(
+        { transactionId: returnRequest.transactionId },
+        { status: 'REFUNDED' }
+      );
+    }
+    
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('return_processed', {
+        id: returnRequest._id,
+        returnId: returnRequest.returnId,
+        status: returnRequest.status,
+        transactionId: returnRequest.transactionId
+      });
+    }
     
     res.json({
       success: true,
-      data: refunds
+      message: `Refund ${status.toLowerCase()}`,
+      data: returnRequest
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error processing return:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to process return request' 
+    });
+  }
+});
+
+// Download receipt (admin)
+router.get('/admin/:returnId/receipt', protect, admin, async (req, res) => {
+  try {
+    const { returnId } = req.params;
+    
+    const returnRequest = await Return.findOne({ returnId: returnId });
+    
+    if (!returnRequest || !returnRequest.receiptPath) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Receipt not found' 
+      });
+    }
+    
+    const fullPath = path.join(__dirname, '..', returnRequest.receiptPath);
+    
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Receipt file not found' 
+      });
+    }
+    
+    res.sendFile(fullPath);
+  } catch (error) {
+    console.error('Error downloading receipt:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
