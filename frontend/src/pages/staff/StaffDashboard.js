@@ -67,56 +67,59 @@ const StaffDashboard = () => {
   const [refillingStorage, setRefillingStorage] = useState(null);
   const [refillAmount, setRefillAmount] = useState(0);
 
-  // Fetch machine data from database using machine routes
+  // Fetch machine data from ESP32 (same as AdminMachine)
   const fetchMachineData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/machine/data`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      
+      // Fetch from ESP32 public endpoint (no auth needed) - SAME as AdminMachine
+      const response = await axios.get(`${API_URL}/esp32/public/latest`);
       
       if (response.data.success) {
         const data = response.data.data;
         
+        // Update Storage 1 (Sinandomeng)
+        const storage1CurrentWeight = data.container1Level || 0;
+        const storage1Percentage = (storage1CurrentWeight / 20) * 100;
         setStorage1(prev => ({
           ...prev,
-          name: data.storage1.name,
-          productId: data.storage1.productId,
-          pricePerKg: data.storage1.pricePerKg,
-          currentWeight: data.storage1.currentWeight,
-          percentage: data.storage1.percentage,
-          status: data.storage1.status,
-          isLow: data.storage1.isLow
+          currentWeight: storage1CurrentWeight,
+          percentage: storage1Percentage,
+          status: storage1CurrentWeight <= 5 ? 'Critical' : storage1CurrentWeight <= 10 ? 'Low' : 'Normal',
+          isLow: storage1CurrentWeight <= 10
         }));
         
+        // Update Storage 2 (Dinorado)
+        const storage2CurrentWeight = data.container2Level || 0;
+        const storage2Percentage = (storage2CurrentWeight / 20) * 100;
         setStorage2(prev => ({
           ...prev,
-          name: data.storage2.name,
-          productId: data.storage2.productId,
-          pricePerKg: data.storage2.pricePerKg,
-          currentWeight: data.storage2.currentWeight,
-          percentage: data.storage2.percentage,
-          status: data.storage2.status,
-          isLow: data.storage2.isLow
+          currentWeight: storage2CurrentWeight,
+          percentage: storage2Percentage,
+          status: storage2CurrentWeight <= 5 ? 'Critical' : storage2CurrentWeight <= 10 ? 'Low' : 'Normal',
+          isLow: storage2CurrentWeight <= 10
         }));
         
+        // Update Battery
         setBattery(prev => ({
           ...prev,
-          percentage: data.battery.percentage,
-          voltage: data.battery.voltage,
-          status: data.battery.status,
-          isCharging: data.battery.isCharging,
-          health: data.battery.health
+          percentage: data.batteryPercentage || 100,
+          voltage: data.batteryVoltage || 12.6,
+          status: (data.batteryPercentage || 100) >= 70 ? 'Good' : (data.batteryPercentage || 100) >= 30 ? 'Warning' : 'Critical',
+          isCharging: true,
+          health: (data.batteryPercentage || 100) >= 70 ? 'Good' : 'Fair'
         }));
         
+        // Update Machine Status
         setMachineStatus(prev => ({
           ...prev,
-          isOnline: data.machineStatus.isOnline,
-          doorStatus: data.machineStatus.doorStatus,
-          securityStatus: data.machineStatus.securityStatus,
-          lastUpdate: new Date(data.machineStatus.lastUpdate)
+          isOnline: true,
+          doorStatus: data.doorStatus === 'OPEN' ? 'Open' : 'Closed',
+          securityStatus: data.doorStatus === 'OPEN' ? 'Alert - Door Open' : 'Safe',
+          lastUpdate: new Date()
         }));
+        
+        console.log('✅ StaffDashboard: Machine data loaded from ESP32');
       }
     } catch (error) {
       console.error('Error fetching machine data:', error);
@@ -126,16 +129,88 @@ const StaffDashboard = () => {
     }
   };
 
+  // Also fetch product names and prices from database (these don't come from ESP32)
+  const fetchProductSettings = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/machine/products`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        const products = response.data.data;
+        // Update storage names and prices from database settings
+        setStorage1(prev => ({
+          ...prev,
+          name: products.storage1?.name || prev.name,
+          pricePerKg: products.storage1?.pricePerKg || prev.pricePerKg
+        }));
+        setStorage2(prev => ({
+          ...prev,
+          name: products.storage2?.name || prev.name,
+          pricePerKg: products.storage2?.pricePerKg || prev.pricePerKg
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching product settings:', error);
+      // Non-critical error, don't show notification
+    }
+  };
+
   // Socket listeners for real-time updates
   useEffect(() => {
     fetchMachineData();
+    fetchProductSettings(); // Get product names and prices
+    
+    // Refresh data every 30 seconds (same as AdminMachine)
+    const interval = setInterval(() => {
+      fetchMachineData();
+    }, 30000);
     
     if (socket) {
       socket.on('machine_data_updated', (data) => {
-        setStorage1(prev => ({ ...prev, ...data.storage1 }));
-        setStorage2(prev => ({ ...prev, ...data.storage2 }));
-        setBattery(prev => ({ ...prev, ...data.battery }));
-        setMachineStatus(prev => ({ ...prev, ...data.machineStatus }));
+        // Handle real-time updates from ESP32 via socket
+        if (data.container1Level !== undefined) {
+          const storage1CurrentWeight = data.container1Level;
+          const storage1Percentage = (storage1CurrentWeight / 20) * 100;
+          setStorage1(prev => ({
+            ...prev,
+            currentWeight: storage1CurrentWeight,
+            percentage: storage1Percentage,
+            status: storage1CurrentWeight <= 5 ? 'Critical' : storage1CurrentWeight <= 10 ? 'Low' : 'Normal',
+            isLow: storage1CurrentWeight <= 10
+          }));
+        }
+        
+        if (data.container2Level !== undefined) {
+          const storage2CurrentWeight = data.container2Level;
+          const storage2Percentage = (storage2CurrentWeight / 20) * 100;
+          setStorage2(prev => ({
+            ...prev,
+            currentWeight: storage2CurrentWeight,
+            percentage: storage2Percentage,
+            status: storage2CurrentWeight <= 5 ? 'Critical' : storage2CurrentWeight <= 10 ? 'Low' : 'Normal',
+            isLow: storage2CurrentWeight <= 10
+          }));
+        }
+        
+        if (data.batteryPercentage !== undefined) {
+          setBattery(prev => ({
+            ...prev,
+            percentage: data.batteryPercentage,
+            voltage: data.batteryVoltage || prev.voltage,
+            status: data.batteryPercentage >= 70 ? 'Good' : data.batteryPercentage >= 30 ? 'Warning' : 'Critical'
+          }));
+        }
+        
+        if (data.doorStatus !== undefined) {
+          setMachineStatus(prev => ({
+            ...prev,
+            doorStatus: data.doorStatus === 'OPEN' ? 'Open' : 'Closed',
+            securityStatus: data.doorStatus === 'OPEN' ? 'Alert - Door Open' : 'Safe'
+          }));
+        }
+        
         showNotification('info', 'Machine data updated');
       });
       
@@ -155,6 +230,7 @@ const StaffDashboard = () => {
     }
     
     return () => {
+      clearInterval(interval);
       if (socket) {
         socket.off('machine_data_updated');
         socket.off('low_stock_alert');
