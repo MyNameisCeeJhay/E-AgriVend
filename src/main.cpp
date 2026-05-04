@@ -1,6 +1,6 @@
 /**
  * ESP32 CODE - WiFi Bridge for Rice Vending Machine
- * Fixed to match backend routes
+ * FIXED: Product names match database format
  */
 
 #include <Arduino.h>
@@ -20,11 +20,11 @@ void parseStockData(String data);
 void parseStateData(String data);
 void parseErrorData(String data);
 void sendSensorDataToBackend();
-void sendTransactionToBackend(float kg, float amount, String riceType, String status);
+void sendTransactionToBackend(float kg, float amount, String riceType, String status, String transactionID);
 void sendSecurityAlertToBackend(String alertType, String doorStatus);
 void checkMegaConnection();
 void printStatus();
-void testBackendConnection();  // ← ADDED THIS
+void testBackendConnection();
 
 // ============================================
 // WiFi CONFIGURATION
@@ -32,35 +32,32 @@ void testBackendConnection();  // ← ADDED THIS
 const char* WIFI_SSID = "SKYW_0A48_2G";
 const char* WIFI_PASSWORD = "M49wP9pr";
 
-// Backend Server URL - Your Render backend
 const char* BACKEND_URL = "https://e-agrivend.onrender.com";
 
-// ESP32 specific endpoints (matching your esp32Routes.js)
 const char* ENDPOINT_SENSORS = "/api/esp32/sensors/update";
 const char* ENDPOINT_TRANSACTION = "/api/esp32/transaction/confirm";
 const char* ENDPOINT_SECURITY = "/api/esp32/security/alert";
 
-// Device ID
 const char* DEVICE_ID = "AGRIVEND_001";
 
 // ============================================
-// UART PINS for Arduino Mega 2560 Communication
+// UART PINS
 // ============================================
-#define MEGA_RX_PIN 16  // ESP32 RX - connect to Mega TX2 (Pin 17)
-#define MEGA_TX_PIN 17  // ESP32 TX - connect to Mega RX2 (Pin 16)
+#define MEGA_RX_PIN 16
+#define MEGA_TX_PIN 17
 
 // ============================================
 // LED PINS
 // ============================================
-#define LED_WIFI 2      // Built-in LED - WiFi status
-#define LED_DATA 4      // External LED - Data activity
+#define LED_WIFI 2
+#define LED_DATA 4
 
 // ============================================
-// VARIABLES (Received from Arduino Mega)
+// VARIABLES
 // ============================================
-float container1Level = 20.0;     // Premium rice stock (kg)
-float container2Level = 20.0;     // Regular rice stock (kg)
-float collectionBinWeight = 0;     // Collection bin weight
+float container1Level = 20.0;
+float container2Level = 20.0;
+float collectionBinWeight = 0;
 float batteryVoltage = 12.5;
 int batteryPercentage = 100;
 float temperature = 25;
@@ -69,7 +66,6 @@ String doorStatus = "CLOSED";
 bool vibrationDetected = false;
 String machineStatus = "ACTIVE";
 
-// Machine state
 int machineState = 0;
 float insertedAmount = 0;
 float lastDispenseKg = 0;
@@ -137,7 +133,6 @@ void setup() {
   Serial.println("\n✅ ESP32 Ready - Waiting for Mega data...\n");
 }
 
-// Test backend connection function
 void testBackendConnection() {
   if (WiFi.status() != WL_CONNECTED) return;
   
@@ -187,23 +182,11 @@ void checkWiFi() {
 }
 
 // ============================================
-// SEND DATA TO BACKEND (UPDATED FOR YOUR ROUTES)
+// SEND DATA TO BACKEND
 // ============================================
 void sendSensorDataToBackend() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("⚠️ No WiFi - Sensor data not sent");
-    return;
-  }
-  
-  // Don't send if we're using default values and Mega is not connected
-  if (!megaConnected) {
-    Serial.println("⚠️ Mega not connected - Skipping data send");
-    return;
-  }
-  
-  // Don't send if we haven't received any valid data yet
-  if (lastMegaData == 0) {
-    Serial.println("⚠️ No data received from Mega yet - Skipping");
     return;
   }
   
@@ -213,7 +196,6 @@ void sendSensorDataToBackend() {
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
   
-  // Create JSON document matching your SensorData schema
   JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
   doc["container1Level"] = container1Level;
@@ -236,16 +218,18 @@ void sendSensorDataToBackend() {
   
   int httpResponseCode = http.POST(jsonString);
   
-  if (httpResponseCode == 200) {
-    Serial.println("✅ Real sensor data sent to backend!");
+  if (httpResponseCode > 0) {
+    if (httpResponseCode == 200) {
+      Serial.println("✅ Sensor data sent successfully!");
+    }
   } else {
-    Serial.printf("❌ Error sending data: %d\n", httpResponseCode);
+    Serial.printf("❌ Error sending sensor data: %d\n", httpResponseCode);
   }
   
   http.end();
 }
 
-void sendTransactionToBackend(float kg, float amount, String riceType, String status) {
+void sendTransactionToBackend(float kg, float amount, String riceType, String status, String transactionID) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("⚠️ No WiFi - Transaction not sent");
     return;
@@ -255,33 +239,77 @@ void sendTransactionToBackend(float kg, float amount, String riceType, String st
   String url = String(BACKEND_URL) + ENDPOINT_TRANSACTION;
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(5000);
+  http.setTimeout(10000);
   
+  // Convert rice type to match database format
+  String fullRiceType;
+  float pricePerKg;
+  
+  if (riceType == "DINORADO") {
+    fullRiceType = "Dinorado Rice";
+    pricePerKg = 65.0;
+  } else if (riceType == "SINANDOMENG") {
+    fullRiceType = "Sinandomeng Rice";
+    pricePerKg = 52.0;
+  } else {
+    fullRiceType = riceType + " Rice";
+    pricePerKg = 52.0;
+  }
+  
+  // IMPORTANT: Use 'riceType' not 'productName' for ESP32 endpoint
   JsonDocument doc;
-  doc["deviceId"] = DEVICE_ID;
-  doc["transactionId"] = "TXN-" + String(millis());
-  doc["riceType"] = riceType;
+  doc["transactionId"] = transactionID;
+  doc["riceType"] = fullRiceType;        // ← CHANGE THIS (was productName)
   doc["quantityKg"] = kg;
   doc["amountPaid"] = amount;
-  doc["status"] = status;
-  doc["paymentMethod"] = "CASH";
+  doc["status"] = "COMPLETED";
+  // Don't send user/recordedBy - ESP32 endpoint doesn't need them
   
   String jsonString;
   serializeJson(doc, jsonString);
   
+  Serial.println("========================================");
+  Serial.println("📤 SENDING TRANSACTION TO BACKEND:");
+  Serial.print("  Transaction ID: ");
+  Serial.println(transactionID);
+  Serial.print("  Rice Type: ");
+  Serial.println(fullRiceType);
+  Serial.print("  Quantity: ");
+  Serial.print(kg);
+  Serial.println(" kg");
+  Serial.print("  Amount: PHP ");
+  Serial.println(amount);
+  Serial.print("  JSON: ");
+  Serial.println(jsonString);
+  Serial.println("========================================");
+  
   int httpResponseCode = http.POST(jsonString);
   
+  Serial.print("HTTP Response Code: ");
+  Serial.println(httpResponseCode);
+  
   if (httpResponseCode > 0) {
-    if (httpResponseCode == 200) {
-      Serial.println("💰 Transaction confirmed to backend!");
+    String response = http.getString();
+    if (httpResponseCode == 200 || httpResponseCode == 201) {
+      Serial.println("✅ TRANSACTION SUCCESSFULLY RECORDED IN DATABASE!");
+      Serial.print("Response: ");
+      Serial.println(response);
     } else {
-      Serial.printf("💰 Transaction response: %d\n", httpResponseCode);
+      Serial.printf("❌ Transaction failed with code: %d\n", httpResponseCode);
+      Serial.print("Error response: ");
+      Serial.println(response);
     }
   } else {
-    Serial.printf("❌ Failed to send transaction: %d\n", httpResponseCode);
+    Serial.printf("❌ HTTP Error: %d\n", httpResponseCode);
+    if (httpResponseCode == -11) {
+      Serial.println("   → Connection refused. Check if backend is running.");
+    } else if (httpResponseCode == -1) {
+      Serial.println("   → Connection timeout.");
+    }
   }
   
   http.end();
+  Serial.println("========================================\n");
 }
 
 void sendSecurityAlertToBackend(String alertType, String doorStatus) {
@@ -336,7 +364,7 @@ void processMegaData() {
       }
       else if (data.startsWith("DATA|")) {
         parseStatusData(data);
-        sendSensorDataToBackend();  // Send to your /sensors/update endpoint
+        sendSensorDataToBackend();
       }
       else if (data.startsWith("TXN|")) {
         parseTransactionData(data);
@@ -381,7 +409,6 @@ void parseStatusData(String data) {
     errorCode = data.substring(parts[6] + 1, parts[7]).toInt();
     transactionCount = data.substring(parts[7] + 1, parts[8]).toInt();
     
-    // Update machine status based on error code
     if (errorCode != 0) {
       machineStatus = "ERROR";
     } else if (container1Level < 2 && container2Level < 2) {
@@ -399,7 +426,6 @@ void parseStatusData(String data) {
     Serial.print(container2Level);
     Serial.println(" kg");
     
-    // Check for security alerts
     if (doorStatus == "OPEN" && machineState != 0) {
       sendSecurityAlertToBackend("DOOR_OPEN", doorStatus);
     }
@@ -407,20 +433,35 @@ void parseStatusData(String data) {
 }
 
 void parseTransactionData(String data) {
+  Serial.println("📦 Parsing transaction data...");
   data = data.substring(4);
   
   int firstBar = data.indexOf('|');
   int secondBar = data.indexOf('|', firstBar + 1);
   int thirdBar = data.indexOf('|', secondBar + 1);
+  int fourthBar = data.indexOf('|', thirdBar + 1);
   
-  if (firstBar > 0 && secondBar > 0 && thirdBar > 0) {
+  if (firstBar > 0 && secondBar > 0 && thirdBar > 0 && fourthBar > 0) {
     float kg = data.substring(0, firstBar).toFloat();
     float amount = data.substring(firstBar + 1, secondBar).toFloat();
     String riceType = data.substring(secondBar + 1, thirdBar);
-    String status = data.substring(thirdBar + 1);
+    String status = data.substring(thirdBar + 1, fourthBar);
+    String transactionID = data.substring(fourthBar + 1);
     
-    Serial.printf("💰 Transaction: %.3fkg %s - ₱%.2f [%s]\n", kg, riceType.c_str(), amount, status.c_str());
-    sendTransactionToBackend(kg, amount, riceType, status);
+    Serial.println("========================================");
+    Serial.println("📋 TRANSACTION RECEIVED FROM MEGA:");
+    Serial.printf("  Transaction ID: %s\n", transactionID.c_str());
+    Serial.printf("  Product: %s\n", riceType.c_str());
+    Serial.printf("  Quantity: %.3f kg\n", kg);
+    Serial.printf("  Amount: PHP %.2f\n", amount);
+    Serial.printf("  Status: %s\n", status.c_str());
+    Serial.println("========================================");
+    
+    sendTransactionToBackend(kg, amount, riceType, status, transactionID);
+  } else {
+    Serial.println("❌ Failed to parse transaction data!");
+    Serial.print("Raw data: ");
+    Serial.println(data);
   }
 }
 
@@ -481,26 +522,15 @@ void printStatus() {
 }
 
 // ============================================
-// MAIN LOOP - FIXED: Only send when Mega is connected
+// MAIN LOOP
 // ============================================
 void loop() {
   processMegaData();
   checkMegaConnection();
   
-  // ONLY send to backend if Mega is ACTUALLY connected AND we have received real data
   if (millis() - lastSendToBackend >= BACKEND_INTERVAL) {
-    // Check if we've received any valid data from Mega (not just garbage)
-    if (megaConnected && lastMegaData > 0 && WiFi.status() == WL_CONNECTED) {
-      // Only send if we've received a valid DATA packet (not just garbage)
-      if (transactionCount > 0 || machineState > 0 || container1Level != 20.0) {
-        // We have real data, send it
-        sendSensorDataToBackend();
-        Serial.println("📤 Sending REAL Mega data to backend");
-      } else {
-        Serial.println("⚠️ Mega connected but no valid data received yet - waiting...");
-      }
-    } else if (!megaConnected) {
-      Serial.println("⏳ Waiting for Mega connection... (no data sent)");
+    if (megaConnected && WiFi.status() == WL_CONNECTED) {
+      sendSensorDataToBackend();
     }
     lastSendToBackend = millis();
   }

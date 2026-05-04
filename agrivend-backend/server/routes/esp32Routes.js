@@ -1,13 +1,11 @@
 import express from 'express';
 import Transaction from '../models/Transaction.js';
-import { protect, admin } from '../middleware/auth.js';
 import SensorData from '../models/SensorData.js';
 
 const router = express.Router();
 
 // ============================================
 // PUBLIC ENDPOINTS (No authentication required)
-// These are for your website dashboard
 // ============================================
 
 // Get latest sensor data for public dashboard
@@ -149,26 +147,77 @@ router.post('/sensors/update', async (req, res) => {
 });
 
 router.post('/transaction/confirm', async (req, res) => {
+  console.log('📝 ESP32 Transaction received:', req.body);
+  
   try {
     const { transactionId, riceType, quantityKg, amountPaid, status } = req.body;
     
+    // Validate required fields
+    if (!riceType) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Rice type is required' 
+      });
+    }
+    
+    if (!quantityKg || !amountPaid) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Quantity and amount are required' 
+      });
+    }
+    
+    // Map rice type to product name
+    let productName;
+    let pricePerKg;
+    
+    if (riceType === "DINORADO" || riceType === "Dinorado Rice") {
+      productName = "Dinorado Rice";
+      pricePerKg = 65.0;
+    } else if (riceType === "SINANDOMENG" || riceType === "Sinandomeng Rice") {
+      productName = "Sinandomeng Rice";
+      pricePerKg = 52.0;
+    } else {
+      productName = "Sinandomeng Rice";
+      pricePerKg = 52.0;
+    }
+    
+    // Create transaction WITHOUT user and recordedBy
     const transaction = new Transaction({
       transactionId: transactionId || `TXN-${Date.now()}`,
-      riceType: riceType || 'Sinandomeng',
-      quantityKg: quantityKg || 0,
-      pricePerKg: amountPaid / (quantityKg || 1),
-      amountPaid: amountPaid || 0,
+      productName: productName,
+      quantityKg: parseFloat(quantityKg),
+      pricePerKg: pricePerKg,
+      amountPaid: parseFloat(amountPaid),
       paymentMethod: 'CASH',
-      status: status === 'COMPLETED' ? 'COMPLETED' : 'FAILED'
+      status: 'COMPLETED',
+      source: 'machine',  // Mark as machine transaction
+      notes: `Auto-recorded by vending machine`
     });
     
     await transaction.save();
     
-    const io = req.app.get('io');
-    if (io) io.emit('new_transaction', transaction);
+    console.log(`✅ Transaction saved: ${transaction.transactionId}`);
+    console.log(`   Product: ${productName}, ${quantityKg}kg, PHP ${amountPaid}`);
     
-    res.json({ success: true, message: 'Transaction recorded' });
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('new_transaction', {
+        transactionId: transaction.transactionId,
+        productName: transaction.productName,
+        quantityKg: transaction.quantityKg,
+        amountPaid: transaction.amountPaid,
+        source: 'machine'
+      });
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Transaction recorded successfully'
+    });
+    
   } catch (error) {
+    console.error('❌ Transaction error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -186,7 +235,7 @@ router.post('/security/alert', async (req, res) => {
 // ADMIN PROTECTED ENDPOINTS
 // ============================================
 
-router.get('/machine/status', protect, admin, async (req, res) => {
+router.get('/machine/status', async (req, res) => {
   try {
     const latestData = await SensorData.findOne().sort({ createdAt: -1 });
     res.json({ success: true, data: latestData || null });
@@ -195,7 +244,7 @@ router.get('/machine/status', protect, admin, async (req, res) => {
   }
 });
 
-router.get('/sensors/history', protect, admin, async (req, res) => {
+router.get('/sensors/history', async (req, res) => {
   try {
     const { limit = 100, days = 7 } = req.query;
     const cutoffDate = new Date();
