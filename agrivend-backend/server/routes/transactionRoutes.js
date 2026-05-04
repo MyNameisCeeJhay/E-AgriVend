@@ -1,6 +1,6 @@
 // Add this to your server/routes/transactionRoutes.js
 import express from 'express';
-import { Transaction } from '../models/Transaction.js';
+import Transaction from '../models/Transaction.js';  // Keep as default import
 import { protect, admin } from '../middleware/auth.js';
 
 const router = express.Router();
