@@ -389,4 +389,4 @@ router.get('/recent', protect, async (req, res) => {
   }
 });
 
-export default router;
+export default Transaction;
