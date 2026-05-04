@@ -1,4 +1,3 @@
-// Add this to your server/routes/transactionRoutes.js
 import express from 'express';
 import Transaction from '../models/Transaction.js';
 import { protect, admin } from '../middleware/auth.js';
@@ -48,6 +47,7 @@ router.get('/all', protect, admin, async (req, res) => {
     
     const transactions = await Transaction.find(query)
       .populate('user', 'firstName lastName email')
+      .populate('recordedBy', 'firstName lastName email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
@@ -55,8 +55,8 @@ router.get('/all', protect, admin, async (req, res) => {
     const total = await Transaction.countDocuments(query);
     
     const allTransactions = await Transaction.find(query);
-    const totalQuantity = allTransactions.reduce((sum, t) => sum + t.quantityKg, 0);
-    const totalRevenue = allTransactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = allTransactions.reduce((sum, t) => sum + (t.quantityKg || 0), 0);
+    const totalRevenue = allTransactions.reduce((sum, t) => sum + (t.amountPaid || 0), 0);
     
     res.json({
       success: true,
@@ -111,6 +111,7 @@ router.get('/', protect, async (req, res) => {
     
     const transactions = await Transaction.find(query)
       .populate('user', 'firstName lastName email')
+      .populate('recordedBy', 'firstName lastName email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
@@ -118,8 +119,8 @@ router.get('/', protect, async (req, res) => {
     const total = await Transaction.countDocuments(query);
     
     const allTransactions = await Transaction.find(query);
-    const totalQuantity = allTransactions.reduce((sum, t) => sum + t.quantityKg, 0);
-    const totalRevenue = allTransactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = allTransactions.reduce((sum, t) => sum + (t.quantityKg || 0), 0);
+    const totalRevenue = allTransactions.reduce((sum, t) => sum + (t.amountPaid || 0), 0);
     
     res.json({
       success: true,
@@ -142,7 +143,7 @@ router.get('/', protect, async (req, res) => {
   }
 });
 
-// ===== CREATE NEW TRANSACTION (Accepts both riceType and productName) =====
+// ===== CREATE NEW TRANSACTION (Walk-in customer - NO QUANTITY LIMITS) =====
 router.post('/', protect, async (req, res) => {
   try {
     const { riceType, productName, quantityKg, amountPaid, paymentMethod } = req.body;
@@ -186,12 +187,8 @@ router.post('/', protect, async (req, res) => {
       });
     }
     
-    if (quantityNum > 5) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Maximum quantity per transaction is 5kg' 
-      });
-    }
+    // NO MAXIMUM QUANTITY LIMIT FOR MANUAL RECORDING
+    // Staff can enter any quantity
     
     const amountNum = parseFloat(amountPaid);
     if (isNaN(amountNum) || amountNum <= 0) {
@@ -214,7 +211,8 @@ router.post('/', protect, async (req, res) => {
       paymentMethod: paymentMethod || 'CASH',
       status: 'COMPLETED',
       recordedBy: req.user._id,
-      notes: `Transaction recorded by ${req.user.firstName} ${req.user.lastName}`
+      notes: `Transaction recorded by ${req.user.firstName} ${req.user.lastName}`,
+      source: 'walkin'
     });
     
     await newTransaction.save();
@@ -226,7 +224,8 @@ router.post('/', protect, async (req, res) => {
         transactionId: newTransaction.transactionId,
         productName: newTransaction.productName,
         quantityKg: newTransaction.quantityKg,
-        amountPaid: newTransaction.amountPaid
+        amountPaid: newTransaction.amountPaid,
+        source: 'walkin'
       });
     }
     
@@ -243,45 +242,14 @@ router.post('/', protect, async (req, res) => {
   }
 });
 
-// ===== GET UNIQUE PRODUCT NAMES (For filter dropdown) =====
-router.get('/products/list', protect, async (req, res) => {
-  try {
-    // Get unique product names from transactions
-    const products = await Transaction.distinct('productName');
-    
-    // Also check for riceType field for backward compatibility
-    const riceTypes = await Transaction.distinct('riceType');
-    
-    // Combine and remove duplicates and null/empty values
-    const allProducts = [...new Set([...products, ...riceTypes].filter(p => p && p !== 'null' && p !== 'undefined'))];
-    
-    // Sort alphabetically
-    allProducts.sort();
-    
-    console.log(`📦 Found ${allProducts.length} unique product names:`, allProducts);
-    
-    res.json({ 
-      success: true, 
-      data: allProducts,
-      count: allProducts.length
-    });
-  } catch (error) {
-    console.error('Error fetching product names:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to fetch product names' 
-    });
-  }
-});
-
 // ===== GET TRANSACTION STATISTICS =====
 router.get('/admin/stats', protect, admin, async (req, res) => {
   try {
     const transactions = await Transaction.find();
     
     const totalTransactions = transactions.length;
-    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
-    const totalRevenue = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + (t.quantityKg || 0), 0);
+    const totalRevenue = transactions.reduce((sum, t) => sum + (t.amountPaid || 0), 0);
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -292,8 +260,8 @@ router.get('/admin/stats', protect, admin, async (req, res) => {
       createdAt: { $gte: today, $lt: tomorrow }
     });
     
-    const todayRevenue = todayTransactions.reduce((sum, t) => sum + t.amountPaid, 0);
-    const todayQuantity = todayTransactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    const todayRevenue = todayTransactions.reduce((sum, t) => sum + (t.amountPaid || 0), 0);
+    const todayQuantity = todayTransactions.reduce((sum, t) => sum + (t.quantityKg || 0), 0);
     
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
@@ -303,8 +271,8 @@ router.get('/admin/stats', protect, admin, async (req, res) => {
       createdAt: { $gte: weekStart }
     });
     
-    const weekRevenue = weekTransactions.reduce((sum, t) => sum + t.amountPaid, 0);
-    const weekQuantity = weekTransactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    const weekRevenue = weekTransactions.reduce((sum, t) => sum + (t.amountPaid || 0), 0);
+    const weekQuantity = weekTransactions.reduce((sum, t) => sum + (t.quantityKg || 0), 0);
     
     const monthStart = new Date();
     monthStart.setDate(1);
@@ -314,8 +282,8 @@ router.get('/admin/stats', protect, admin, async (req, res) => {
       createdAt: { $gte: monthStart }
     });
     
-    const monthRevenue = monthTransactions.reduce((sum, t) => sum + t.amountPaid, 0);
-    const monthQuantity = monthTransactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    const monthRevenue = monthTransactions.reduce((sum, t) => sum + (t.amountPaid || 0), 0);
+    const monthQuantity = monthTransactions.reduce((sum, t) => sum + (t.quantityKg || 0), 0);
     
     res.json({
       success: true,
@@ -357,25 +325,49 @@ router.get('/:id', protect, async (req, res) => {
   }
 });
 
-// ===== GET RECENT TRANSACTIONS (for admin dashboard) =====
+// ===== GET RECENT TRANSACTIONS (For admin dashboard) =====
 router.get('/recent', protect, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
     
     const transactions = await Transaction.find({})
+      .populate('user', 'firstName lastName email')
+      .populate('recordedBy', 'firstName lastName email')
       .sort({ createdAt: -1 })
-      .limit(limit)
-      .select('transactionId productName riceType quantityKg amountPaid createdAt');
+      .limit(limit);
     
-    // Format the response
-    const formattedTransactions = transactions.map(t => ({
-      _id: t._id,
-      transactionId: t.transactionId,
-      productName: t.productName || t.riceType,
-      quantityKg: t.quantityKg,
-      totalAmount: t.amountPaid,
-      createdAt: t.createdAt
-    }));
+    // Format the response with better null handling
+    const formattedTransactions = transactions.map(t => {
+      let recordedByName = null;
+      let isManual = false;
+      
+      if (t.recordedBy) {
+        const firstName = t.recordedBy.firstName || '';
+        const lastName = t.recordedBy.lastName || '';
+        recordedByName = `${firstName} ${lastName}`.trim();
+        isManual = true;
+      } else if (t.user && t.user._id) {
+        const firstName = t.user.firstName || '';
+        const lastName = t.user.lastName || '';
+        recordedByName = `${firstName} ${lastName}`.trim();
+        isManual = false;
+      }
+      
+      if (!recordedByName || recordedByName === '') {
+        recordedByName = 'System';
+      }
+      
+      return {
+        _id: t._id,
+        transactionId: t.transactionId,
+        productName: t.productName || t.riceType || 'Unknown Product',
+        quantityKg: t.quantityKg,
+        totalAmount: t.amountPaid,
+        createdAt: t.createdAt,
+        recordedBy: recordedByName,
+        isManual: isManual
+      };
+    });
     
     res.json({
       success: true,
