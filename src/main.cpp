@@ -1,7 +1,6 @@
 /**
  * ESP32 CODE - WiFi Bridge for Rice Vending Machine
- * WITH LOAD CELL DATA INTEGRATION
- * FIXED: Product names match database format
+ * WITH LOAD CELL DATA INTEGRATION & PRICE MANAGEMENT
  */
 
 #include <Arduino.h>
@@ -20,13 +19,16 @@ void parseTransactionData(String data);
 void parseStockData(String data);
 void parseStateData(String data);
 void parseErrorData(String data);
-void parseLoadCellData(String data);  // NEW: Parse load cell data
+void parseLoadCellData(String data);
+void parsePriceData(String data);
 void sendSensorDataToBackend();
 void sendTransactionToBackend(float kg, float amount, String riceType, String status, String transactionID);
 void sendSecurityAlertToBackend(String alertType, String doorStatus);
 void checkMegaConnection();
 void printStatus();
 void testBackendConnection();
+void fetchPricesFromBackend();
+void sendPriceToMega();
 
 // ============================================
 // WiFi CONFIGURATION
@@ -57,15 +59,21 @@ const char* DEVICE_ID = "AGRIVEND_001";
 // ============================================
 // VARIABLES
 // ============================================
+// Price variables
+float dinoradoPrice = 65.0;
+float sinandomengPrice = 52.0;
+unsigned long lastPriceFetch = 0;
+const unsigned long PRICE_FETCH_INTERVAL = 3600000; // Fetch every hour
+
 // Load cell data (from Arduino Mega)
-float container1Level = 20.0;      // Premium/Dinorado stock from load cell (kg)
-float container2Level = 20.0;      // Regular/Sinandomeng stock from load cell (kg)
-float loadCellLeft = 20.0;         // Raw left load cell reading (kg)
-float loadCellRight = 20.0;        // Raw right load cell reading (kg)
-float loadCellTotal = 40.0;        // Total weight from both load cells (kg)
-bool loadCellLeftError = false;     // Left load cell error flag
-bool loadCellRightError = false;    // Right load cell error flag
-unsigned long lastLoadCellRead = 0; // Last time load cell data was received
+float container1Level = 20.0;
+float container2Level = 20.0;
+float loadCellLeft = 20.0;
+float loadCellRight = 20.0;
+float loadCellTotal = 40.0;
+bool loadCellLeftError = false;
+bool loadCellRightError = false;
+unsigned long lastLoadCellRead = 0;
 
 float collectionBinWeight = 0;
 float batteryVoltage = 12.5;
@@ -116,6 +124,50 @@ String getLoadCellStatus() {
 }
 
 // ============================================
+// PRICE MANAGEMENT FUNCTIONS
+// ============================================
+void fetchPricesFromBackend() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  
+  HTTPClient http;
+  String url = String(BACKEND_URL) + "/api/esp32/prices";
+  http.begin(url);
+  http.setTimeout(5000);
+  
+  int httpCode = http.GET();
+  if (httpCode == 200) {
+    String payload = http.getString();
+    JsonDocument doc;
+    deserializeJson(doc, payload);
+    
+    if (doc["success"] == true) {
+      float newDinorado = doc["prices"]["dinorado"];
+      float newSinandomeng = doc["prices"]["sinandomeng"];
+      
+      if (newDinorado != dinoradoPrice || newSinandomeng != sinandomengPrice) {
+        dinoradoPrice = newDinorado;
+        sinandomengPrice = newSinandomeng;
+        Serial.println("✅ Prices updated from server!");
+        Serial.printf("  DINORADO: PHP %.2f\n", dinoradoPrice);
+        Serial.printf("  SINANDOMENG: PHP %.2f\n", sinandomengPrice);
+        sendPriceToMega();
+      }
+    }
+  } else {
+    Serial.printf("❌ Failed to fetch prices, HTTP: %d\n", httpCode);
+  }
+  http.end();
+}
+
+void sendPriceToMega() {
+  Serial2.print("PRICE|");
+  Serial2.print(dinoradoPrice);
+  Serial2.print("|");
+  Serial2.println(sinandomengPrice);
+  Serial.println("📤 Sent new prices to Arduino Mega");
+}
+
+// ============================================
 // SETUP
 // ============================================
 void setup() {
@@ -146,6 +198,9 @@ void setup() {
   
   connectToWiFi();
   testBackendConnection();
+  
+  // Fetch initial prices
+  fetchPricesFromBackend();
   
   Serial.println("\n✅ ESP32 Ready - Waiting for Mega data...\n");
 }
@@ -215,16 +270,13 @@ void sendSensorDataToBackend() {
   
   JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
-  
-  // Load cell data (REAL weight from sensors)
-  doc["container1Level"] = container1Level;        // Premium stock (from load cell)
-  doc["container2Level"] = container2Level;        // Regular stock (from load cell)
-  doc["loadCellLeft"] = loadCellLeft;              // Raw left load cell reading
-  doc["loadCellRight"] = loadCellRight;            // Raw right load cell reading
-  doc["loadCellTotal"] = loadCellTotal;            // Total weight
-  doc["loadCellStatus"] = getLoadCellStatus();     // Load cell health status
-  doc["lastLoadCellUpdate"] = lastLoadCellRead;    // Timestamp of last update
-  
+  doc["container1Level"] = container1Level;
+  doc["container2Level"] = container2Level;
+  doc["loadCellLeft"] = loadCellLeft;
+  doc["loadCellRight"] = loadCellRight;
+  doc["loadCellTotal"] = loadCellTotal;
+  doc["loadCellStatus"] = getLoadCellStatus();
+  doc["lastLoadCellUpdate"] = lastLoadCellRead;
   doc["collectionBinWeight"] = collectionBinWeight;
   doc["batteryVoltage"] = batteryVoltage;
   doc["batteryPercentage"] = batteryPercentage;
@@ -273,19 +325,18 @@ void sendTransactionToBackend(float kg, float amount, String riceType, String st
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(10000);
   
-  // Convert rice type to match database format
   String fullRiceType;
   float pricePerKg;
   
   if (riceType == "DINORADO") {
     fullRiceType = "Dinorado Rice";
-    pricePerKg = 65.0;
+    pricePerKg = dinoradoPrice;
   } else if (riceType == "SINANDOMENG") {
     fullRiceType = "Sinandomeng Rice";
-    pricePerKg = 52.0;
+    pricePerKg = sinandomengPrice;
   } else {
     fullRiceType = riceType + " Rice";
-    pricePerKg = 52.0;
+    pricePerKg = sinandomengPrice;
   }
   
   JsonDocument doc;
@@ -294,8 +345,6 @@ void sendTransactionToBackend(float kg, float amount, String riceType, String st
   doc["quantityKg"] = kg;
   doc["amountPaid"] = amount;
   doc["status"] = "COMPLETED";
-  
-  // Add load cell data to transaction
   doc["remainingStockPremium"] = container1Level;
   doc["remainingStockRegular"] = container2Level;
   
@@ -364,7 +413,6 @@ void sendSecurityAlertToBackend(String alertType, String doorStatus) {
   doc["doorStatus"] = doorStatus;
   doc["timestamp"] = millis();
   
-  // Include load cell status in security alerts
   if (alertType == "LOAD_CELL_ERROR") {
     doc["loadCellLeftError"] = loadCellLeftError;
     doc["loadCellRightError"] = loadCellRightError;
@@ -417,8 +465,11 @@ void processMegaData() {
       else if (data.startsWith("STOCK|")) {
         parseStockData(data);
       }
-      else if (data.startsWith("LOADCELL|")) {  // NEW: Parse load cell data
+      else if (data.startsWith("LOADCELL|")) {
         parseLoadCellData(data);
+      }
+      else if (data.startsWith("PRICE|")) {
+        parsePriceData(data);
       }
       else if (data.startsWith("STATE|")) {
         parseStateData(data);
@@ -433,10 +484,25 @@ void processMegaData() {
   }
 }
 
-// NEW: Parse load cell data from Mega
+void parsePriceData(String data) {
+  // Format: PRICE|dinoradoPrice|sinandomengPrice
+  data = data.substring(6);
+  
+  int separator = data.indexOf('|');
+  if (separator > 0) {
+    float newDinorado = data.substring(0, separator).toFloat();
+    float newSinandomeng = data.substring(separator + 1).toFloat();
+    
+    if (newDinorado != dinoradoPrice || newSinandomeng != sinandomengPrice) {
+      dinoradoPrice = newDinorado;
+      sinandomengPrice = newSinandomeng;
+      Serial.printf("💰 Prices updated from Mega - D: %.2f, S: %.2f\n", dinoradoPrice, sinandomengPrice);
+    }
+  }
+}
+
 void parseLoadCellData(String data) {
-  // Format: LOADCELL|leftKg|rightKg|totalKg|leftError|rightError
-  data = data.substring(9);  // Remove "LOADCELL|"
+  data = data.substring(9);
   
   int firstBar = data.indexOf('|');
   int secondBar = data.indexOf('|', firstBar + 1);
@@ -450,7 +516,6 @@ void parseLoadCellData(String data) {
     loadCellLeftError = data.substring(thirdBar + 1, fourthBar).toInt() == 1;
     loadCellRightError = data.substring(fourthBar + 1).toInt() == 1;
     
-    // Update container levels from load cells
     container1Level = loadCellLeft;
     container2Level = loadCellRight;
     
@@ -471,7 +536,6 @@ void parseLoadCellData(String data) {
     if (loadCellRightError) Serial.println("  ⚠️ Right load cell ERROR!");
     Serial.println("========================================");
     
-    // Send alert if load cell error detected
     if (loadCellLeftError || loadCellRightError) {
       sendSecurityAlertToBackend("LOAD_CELL_ERROR", doorStatus);
     }
@@ -493,8 +557,6 @@ void parseStatusData(String data) {
   if (partIndex >= 9) {
     int start = 0;
     machineState = data.substring(start, parts[0]).toInt();
-    // Note: Stock data now comes from load cells, so we don't overwrite
-    // container1Level and container2Level here anymore
     float megaStock1 = data.substring(parts[0] + 1, parts[1]).toFloat();
     float megaStock2 = data.substring(parts[1] + 1, parts[2]).toFloat();
     insertedAmount = data.substring(parts[2] + 1, parts[3]).toFloat();
@@ -504,7 +566,6 @@ void parseStatusData(String data) {
     errorCode = data.substring(parts[6] + 1, parts[7]).toInt();
     transactionCount = data.substring(parts[7] + 1, parts[8]).toInt();
     
-    // Only use Mega stock if load cells haven't sent data recently
     if (millis() - lastLoadCellRead > 5000) {
       container1Level = megaStock1;
       container2Level = megaStock2;
@@ -570,7 +631,6 @@ void parseStockData(String data) {
   data = data.substring(6);
   int barPos = data.indexOf('|');
   if (barPos > 0) {
-    // Only update if load cells haven't sent data recently
     if (millis() - lastLoadCellRead > 5000) {
       container1Level = data.substring(0, barPos).toFloat();
       container2Level = data.substring(barPos + 1).toFloat();
@@ -617,8 +677,10 @@ void printStatus() {
   Serial.printf("║ 📡 WiFi: %-25s ║\n", WiFi.status() == WL_CONNECTED ? "Connected ✅" : "Disconnected ❌");
   Serial.printf("║ 📊 State: %-25s ║\n", stateNames[machineState]);
   Serial.println("╠────────────── LOAD CELLS ──────────────╣");
-  Serial.printf("║ 🍚 Premium: %.1f kg (%-5s)     ║\n", container1Level, getContainer1StockStatus().c_str());
-  Serial.printf("║ 🍚 Regular: %.1f kg (%-5s)     ║\n", container2Level, getContainer2StockStatus().c_str());
+  Serial.printf("║ 🍚 Dinorado: %.1f kg (%-5s)     ║\n", container1Level, getContainer1StockStatus().c_str());
+  Serial.printf("║ 🍚 Sinandomeng: %.1f kg (%-5s)  ║\n", container2Level, getContainer2StockStatus().c_str());
+  Serial.printf("║ 💰 Dinorado Price: PHP %.2f               ║\n", dinoradoPrice);
+  Serial.printf("║ 💰 Sinandomeng Price: PHP %.2f            ║\n", sinandomengPrice);
   Serial.printf("║ 📐 Load Cell L: %.1f kg                 ║\n", loadCellLeft);
   Serial.printf("║ 📐 Load Cell R: %.1f kg                 ║\n", loadCellRight);
   Serial.printf("║ ⚖️ Total: %.1f kg                       ║\n", loadCellTotal);
@@ -638,7 +700,12 @@ void loop() {
   processMegaData();
   checkMegaConnection();
   
-  // Send load cell data to backend more frequently
+  // Fetch prices periodically
+  if (millis() - lastPriceFetch >= PRICE_FETCH_INTERVAL) {
+    fetchPricesFromBackend();
+    lastPriceFetch = millis();
+  }
+  
   if (millis() - lastSendToBackend >= BACKEND_INTERVAL) {
     if (megaConnected && WiFi.status() == WL_CONNECTED) {
       sendSensorDataToBackend();
