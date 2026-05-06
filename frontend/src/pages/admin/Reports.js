@@ -5,7 +5,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import './Reports.css';
 
-
 const AdminReports = () => {
   const { user } = useAuth();
   const [reportType, setReportType] = useState('daily');
@@ -24,6 +23,8 @@ const AdminReports = () => {
   });
   const [chartData, setChartData] = useState([]);
   const [activeChartTab, setActiveChartTab] = useState('daily');
+  const [productRanking, setProductRanking] = useState([]);
+  const [bestSellingProduct, setBestSellingProduct] = useState(null);
 
   useEffect(() => {
     fetchSalesSummary();
@@ -44,6 +45,35 @@ const AdminReports = () => {
     } catch (error) {
       console.error('Error fetching sales summary:', error);
     }
+  };
+
+  const calculateProductRanking = (transactions) => {
+    const productSales = {};
+    
+    transactions.forEach(t => {
+      const productName = t.riceType || t.productName || 'Unknown Grain';
+      const quantity = t.quantityKg || 0;
+      const revenue = t.amountPaid || t.totalAmount || 0;
+      
+      if (!productSales[productName]) {
+        productSales[productName] = { quantity: 0, revenue: 0, count: 0 };
+      }
+      productSales[productName].quantity += quantity;
+      productSales[productName].revenue += revenue;
+      productSales[productName].count += 1;
+    });
+    
+    const ranking = Object.entries(productSales).map(([name, data]) => ({
+      name,
+      quantity: data.quantity,
+      revenue: data.revenue,
+      count: data.count,
+      avgPrice: data.revenue / data.quantity
+    }));
+    
+    ranking.sort((a, b) => b.quantity - a.quantity);
+    setProductRanking(ranking);
+    setBestSellingProduct(ranking.length > 0 ? ranking[0] : null);
   };
 
   const fetchChartData = async (type) => {
@@ -90,13 +120,13 @@ const AdminReports = () => {
           
           processedChartData = Object.entries(hoursData).map(([label, sales]) => ({ label, sales }));
         } else if (type === 'weekly' && data.chartData) {
-          const daysOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+          const daysOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
           const daysData = {};
           daysOrder.forEach(day => { daysData[day] = 0; });
           
           data.transactions?.forEach(t => {
             const dayIndex = new Date(t.createdAt).getDay();
-            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const day = dayNames[dayIndex];
             daysData[day] += t.amountPaid || t.totalAmount || 0;
           });
@@ -120,6 +150,10 @@ const AdminReports = () => {
           processedChartData = Object.entries(weeksData).map(([label, sales]) => ({ label, sales }));
         }
         
+        if (data.transactions && data.transactions.length > 0) {
+          calculateProductRanking(data.transactions);
+        }
+        
         const nonZeroData = processedChartData.filter(item => item.sales > 0);
         setChartData(nonZeroData.length > 0 ? nonZeroData : processedChartData);
       } else {
@@ -134,21 +168,21 @@ const AdminReports = () => {
   const getSampleChartData = (type) => {
     if (type === 'daily') {
       return [
-        { label: '8 AM', sales: 135 },
-        { label: '10 AM', sales: 97.5 },
-        { label: '12 PM', sales: 180 },
-        { label: '2 PM', sales: 85 },
-        { label: '4 PM', sales: 216 }
+        { label: '8:00 AM', sales: 135 },
+        { label: '10:00 AM', sales: 97.5 },
+        { label: '12:00 PM', sales: 180 },
+        { label: '2:00 PM', sales: 85 },
+        { label: '4:00 PM', sales: 216 }
       ];
     } else if (type === 'weekly') {
       return [
-        { label: 'Mon', sales: 120 },
-        { label: 'Tue', sales: 95 },
-        { label: 'Wed', sales: 180 },
-        { label: 'Thu', sales: 85 },
-        { label: 'Fri', sales: 216 },
-        { label: 'Sat', sales: 150 },
-        { label: 'Sun', sales: 75 }
+        { label: 'Monday', sales: 120 },
+        { label: 'Tuesday', sales: 95 },
+        { label: 'Wednesday', sales: 180 },
+        { label: 'Thursday', sales: 85 },
+        { label: 'Friday', sales: 216 },
+        { label: 'Saturday', sales: 150 },
+        { label: 'Sunday', sales: 75 }
       ];
     } else {
       return [
@@ -195,6 +229,11 @@ const AdminReports = () => {
       
       const response = await axios.get(url, { params });
       setReportData(response.data.data);
+      
+      if (response.data.data && response.data.data.transactions) {
+        calculateProductRanking(response.data.data.transactions);
+      }
+      
       showNotification('success', 'Report generated successfully');
     } catch (error) {
       console.error('Error generating report:', error);
@@ -210,13 +249,10 @@ const AdminReports = () => {
   };
 
   const handlePrintReport = () => {
-    const printContent = document.getElementById('professional-report-content');
-    if (!printContent) return;
-    
-    const printWindow = window.open('', '_blank');
     const currentDate = new Date().toLocaleString();
     const reportTitle = getReportTitle();
     
+    const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -245,7 +281,6 @@ const AdminReports = () => {
               margin: 0 auto;
             }
             
-            /* Header */
             .print-header {
               text-align: center;
               margin-bottom: 30px;
@@ -262,14 +297,14 @@ const AdminReports = () => {
             
             .company-tagline {
               font-size: 14px;
-              color: #6c757d;
+              color: #64748b;
               margin-bottom: 15px;
             }
             
             .report-title {
-              font-size: 24px;
+              font-size: 22px;
               font-weight: 600;
-              color: #1a1a2e;
+              color: #1e293b;
               margin-top: 15px;
               margin-bottom: 10px;
             }
@@ -279,12 +314,46 @@ const AdminReports = () => {
               justify-content: space-between;
               margin-top: 10px;
               padding-top: 10px;
-              border-top: 1px solid #e0e0e0;
+              border-top: 1px solid #e2e8f0;
               font-size: 12px;
-              color: #6c757d;
+              color: #64748b;
             }
             
-            /* Summary Cards */
+            .best-seller-section {
+              background: #2d6a4f;
+              border-radius: 8px;
+              padding: 25px;
+              margin-bottom: 30px;
+              color: white;
+              text-align: center;
+            }
+            
+            .best-seller-title {
+              font-size: 13px;
+              text-transform: uppercase;
+              letter-spacing: 2px;
+              opacity: 0.8;
+              margin-bottom: 10px;
+            }
+            
+            .best-seller-name {
+              font-size: 26px;
+              font-weight: 700;
+              margin-bottom: 10px;
+            }
+            
+            .best-seller-stats {
+              display: flex;
+              justify-content: center;
+              gap: 30px;
+              font-size: 14px;
+            }
+            
+            .best-seller-stats span {
+              font-weight: 600;
+              font-size: 18px;
+            }
+            
             .summary-cards {
               display: grid;
               grid-template-columns: repeat(4, 1fr);
@@ -293,19 +362,19 @@ const AdminReports = () => {
             }
             
             .summary-card {
-              background: #f8f9fa;
-              border-radius: 12px;
+              background: #f8fafc;
+              border-radius: 8px;
               padding: 20px;
               text-align: center;
-              border: 1px solid #e9ecef;
+              border: 1px solid #e2e8f0;
             }
             
             .summary-label {
               font-size: 12px;
               text-transform: uppercase;
               letter-spacing: 1px;
-              color: #6c757d;
-              margin-bottom: 10px;
+              color: #64748b;
+              margin-bottom: 8px;
             }
             
             .summary-value {
@@ -316,51 +385,91 @@ const AdminReports = () => {
             
             .summary-sub {
               font-size: 11px;
-              color: #6c757d;
+              color: #94a3b8;
               margin-top: 5px;
             }
             
-            /* Stats Grid */
-            .stats-grid {
+            .product-ranking-section {
+              margin-bottom: 30px;
+            }
+            
+            .product-ranking-title {
+              font-size: 18px;
+              font-weight: 600;
+              margin-bottom: 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #2d6a4f;
+            }
+            
+            .product-ranking-table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 13px;
+            }
+            
+            .product-ranking-table th {
+              background: #f1f5f9;
+              padding: 12px;
+              text-align: left;
+              font-weight: 600;
+              color: #334155;
+              border-bottom: 1px solid #e2e8f0;
+            }
+            
+            .product-ranking-table td {
+              padding: 10px 12px;
+              border-bottom: 1px solid #e2e8f0;
+              color: #475569;
+            }
+            
+            .product-ranking-table tr:first-child {
+              background: #ecfdf5;
+            }
+            
+            .rank-number {
+              font-weight: 700;
+              width: 60px;
+            }
+            
+            .stats-grid-print {
               display: grid;
               grid-template-columns: repeat(3, 1fr);
               gap: 20px;
               margin-bottom: 30px;
             }
             
-            .stat-card {
-              background: #f8f9fa;
-              border-radius: 12px;
+            .stat-card-print {
+              background: #f8fafc;
+              border-radius: 8px;
               padding: 20px;
               text-align: center;
             }
             
-            .stat-label {
+            .stat-label-print {
               font-size: 12px;
               text-transform: uppercase;
-              color: #6c757d;
+              color: #64748b;
               margin-bottom: 8px;
             }
             
-            .stat-number {
+            .stat-number-print {
               font-size: 32px;
               font-weight: 700;
               color: #2d6a4f;
             }
             
-            /* Chart Section */
             .chart-section-print {
               margin-bottom: 30px;
               padding: 20px;
-              background: #f8f9fa;
-              border-radius: 12px;
+              background: #f8fafc;
+              border-radius: 8px;
             }
             
             .chart-title {
               font-size: 16px;
               font-weight: 600;
               margin-bottom: 20px;
-              color: #1a1a2e;
+              color: #1e293b;
             }
             
             .chart-bars {
@@ -378,16 +487,15 @@ const AdminReports = () => {
             }
             
             .chart-bar {
-              background: linear-gradient(180deg, #2d6a4f 0%, #40916c 100%);
-              border-radius: 6px 6px 0 0;
+              background: #2d6a4f;
+              border-radius: 4px 4px 0 0;
               margin-bottom: 8px;
-              transition: height 0.3s;
               min-height: 4px;
             }
             
             .chart-label {
               font-size: 11px;
-              color: #6c757d;
+              color: #64748b;
             }
             
             .chart-value {
@@ -397,41 +505,45 @@ const AdminReports = () => {
               margin-bottom: 5px;
             }
             
-            /* Transaction Table */
+            .transaction-table-title {
+              font-size: 18px;
+              font-weight: 600;
+              margin: 20px 0 15px;
+              padding-bottom: 10px;
+              border-bottom: 2px solid #2d6a4f;
+            }
+            
             .transaction-table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 20px;
               font-size: 12px;
             }
             
             .transaction-table th {
-              background: #f8f9fa;
+              background: #f1f5f9;
               padding: 12px;
               text-align: left;
               font-weight: 600;
-              color: #1a1a2e;
+              color: #334155;
               border-bottom: 2px solid #2d6a4f;
             }
             
             .transaction-table td {
               padding: 10px 12px;
-              border-bottom: 1px solid #e9ecef;
-              color: #4a5568;
+              border-bottom: 1px solid #e2e8f0;
+              color: #475569;
             }
             
-            .transaction-table tr:hover {
-              background: #f8f9fa;
-            }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: 700; }
             
-            /* Footer */
             .print-footer {
               margin-top: 40px;
               padding-top: 20px;
-              border-top: 1px solid #e0e0e0;
+              border-top: 1px solid #e2e8f0;
               text-align: center;
               font-size: 10px;
-              color: #6c757d;
+              color: #94a3b8;
             }
             
             .signature-line {
@@ -446,45 +558,43 @@ const AdminReports = () => {
             }
             
             .signature-line-space {
-              border-top: 1px solid #000;
+              border-top: 1px solid #1e293b;
               margin-top: 30px;
               padding-top: 5px;
             }
             
-            /* Utilities */
-            .text-right { text-align: right; }
-            .text-center { text-align: center; }
-            .font-bold { font-weight: 700; }
-            .mt-20 { margin-top: 20px; }
-            
             @media print {
               body {
                 padding: 20px;
-              }
-              .no-print {
-                display: none;
-              }
-              .transaction-table td, .transaction-table th {
-                page-break-inside: avoid;
               }
             }
           </style>
         </head>
         <body>
           <div class="print-container">
-            <!-- Header -->
             <div class="print-header">
-              <div class="company-name">🌾 AgriVend</div>
-              <div class="company-tagline">Smart Rice Vending Solutions</div>
+              <div class="company-name">AGRIVEND</div>
+              <div class="company-tagline">Enterprise Grain Vending Solution</div>
               <div class="report-title">${reportTitle}</div>
               <div class="report-meta">
-                <span>Generated By: ${user?.firstName || 'Admin'} ${user?.lastName || ''}</span>
+                <span>Generated By: ${user?.firstName || 'Administrator'} ${user?.lastName || ''}</span>
                 <span>Date & Time: ${currentDate}</span>
                 <span>Report ID: ${'RPT-' + Date.now().toString().slice(-8)}</span>
               </div>
             </div>
             
-            <!-- Summary Cards -->
+            ${bestSellingProduct ? `
+            <div class="best-seller-section">
+              <div class="best-seller-title">BEST SELLING PRODUCT</div>
+              <div class="best-seller-name">${bestSellingProduct.name}</div>
+              <div class="best-seller-stats">
+                <div>${bestSellingProduct.quantity.toFixed(1)} kg sold</div>
+                <div>${formatCurrency(bestSellingProduct.revenue)} revenue</div>
+                <div>${bestSellingProduct.count} transactions</div>
+              </div>
+            </div>
+            ` : ''}
+            
             <div class="summary-cards">
               <div class="summary-card">
                 <div class="summary-label">Total Transactions</div>
@@ -494,10 +604,10 @@ const AdminReports = () => {
               <div class="summary-card">
                 <div class="summary-label">Total Quantity</div>
                 <div class="summary-value">${reportData?.summary?.totalQuantity || 0} kg</div>
-                <div class="summary-sub">Rice Sold</div>
+                <div class="summary-sub">Grain Sold</div>
               </div>
               <div class="summary-card">
-                <div class="summary-label">Average Order</div>
+                <div class="summary-label">Average Order Value</div>
                 <div class="summary-value">${formatCurrency(reportData?.summary?.totalSales / (reportData?.summary?.totalTransactions || 1))}</div>
                 <div class="summary-sub">Per Transaction</div>
               </div>
@@ -508,25 +618,45 @@ const AdminReports = () => {
               </div>
             </div>
             
-            <!-- Sales Overview -->
-            <div class="stats-grid">
-              <div class="stat-card">
-                <div class="stat-label">Today's Sales</div>
-                <div class="stat-number">${formatCurrency(salesSummary.daily)}</div>
+            ${productRanking.length > 0 ? `
+            <div class="product-ranking-section">
+              <div class="product-ranking-title">Product Performance Ranking</div>
+              <table class="product-ranking-table">
+                <thead>
+                  <tr><th>Rank</th><th>Product Name</th><th>Quantity Sold (kg)</th><th>Revenue</th><th>Transactions</th></tr>
+                </thead>
+                <tbody>
+                  ${productRanking.map((product, idx) => `
+                    <tr>
+                      <td class="rank-number">${idx + 1}</td>
+                      <td><strong>${product.name}</strong></td>
+                      <td>${product.quantity.toFixed(1)} kg</td>
+                      <td>${formatCurrency(product.revenue)}</td>
+                      <td>${product.count}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            ` : ''}
+            
+            <div class="stats-grid-print">
+              <div class="stat-card-print">
+                <div class="stat-label-print">Today's Sales</div>
+                <div class="stat-number-print">${formatCurrency(salesSummary.daily)}</div>
               </div>
-              <div class="stat-card">
-                <div class="stat-label">This Week</div>
-                <div class="stat-number">${formatCurrency(salesSummary.weekly)}</div>
+              <div class="stat-card-print">
+                <div class="stat-label-print">This Week</div>
+                <div class="stat-number-print">${formatCurrency(salesSummary.weekly)}</div>
               </div>
-              <div class="stat-card">
-                <div class="stat-label">This Month</div>
-                <div class="stat-number">${formatCurrency(salesSummary.monthly)}</div>
+              <div class="stat-card-print">
+                <div class="stat-label-print">This Month</div>
+                <div class="stat-number-print">${formatCurrency(salesSummary.monthly)}</div>
               </div>
             </div>
             
-            <!-- Sales Chart -->
             <div class="chart-section-print">
-              <div class="chart-title">Sales Performance Chart (${activeChartTab.charAt(0).toUpperCase() + activeChartTab.slice(1)})</div>
+              <div class="chart-title">Sales Performance Chart</div>
               <div class="chart-bars">
                 ${chartData.map(item => {
                   const maxSales = Math.max(...chartData.map(d => d.sales || 0), 1);
@@ -542,8 +672,7 @@ const AdminReports = () => {
               </div>
             </div>
             
-            <!-- Transaction Details -->
-            <h3 style="margin: 20px 0 10px; font-size: 16px;">Transaction Details</h3>
+            <div class="transaction-table-title">Transaction Details</div>
             <table class="transaction-table">
               <thead>
                 <tr>
@@ -566,35 +695,33 @@ const AdminReports = () => {
                 `).join('') || '<tr><td colspan="5" class="text-center">No transactions found</td></tr>'}
               </tbody>
               <tfoot>
-                <tr style="background: #f8f9fa; font-weight: 600;">
+                <tr style="background: #f1f5f9; font-weight: 700;">
                   <td colspan="4" class="text-right">Total:</td>
                   <td class="text-right">${formatCurrency(reportData?.summary?.totalSales || 0)}</td>
                 </tr>
               </tfoot>
             </table>
             
-            <!-- Footer -->
             <div class="print-footer">
               <p>This is a computer-generated document. No signature is required.</p>
-              <p>AgriVend - Smart Rice Vending Machine | Contact: support@agrivend.com</p>
+              <p>AgriVend - Enterprise Grain Vending Management | support@agrivend.com</p>
             </div>
             
-            <!-- Signature Lines -->
             <div class="signature-line">
               <div class="signature">
                 <div class="signature-line-space">_________________</div>
                 <div>Generated By</div>
-                <div style="font-size: 11px; color: #6c757d;">${user?.firstName} ${user?.lastName}</div>
+                <div style="font-size: 11px; color: #64748b;">${user?.firstName} ${user?.lastName}</div>
               </div>
               <div class="signature">
                 <div class="signature-line-space">_________________</div>
                 <div>Authorized Signature</div>
-                <div style="font-size: 11px; color: #6c757d;">Admin Officer</div>
+                <div style="font-size: 11px; color: #64748b;">Management Officer</div>
               </div>
               <div class="signature">
                 <div class="signature-line-space">_________________</div>
                 <div>Date Received</div>
-                <div style="font-size: 11px; color: #6c757d;">${new Date().toLocaleDateString()}</div>
+                <div style="font-size: 11px; color: #64748b;">${new Date().toLocaleDateString()}</div>
               </div>
             </div>
           </div>
@@ -714,6 +841,44 @@ const AdminReports = () => {
         </div>
       </div>
 
+      {bestSellingProduct && (
+        <div className="best-seller-card">
+          <div className="best-seller-content">
+            <div className="best-seller-label">BEST SELLING PRODUCT</div>
+            <div className="best-seller-name">{bestSellingProduct.name}</div>
+            <div className="best-seller-stats">
+              <div className="stat-item">{bestSellingProduct.quantity.toFixed(1)} kg sold</div>
+              <div className="stat-item">{formatCurrency(bestSellingProduct.revenue)} revenue</div>
+              <div className="stat-item">{bestSellingProduct.count} transactions</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="product-ranking-container">
+        <div className="product-ranking-header">
+          <h2>Product Performance Ranking</h2>
+          <p>Top selling products by quantity</p>
+        </div>
+        <div className="product-ranking-list">
+          {productRanking.slice(0, 5).map((product, index) => (
+            <div key={index} className={`product-rank-item ${index === 0 ? 'top-rank' : ''}`}>
+              <div className="rank-number-display">#{index + 1}</div>
+              <div className="product-info">
+                <div className="product-name">{product.name}</div>
+                <div className="product-stats">
+                  <span>{product.quantity.toFixed(1)} kg</span>
+                  <span>{formatCurrency(product.revenue)}</span>
+                </div>
+              </div>
+              <div className="rank-progress">
+                <div className="progress-bar" style={{ width: `${(product.quantity / productRanking[0]?.quantity) * 100}%` }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="chart-section">
         <div className="chart-header">
           <h2>Sales Visualization</h2>
@@ -776,11 +941,6 @@ const AdminReports = () => {
         </div>
       </div>
 
-      {/* Hidden professional report content for printing */}
-      <div id="professional-report-content" style={{ display: 'none' }}>
-        {/* This div is just a placeholder - the actual print content is generated in handlePrintReport */}
-      </div>
-
       {reportData && reportData.transactions && reportData.transactions.length > 0 && (
         <>
           <div className="report-content">
@@ -820,7 +980,7 @@ const AdminReports = () => {
                       <tr key={transaction._id}>
                         <td>{transaction.transactionId || transaction._id?.slice(-8)}</td>
                         <td>{new Date(transaction.createdAt).toLocaleString()}</td>
-                        <td>{transaction.riceType}</td>
+                        <td>{transaction.riceType || transaction.productName}</td>
                         <td>{transaction.quantityKg}</td>
                         <td>{formatCurrency(transaction.amountPaid || transaction.totalAmount)}</td>
                       </tr>
@@ -832,8 +992,8 @@ const AdminReports = () => {
           </div>
           
           <div className="report-actions no-print">
-            <button className="btn-secondary" onClick={handlePrintReport}>🖨️ Print Report</button>
-            <button className="btn-primary" onClick={handleDownloadCSV}>📥 Download CSV</button>
+            <button className="btn-secondary" onClick={handlePrintReport}>Print Report</button>
+            <button className="btn-primary" onClick={handleDownloadCSV}>Download CSV</button>
           </div>
         </>
       )}
