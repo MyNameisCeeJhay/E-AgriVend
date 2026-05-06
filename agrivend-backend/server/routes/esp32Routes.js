@@ -132,8 +132,8 @@ router.post('/sensors/update', async (req, res) => {
   try {
     let {
       deviceId,
-      loadCellLeft,
-      loadCellRight,
+      loadCellLeft,      // Sinandomeng (from ESP32)
+      loadCellRight,     // Dinorado (from ESP32)
       loadCellTotal,
       loadCellStatus,
       batteryPercentage,
@@ -149,26 +149,105 @@ router.post('/sensors/update', async (req, res) => {
     let safeTemp = (temperature < -10 || temperature > 100 || isNaN(temperature)) ? 25 : temperature;
     let safeDoorStatus = (doorStatus === 'OPEN') ? 'Open' : 'Closed';
     
-    // Get or create machine
+    // Find existing machine or create new one
     let machine = await Machine.findOne({ deviceId: deviceId || 'AGRIVEND_001' });
     
     if (!machine) {
-      machine = new Machine({ deviceId: deviceId || 'AGRIVEND_001' });
+      // Create new machine with proper structure
+      machine = new Machine({ 
+        deviceId: deviceId || 'AGRIVEND_001',
+        storage1: {
+          name: 'Sinandomeng Rice',
+          currentWeight: 0,
+          maxCapacity: 20,
+          status: 'Empty'
+        },
+        storage2: {
+          name: 'Dinorado Rice',
+          currentWeight: 0,
+          maxCapacity: 20,
+          status: 'Empty'
+        },
+        battery: {
+          percentage: 100,
+          voltage: 12.6,
+          status: 'Good'
+        },
+        machineStatus: {
+          isOnline: true,
+          temperature: 25,
+          doorStatus: 'Closed',
+          securityStatus: 'Safe',
+          loadCellStatus: 'OK'
+        }
+      });
       await machine.save();
       console.log(`✅ Created new machine record for ${deviceId}`);
     }
     
-    // Update storage values
-    machine.storage1.currentWeight = safeLoadCellLeft;   // Sinandomeng
-    machine.storage2.currentWeight = safeLoadCellRight;  // Dinorado
+    // Update storage values - make sure fields exist
+    if (!machine.storage1) machine.storage1 = {};
+    if (!machine.storage2) machine.storage2 = {};
+    
+    machine.storage1.currentWeight = safeLoadCellLeft;
+    machine.storage2.currentWeight = safeLoadCellRight;
     machine.storage1.lastUpdated = new Date();
     machine.storage2.lastUpdated = new Date();
     
+    // Calculate percentages and status
+    const maxCapacity = 20;
+    
+    // Storage1 (Sinandomeng)
+    if (machine.storage1.currentWeight <= 0.05) {
+      machine.storage1.percentage = 0;
+      machine.storage1.status = 'Empty';
+      machine.storage1.isEmpty = true;
+      machine.storage1.isLow = false;
+    } else if (machine.storage1.currentWeight < 5) {
+      machine.storage1.percentage = (machine.storage1.currentWeight / maxCapacity) * 100;
+      machine.storage1.status = 'Low';
+      machine.storage1.isEmpty = false;
+      machine.storage1.isLow = true;
+    } else {
+      machine.storage1.percentage = (machine.storage1.currentWeight / maxCapacity) * 100;
+      machine.storage1.status = 'Normal';
+      machine.storage1.isEmpty = false;
+      machine.storage1.isLow = false;
+    }
+    
+    // Storage2 (Dinorado)
+    if (machine.storage2.currentWeight <= 0.05) {
+      machine.storage2.percentage = 0;
+      machine.storage2.status = 'Empty';
+      machine.storage2.isEmpty = true;
+      machine.storage2.isLow = false;
+    } else if (machine.storage2.currentWeight < 5) {
+      machine.storage2.percentage = (machine.storage2.currentWeight / maxCapacity) * 100;
+      machine.storage2.status = 'Low';
+      machine.storage2.isEmpty = false;
+      machine.storage2.isLow = true;
+    } else {
+      machine.storage2.percentage = (machine.storage2.currentWeight / maxCapacity) * 100;
+      machine.storage2.status = 'Normal';
+      machine.storage2.isEmpty = false;
+      machine.storage2.isLow = false;
+    }
+    
     // Update battery
+    if (!machine.battery) machine.battery = {};
     machine.battery.percentage = safeBattery;
     machine.battery.lastUpdated = new Date();
     
+    if (machine.battery.percentage <= 20) {
+      machine.battery.status = 'Critical';
+    } else if (machine.battery.percentage <= 50) {
+      machine.battery.status = 'Warning';
+    } else {
+      machine.battery.status = 'Good';
+    }
+    
     // Update machine status
+    if (!machine.machineStatus) machine.machineStatus = {};
     machine.machineStatus.doorStatus = safeDoorStatus;
     machine.machineStatus.temperature = safeTemp;
     machine.machineStatus.isOnline = true;
@@ -181,14 +260,22 @@ router.post('/sensors/update', async (req, res) => {
       machine.machineStatus.loadCellStatus = 'OK';
     }
     
+    // Set security status
+    if (safeDoorStatus === 'Open') {
+      machine.machineStatus.securityStatus = 'Alert';
+    } else {
+      machine.machineStatus.securityStatus = 'Safe';
+    }
+    
     // Save the machine
     await machine.save();
     
     console.log(`✅ Machine data saved!`);
-    console.log(`   📍 Storage1 (Sinandomeng): ${machine.storage1.currentWeight}kg (${machine.storage1.status})`);
-    console.log(`   📍 Storage2 (Dinorado): ${machine.storage2.currentWeight}kg (${machine.storage2.status})`);
+    console.log(`   📍 Sinandomeng: ${machine.storage1.currentWeight}kg (${machine.storage1.status})`);
+    console.log(`   📍 Dinorado: ${machine.storage2.currentWeight}kg (${machine.storage2.status})`);
+    console.log(`   🔋 Battery: ${machine.battery.percentage}%`);
     
-    res.json({ success: true, message: 'Sensor data saved' });
+    res.json({ success: true, message: 'Sensor data saved', data: machine });
     
   } catch (error) {
     console.error('❌ Error saving sensor data:', error);
