@@ -126,98 +126,124 @@ router.get('/public/summary', async (req, res) => {
 // ============================================
 
 router.post('/sensors/update', async (req, res) => {
+  console.log('📡 ESP32 Data received');
+  console.log('📦 Body:', req.body);
+  
   try {
-    const { deviceId, loadCellLeft, loadCellRight } = req.body;
+    const {
+      loadCellLeft,    // Sinandomeng
+      loadCellRight,   // Dinorado
+      batteryPercentage,
+      doorStatus,
+      temperature
+    } = req.body;
+
+    // FIND THE EXISTING DOCUMENT BY ITS _id (NO deviceId)
+    // Use the actual _id from your database
+    const machine = await Machine.findById("69fa1ca4e581a073cd09c802");
     
-    // Use findOneAndUpdate with upsert: false (don't create new)
-    let machine = await Machine.findOne({ deviceId: deviceId || 'AGRIVEND_001' });
-    
-    if (machine) {
-      // Update existing document
-      machine.storage1.currentWeight = loadCellLeft || 0;
-      machine.storage2.currentWeight = loadCellRight || 0;
-      await machine.save();
-      console.log('✅ Updated existing machine document');
-    } else {
-      // Only create if absolutely no document exists
-      machine = new Machine({ deviceId: deviceId || 'AGRIVEND_001' });
-      machine.storage1.currentWeight = loadCellLeft || 0;
-      machine.storage2.currentWeight = loadCellRight || 0;
-      await machine.save();
-      console.log('✅ Created new machine document');
+    if (!machine) {
+      console.log('❌ Machine document not found!');
+      return res.status(404).json({ success: false, error: 'Machine not found' });
     }
     
-    res.json({ success: true });
+    // UPDATE THE WEIGHTS
+    machine.storage1.currentWeight = loadCellLeft || 0;
+    machine.storage2.currentWeight = loadCellRight || 0;
+    machine.storage1.lastUpdated = new Date();
+    machine.storage2.lastUpdated = new Date();
+    
+    // Calculate percentages
+    const maxCapacity = 20;
+    machine.storage1.percentage = (machine.storage1.currentWeight / maxCapacity) * 100;
+    machine.storage2.percentage = (machine.storage2.currentWeight / maxCapacity) * 100;
+    
+    // Update status
+    if (machine.storage1.currentWeight <= 0.05) {
+      machine.storage1.status = "Empty";
+    } else if (machine.storage1.currentWeight < 5) {
+      machine.storage1.status = "Low";
+    } else {
+      machine.storage1.status = "Normal";
+    }
+    
+    if (machine.storage2.currentWeight <= 0.05) {
+      machine.storage2.status = "Empty";
+    } else if (machine.storage2.currentWeight < 5) {
+      machine.storage2.status = "Low";
+    } else {
+      machine.storage2.status = "Normal";
+    }
+    
+    // Update battery
+    if (batteryPercentage) {
+      machine.battery.percentage = batteryPercentage;
+    }
+    
+    // Update door status
+    if (doorStatus) {
+      machine.machineStatus.doorStatus = doorStatus === 'OPEN' ? 'Open' : 'Closed';
+    }
+    
+    // Update temperature
+    if (temperature) {
+      machine.machineStatus.temperature = temperature;
+    }
+    
+    machine.machineStatus.lastUpdate = new Date();
+    machine.machineStatus.isOnline = true;
+    
+    // SAVE TO DATABASE
+    await machine.save();
+    
+    console.log(`✅ Updated machine document!`);
+    console.log(`   Sinandomeng: ${machine.storage1.currentWeight}kg`);
+    console.log(`   Dinorado: ${machine.storage2.currentWeight}kg`);
+    
+    res.json({ success: true, message: 'Machine updated' });
+    
   } catch (error) {
-    console.error('Error:', error);
+    console.error('❌ Error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// ===== ENDPOINT: Get latest machine data by deviceId =====
-router.get('/latest/:deviceId', async (req, res) => {
+// CHANGE FROM: router.get('/latest/:deviceId', ...)
+// TO:
+router.get('/latest', async (req, res) => {
   try {
-    const { deviceId } = req.params;
-    
-    const machine = await Machine.findOne({ deviceId: deviceId || 'AGRIVEND_001' });
+    // Get the first (and only) machine document
+    const machine = await Machine.findOne(); // No filter, just get the document
     
     if (!machine) {
       return res.json({
         success: true,
-        deviceId: deviceId || 'AGRIVEND_001',
-        storage1: { 
-          currentWeight: 0, 
-          percentage: 0, 
-          status: 'NO_DATA', 
-          maxCapacity: 20 
-        },
-        storage2: { 
-          currentWeight: 0, 
-          percentage: 0, 
-          status: 'NO_DATA', 
-          maxCapacity: 20 
-        },
-        totalStock: 0,
-        machineStatus: 'UNKNOWN',
-        transactionCount: 0,
-        batteryPercentage: 100,
-        doorStatus: 'Closed',
-        loadCellStatus: 'NO_DATA',
-        temperature: 25,
-        message: 'No data yet. Waiting for ESP32 to send data...'
+        storage1: { currentWeight: 0, percentage: 0, status: 'Empty' },
+        storage2: { currentWeight: 0, percentage: 0, status: 'Empty' }
       });
     }
     
     res.json({
       success: true,
-      deviceId: machine.deviceId,
       storage1: {
         currentWeight: machine.storage1.currentWeight,
         percentage: machine.storage1.percentage,
         status: machine.storage1.status,
-        maxCapacity: machine.storage1.maxCapacity,
-        name: machine.storage1.name
+        pricePerKg: machine.storage1.pricePerKg
       },
       storage2: {
         currentWeight: machine.storage2.currentWeight,
         percentage: machine.storage2.percentage,
         status: machine.storage2.status,
-        maxCapacity: machine.storage2.maxCapacity,
-        name: machine.storage2.name
+        pricePerKg: machine.storage2.pricePerKg
       },
-      totalStock: machine.totalStock,
-      machineStatus: machine.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE',
-      transactionCount: machine.machineStatus.transactionCount,
       batteryPercentage: machine.battery.percentage,
-      batteryStatus: machine.battery.status,
       doorStatus: machine.machineStatus.doorStatus,
       temperature: machine.machineStatus.temperature,
-      loadCellStatus: machine.machineStatus.loadCellStatus,
-      lastUpdate: machine.machineStatus.lastUpdate
+      totalStock: machine.storage1.currentWeight + machine.storage2.currentWeight
     });
     
   } catch (error) {
-    console.error('❌ Error fetching latest data:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
