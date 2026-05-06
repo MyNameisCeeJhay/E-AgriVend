@@ -125,29 +125,55 @@ router.get('/public/summary', async (req, res) => {
 // ESP32 ENDPOINTS (No authentication)
 // ============================================
 
-// ===== ENDPOINT 1: Main sensor update from ESP32 (UPDATES MACHINE TABLE) =====
 router.post('/sensors/update', async (req, res) => {
   console.log('📡 ESP32 Sensor data received');
+  console.log('📊 Raw payload:', JSON.stringify(req.body, null, 2));
   
   try {
-    const {
+    let {
       deviceId,
-      // Load cell data
-      loadCellLeft,      // Sinandomeng (Regular) - Storage 1
-      loadCellRight,     // Dinorado (Premium) - Storage 2
+      loadCellLeft,
+      loadCellRight,
       loadCellTotal,
       loadCellStatus,
-      // Machine state
       machineState,
       transactionCount,
       machineStatus,
-      // Other sensors
       batteryPercentage,
       doorStatus,
       temperature,
       humidity
     } = req.body;
 
+    // ===== SANITIZE INPUT VALUES =====
+    // Fix transactionCount if it's too large or corrupted
+    if (transactionCount > 10000 || transactionCount < 0 || isNaN(transactionCount)) {
+      console.log(`⚠️ Invalid transactionCount: ${transactionCount}, resetting to 0`);
+      transactionCount = 0;
+    }
+    
+    // Fix loadCell values if invalid
+    if (isNaN(loadCellLeft)) loadCellLeft = 0;
+    if (isNaN(loadCellRight)) loadCellRight = 0;
+    if (isNaN(loadCellTotal)) loadCellTotal = 0;
+    
+    // Fix battery percentage
+    if (batteryPercentage > 100 || batteryPercentage < 0 || isNaN(batteryPercentage)) {
+      batteryPercentage = 100;
+    }
+    
+    // Fix temperature
+    if (temperature > 100 || temperature < -10 || isNaN(temperature)) {
+      temperature = 25;
+    }
+    
+    // Map machineStatus to valid values
+    let validMachineStatus = "ACTIVE";
+    if (machineStatus === "MAINTENANCE") validMachineStatus = "MAINTENANCE";
+    else if (machineStatus === "ERROR") validMachineStatus = "ERROR";
+    else if (machineStatus === "ACTIVE") validMachineStatus = "ACTIVE";
+    else validMachineStatus = "ACTIVE";
+    
     // Get or create machine record
     let machine = await getOrCreateMachine(deviceId || 'AGRIVEND_001');
     
@@ -160,7 +186,7 @@ router.post('/sensors/update', async (req, res) => {
     machine.storage2.lastUpdated = new Date();
     
     // Update battery
-    if (batteryPercentage) {
+    if (batteryPercentage !== undefined) {
       machine.battery.percentage = batteryPercentage;
       machine.battery.lastUpdated = new Date();
     }
@@ -169,7 +195,7 @@ router.post('/sensors/update', async (req, res) => {
     if (doorStatus) {
       machine.machineStatus.doorStatus = doorStatus === 'OPEN' ? 'Open' : 'Closed';
     }
-    if (temperature) {
+    if (temperature !== undefined) {
       machine.machineStatus.temperature = temperature;
     }
     if (transactionCount !== undefined) {
@@ -188,11 +214,9 @@ router.post('/sensors/update', async (req, res) => {
     console.log(`✅ Machine data saved!`);
     console.log(`   📍 Storage1 (Sinandomeng): ${machine.storage1.currentWeight}kg (${machine.storage1.status})`);
     console.log(`   📍 Storage2 (Dinorado): ${machine.storage2.currentWeight}kg (${machine.storage2.status})`);
-    console.log(`   🔋 Battery: ${machine.battery.percentage}% (${machine.battery.status})`);
-    console.log(`   🚪 Door: ${machine.machineStatus.doorStatus}`);
-    console.log(`   📊 Load Cell Status: ${machine.machineStatus.loadCellStatus}`);
+    console.log(`   📊 Transaction Count: ${machine.machineStatus.transactionCount}`);
 
-    // Emit real-time update via Socket.io
+    // Emit real-time update
     const io = req.app.get('io');
     if (io) {
       io.emit('machine_update', {
@@ -215,7 +239,7 @@ router.post('/sensors/update', async (req, res) => {
 
     res.json({ success: true, message: 'Sensor data saved to Machine table' });
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('❌ Error saving sensor data:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
