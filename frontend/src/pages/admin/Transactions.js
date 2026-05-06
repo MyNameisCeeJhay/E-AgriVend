@@ -81,6 +81,10 @@ const AdminTransactions = () => {
             aVal = a.productName || a.riceType;
             bVal = b.productName || b.riceType;
           }
+          if (sortBy === 'recordedBy') {
+            aVal = a.recordedBy?.firstName || a.user?.firstName || '';
+            bVal = b.recordedBy?.firstName || b.user?.firstName || '';
+          }
           if (sortOrder === 'desc') {
             return aVal > bVal ? -1 : 1;
           } else {
@@ -170,6 +174,22 @@ const AdminTransactions = () => {
 
   const getDisplayProductName = (transaction) => {
     return transaction.productName || transaction.riceType || 'Unknown';
+  };
+
+  const getRecordedByName = (transaction) => {
+    if (transaction.recordedBy) {
+      return {
+        name: `${transaction.recordedBy.firstName} ${transaction.recordedBy.lastName}`,
+        type: 'manual'
+      };
+    }
+    if (transaction.user) {
+      return {
+        name: `${transaction.user.firstName} ${transaction.user.lastName}`,
+        type: 'machine'
+      };
+    }
+    return { name: 'System', type: 'system' };
   };
 
   return (
@@ -318,19 +338,36 @@ const AdminTransactions = () => {
                       Amount <SortIcon column="amountPaid" />
                     </th>
                     <th>Payment Method</th>
+                    <th onClick={() => handleSort('recordedBy')}>
+                      Recorded By <SortIcon column="recordedBy" />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((transaction) => (
-                    <tr key={transaction._id} className="transaction-row">
-                      <td className="tx-id">{transaction.transactionId}</td>
-                      <td className="date-cell">{formatDate(transaction.createdAt)}</td>
-                      <td className="product-cell">{getDisplayProductName(transaction)}</td>
-                      <td className="quantity-cell">{transaction.quantityKg} kg</td>
-                      <td className="amount-cell">{formatCurrency(transaction.amountPaid)}</td>
-                      <td className="payment-cell">{transaction.paymentMethod || 'CASH'}</td>
-                    </tr>
-                  ))}
+                  {transactions.map((transaction) => {
+                    const recordedBy = getRecordedByName(transaction);
+                    return (
+                      <tr key={transaction._id} className="transaction-row">
+                        <td className="tx-id">{transaction.transactionId}</td>
+                        <td className="date-cell">{formatDate(transaction.createdAt)}</td>
+                        <td className="product-cell">{getDisplayProductName(transaction)}</td>
+                        <td className="quantity-cell">{transaction.quantityKg} kg</td>
+                        <td className="amount-cell">{formatCurrency(transaction.amountPaid)}</td>
+                        <td className="payment-cell">{transaction.paymentMethod || 'CASH'}</td>
+                        <td className="recorded-by-cell">
+                          <div className="recorded-by-info">
+                            <span className="staff-name">{recordedBy.name}</span>
+                            {recordedBy.type === 'manual' && (
+                              <span className="badge-manual"></span>
+                            )}
+                            {recordedBy.type === 'machine' && (
+                              <span className="badge-machine">Machine Transaction</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

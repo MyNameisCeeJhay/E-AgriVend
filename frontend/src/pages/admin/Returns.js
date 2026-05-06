@@ -3,7 +3,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
 import './Returns.css';
-import { API_URL } from '../../config';
+
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const AdminReturns = () => {
   const { user } = useAuth();
@@ -84,10 +85,13 @@ const AdminReturns = () => {
           limit: 15
         }
       });
-      setRefunds(response.data.data || []);
-      setPagination(response.data.pagination);
+      // SAFETY: Ensure we always set an array
+      const responseData = response.data.data || [];
+      setRefunds(Array.isArray(responseData) ? responseData : []);
+      setPagination(response.data.pagination || { page: 1, total: 0, pages: 1 });
     } catch (error) {
       console.error('Error fetching refunds:', error);
+      setRefunds([]); // Ensure refunds is always an array
       showNotification('error', 'Failed to load refund requests');
     } finally {
       setLoading(false);
@@ -97,11 +101,12 @@ const AdminReturns = () => {
   const fetchStats = async () => {
     try {
       const response = await axios.get(`${API_URL}/refund/admin/stats/summary`);
+      const statsData = response.data.data || {};
       setStats({
-        pending: response.data.data.pending,
-        approved: response.data.data.approved,
-        rejected: response.data.data.rejected,
-        total: response.data.data.total
+        pending: statsData.pending || 0,
+        approved: statsData.approved || 0,
+        rejected: statsData.rejected || 0,
+        total: statsData.total || 0
       });
     } catch (error) {
       console.error('Error fetching stats:', error);
@@ -172,6 +177,7 @@ const AdminReturns = () => {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     const date = new Date(dateString);
     return date.toLocaleString('en-US', {
       month: 'short',
@@ -182,6 +188,7 @@ const AdminReturns = () => {
   };
 
   const formatCurrency = (amount) => {
+    if (amount === undefined || amount === null) return '₱0.00';
     return new Intl.NumberFormat('en-PH', {
       style: 'currency',
       currency: 'PHP'
@@ -197,17 +204,18 @@ const AdminReturns = () => {
     }
   };
 
-  // Toggle filters function
   const toggleFilters = () => {
     setShowFilters(!showFilters);
   };
 
-  // Handle filter change
   const handleFilterChange = (e) => {
     const newFilter = e.target.value;
     setFilter(newFilter);
     setPagination({ ...pagination, page: 1 });
   };
+
+  // SAFETY: Ensure refunds is an array before mapping
+  const refundsArray = Array.isArray(refunds) ? refunds : [];
 
   return (
     <div className="returns-container">
@@ -252,7 +260,7 @@ const AdminReturns = () => {
         </div>
       </div>
 
-      {/* Filters Section - Only shows when showFilters is true */}
+      {/* Filters Section */}
       {showFilters && (
         <div className="filters-card">
           <div className="filter-controls">
@@ -273,7 +281,7 @@ const AdminReturns = () => {
       {/* Refunds Table */}
       {loading ? (
         <div className="loading-state">Loading refund requests...</div>
-      ) : refunds.length === 0 ? (
+      ) : refundsArray.length === 0 ? (
         <div className="empty-state">
           <h3>No Refund Requests</h3>
           <p>There are no refund requests to display.</p>
@@ -295,7 +303,7 @@ const AdminReturns = () => {
                 </tr>
               </thead>
               <tbody>
-                {refunds.map((refund) => (
+                {refundsArray.map((refund) => (
                   <tr key={refund._id} className={refund.status === 'PENDING' ? 'pending-row' : ''}>
                     <td className="transaction-id-cell">
                       <span className="transaction-id">{refund.transactionNumber}</span>
@@ -306,7 +314,7 @@ const AdminReturns = () => {
                     <td className="amount-cell">{formatCurrency(refund.amountInserted)}</td>
                     <td className="reason-cell">
                       <div className="reason-text" title={refund.refundReason}>
-                        {refund.refundReason.length > 35 
+                        {refund.refundReason?.length > 35 
                           ? refund.refundReason.substring(0, 35) + '...' 
                           : refund.refundReason}
                       </div>

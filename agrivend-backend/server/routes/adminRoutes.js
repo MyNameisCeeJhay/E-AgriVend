@@ -864,8 +864,7 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
   }
 });
 
-<<<<<<< HEAD
-=======
+
 router.get('/dashboard/stats', protect, admin, async (req, res) => {
   console.log('📊 GET /api/admin/dashboard/stats - by:', req.user?.email);
   try {
@@ -995,5 +994,4 @@ router.get('/transactions/recent', protect, admin, async (req, res) => {
   }
 });
 
->>>>>>> cca433336844cb1b03e3a222e9fe2190a43ee80b
 export default router;

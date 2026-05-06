@@ -81,6 +81,7 @@ import refundRoutes from './routes/refundRoutes.js';
 import machineRoutes from './routes/machineRoutes.js';
 import staffRoutes from './routes/staffRoutes.js';
 import User from './models/User.js';
+import productRoutes from './routes/productRoutes.js';
 
 // Initialize express
 const app = express();
@@ -209,6 +210,7 @@ console.log('   /api/refund → refundRoutes');
 console.log('   /api/machine → machineRoutes');
 console.log('   /api/staff → staffRoutes');
 
+
 app.use('/api/auth', authRoutes);
 app.use('/api/terms', termsRoutes);
 app.use('/api/sensors', sensorRoutes);
@@ -222,6 +224,8 @@ app.use('/api/esp32', esp32Routes);
 app.use('/api/refund', refundRoutes);
 app.use('/api/machine', machineRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/products', productRoutes);
+
 
 // ===== CREATE DEFAULT STAFF ACCOUNTS =====
 const createDefaultStaffAccounts = async () => {

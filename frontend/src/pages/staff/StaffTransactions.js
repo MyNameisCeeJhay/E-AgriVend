@@ -25,6 +25,7 @@ const StaffTransactions = () => {
   const [newProduct, setNewProduct] = useState({ name: '', price: '' });
   
   const [newTransaction, setNewTransaction] = useState({
+    productId: '',
     productName: '',
     quantity: '',
     pricePerKg: '',
@@ -42,34 +43,19 @@ const StaffTransactions = () => {
       setLoadingProducts(true);
       const token = localStorage.getItem('token');
       
-      const response = await axios.get(`${API_URL}/staff/products`, {
+      const response = await axios.get(`${API_URL}/products`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
       if (response.data.success) {
         setProducts(response.data.data);
+        console.log('Products loaded:', response.data.data);
       } else {
-        setProducts([
-          { id: 1, name: 'Sinandomeng Rice', price: 54.00, isArchived: false },
-          { id: 2, name: 'Dinorado Rice', price: 65.00, isArchived: false },
-          { id: 3, name: 'Jasmine Rice', price: 70.00, isArchived: false },
-          { id: 4, name: 'Premium Rice', price: 85.00, isArchived: false },
-          { id: 5, name: 'Brown Rice', price: 60.00, isArchived: false },
-          { id: 6, name: 'Glutinous Rice', price: 75.00, isArchived: false },
-          { id: 7, name: 'Organic Rice', price: 90.00, isArchived: false }
-        ]);
+        setProducts([]);
       }
     } catch (error) {
       console.error('Error fetching products:', error);
-      setProducts([
-        { id: 1, name: 'Sinandomeng Rice', price: 54.00, isArchived: false },
-        { id: 2, name: 'Dinorado Rice', price: 65.00, isArchived: false },
-        { id: 3, name: 'Jasmine Rice', price: 70.00, isArchived: false },
-        { id: 4, name: 'Premium Rice', price: 85.00, isArchived: false },
-        { id: 5, name: 'Brown Rice', price: 60.00, isArchived: false },
-        { id: 6, name: 'Glutinous Rice', price: 75.00, isArchived: false },
-        { id: 7, name: 'Organic Rice', price: 90.00, isArchived: false }
-      ]);
+      setProducts([]);
     } finally {
       setLoadingProducts(false);
     }
@@ -78,7 +64,7 @@ const StaffTransactions = () => {
   const saveProductsToDatabase = async (updatedProducts) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`${API_URL}/staff/products`, {
+      await axios.post(`${API_URL}/products/bulk`, {
         products: updatedProducts
       }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -150,7 +136,7 @@ const StaffTransactions = () => {
     const random1 = Math.random().toString(36).substring(2, 10).toUpperCase();
     const random2 = Math.random().toString(36).substring(2, 8).toUpperCase();
     return `TXN-${year}${month}${day}-${random1}-${random2}`;
-    };
+  };
 
   const handleArchiveProduct = async (id) => {
     const updatedProducts = products.map(p => 
@@ -238,6 +224,7 @@ const StaffTransactions = () => {
       
       const transactionData = {
         productName: newTransaction.productName,
+        productId: newTransaction.productId,
         quantityKg: parseFloat(newTransaction.quantity),
         amountPaid: parseFloat(newTransaction.totalAmount),
         paymentMethod: newTransaction.paymentMethod || 'CASH'
@@ -256,6 +243,7 @@ const StaffTransactions = () => {
         showNotification('success', `Transaction added: ${newTransaction.quantity}kg ${newTransaction.productName} - ₱${newTransaction.totalAmount}`);
         setShowAddModal(false);
         setNewTransaction({
+          productId: '',
           productName: '',
           quantity: '',
           pricePerKg: '',
@@ -283,17 +271,30 @@ const StaffTransactions = () => {
   };
 
   const handleProductChange = (e) => {
-    const productName = e.target.value;
-    const selectedProduct = activeProducts.find(p => p.name === productName);
-    setNewTransaction(prev => {
-      const updated = { 
-        ...prev, 
-        productName,
-        pricePerKg: selectedProduct ? selectedProduct.price.toString() : ''
-      };
-      updated.totalAmount = calculateTotal(updated.quantity, updated.pricePerKg);
-      return updated;
-    });
+    const productId = parseInt(e.target.value);
+    const selectedProduct = activeProducts.find(p => p.id === productId);
+    
+    if (selectedProduct) {
+      setNewTransaction(prev => ({
+        ...prev,
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
+        pricePerKg: selectedProduct.price.toString()
+      }));
+      
+      if (newTransaction.quantity) {
+        const total = calculateTotal(newTransaction.quantity, selectedProduct.price);
+        setNewTransaction(prev => ({ ...prev, totalAmount: total }));
+      }
+    } else {
+      setNewTransaction(prev => ({
+        ...prev,
+        productId: '',
+        productName: '',
+        pricePerKg: '',
+        totalAmount: ''
+      }));
+    }
   };
 
   const handleQuantityChange = (e) => {
@@ -344,7 +345,6 @@ const StaffTransactions = () => {
 
   return (
     <div className="staff-transactions-container">
-      {/* Notification Toast */}
       {notification && (
         <div className={`transaction-toast ${notification.type}`}>
           <div className="toast-content">
@@ -355,30 +355,24 @@ const StaffTransactions = () => {
         </div>
       )}
 
-      {/* Header */}
       <div className="transactions-header">
         <div>
           <h1>Transaction History</h1>
           <p>View and manage all walk-in customer transactions</p>
         </div>
         <div className="header-buttons">
-          <button className="btn-add" onClick={() => setShowAddModal(true)}>
-            + Walk-in Customer
-          </button>
+          <button className="btn-add" onClick={() => setShowAddModal(true)}>+ Walk-in Customer</button>
           <button className="btn-manage-products" onClick={() => {
             setEditingProduct(null);
             setNewProduct({ name: '', price: '' });
             setShowProductModal(true);
-          }}>
-            Manage Products
-          </button>
+          }}>Manage Products</button>
           <button className={`btn-filter ${showFilters ? 'active' : ''}`} onClick={() => setShowFilters(!showFilters)}>
             {showFilters ? 'Hide Filters' : 'Show Filters'}
           </button>
         </div>
       </div>
 
-      {/* Summary Cards */}
       <div className="summary-cards">
         <div className="summary-card">
           <div className="card-label">Total Transactions</div>
@@ -394,44 +388,24 @@ const StaffTransactions = () => {
         </div>
       </div>
 
-      {/* Filters */}
       {showFilters && (
         <div className="filters-panel">
           <div className="filters-grid">
-            <input 
-              type="date" 
-              value={filters.startDate} 
-              onChange={(e) => setFilters({...filters, startDate: e.target.value})} 
-              placeholder="Start Date" 
-            />
-            <input 
-              type="date" 
-              value={filters.endDate} 
-              onChange={(e) => setFilters({...filters, endDate: e.target.value})} 
-              placeholder="End Date" 
-            />
-            <input 
-              type="text" 
-              placeholder="Search by Transaction ID or Product..." 
-              value={filters.search} 
-              onChange={(e) => setFilters({...filters, search: e.target.value})} 
-            />
+            <input type="date" value={filters.startDate} onChange={(e) => setFilters({...filters, startDate: e.target.value})} placeholder="Start Date" />
+            <input type="date" value={filters.endDate} onChange={(e) => setFilters({...filters, endDate: e.target.value})} placeholder="End Date" />
+            <input type="text" placeholder="Search by Transaction ID or Product..." value={filters.search} onChange={(e) => setFilters({...filters, search: e.target.value})} />
             <button className="btn-apply" onClick={fetchTransactions}>Apply</button>
-            <button className="btn-clear" onClick={() => { 
-              setFilters({ startDate: '', endDate: '', search: '' }); 
-              fetchTransactions(); 
-            }}>Clear</button>
+            <button className="btn-clear" onClick={() => { setFilters({ startDate: '', endDate: '', search: '' }); fetchTransactions(); }}>Clear</button>
           </div>
         </div>
       )}
 
-      {/* Transactions Table */}
       <div className="transactions-table-container">
         {loading ? (
           <div className="loading-state">Loading transactions...</div>
         ) : transactions.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">📭</div>
+            <div className="empty-icon">No data</div>
             <h3>No Transactions Found</h3>
             <p>No transactions match your search criteria.</p>
           </div>
@@ -466,22 +440,11 @@ const StaffTransactions = () => {
               </table>
             </div>
             
-            {/* Pagination */}
             {pagination.pages > 1 && (
               <div className="pagination-container">
-                <button 
-                  disabled={pagination.page === 1} 
-                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
-                >
-                  Previous
-                </button>
+                <button disabled={pagination.page === 1} onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}>Previous</button>
                 <span>Page {pagination.page} of {pagination.pages}</span>
-                <button 
-                  disabled={pagination.page === pagination.pages} 
-                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
-                >
-                  Next
-                </button>
+                <button disabled={pagination.page === pagination.pages} onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}>Next</button>
               </div>
             )}
           </>
@@ -501,60 +464,31 @@ const StaffTransactions = () => {
               <form onSubmit={handleAddTransaction}>
                 <div className="form-group">
                   <label>Select Product *</label>
-                  <select
-                    value={newTransaction.productName}
-                    onChange={handleProductChange}
-                    required
-                  >
-                    <option value="">Select Product</option>
+                  <select value={newTransaction.productId} onChange={handleProductChange} required>
+                    <option value="">-- Select a Product --</option>
                     {activeProducts.map((product) => (
-                      <option key={product.id} value={product.name}>
-                        {product.name}
-                      </option>
+                      <option key={product.id} value={product.id}>{product.name} - {formatCurrency(product.price)}/kg</option>
                     ))}
                   </select>
+                  {activeProducts.length === 0 && <small className="help-text error">No products available. Please add products in "Manage Products".</small>}
                 </div>
 
                 <div className="form-row">
                   <div className="form-group">
                     <label>Quantity (kg) *</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.1"
-                      max="5"
-                      value={newTransaction.quantity}
-                      onChange={handleQuantityChange}
-                      placeholder="Enter quantity"
-                      required
-                    />
+                    <input type="number" step="0.1" min="0.1" max="5" value={newTransaction.quantity} onChange={handleQuantityChange} placeholder="Enter quantity" required disabled={!newTransaction.productId} />
                     <small className="help-text">Maximum 5kg per transaction</small>
                   </div>
 
                   <div className="form-group">
                     <label>Price per kg (₱) *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      value={newTransaction.pricePerKg}
-                      onChange={handlePriceChange}
-                      placeholder="Enter price"
-                      required
-                    />
+                    <input type="number" step="0.01" min="0.01" value={newTransaction.pricePerKg} onChange={handlePriceChange} placeholder="Enter price" required disabled={!newTransaction.productId} />
                   </div>
                 </div>
 
                 <div className="form-group">
                   <label>Total Amount (₱)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={newTransaction.totalAmount}
-                    disabled
-                    className="readonly-field"
-                    placeholder="Auto-calculated"
-                  />
+                  <input type="number" step="0.01" value={newTransaction.totalAmount} disabled className="readonly-field" placeholder="Auto-calculated" />
                   <small className="help-text">
                     {newTransaction.quantity && newTransaction.pricePerKg ? 
                       `Calculation: ${newTransaction.quantity}kg × ₱${newTransaction.pricePerKg} = ${formatCurrency(parseFloat(newTransaction.totalAmount) || 0)}` : 
@@ -570,14 +504,8 @@ const StaffTransactions = () => {
                 </div>
 
                 <div className="modal-footer">
-                  <button type="button" className="btn-cancel" onClick={() => setShowAddModal(false)}>
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="btn-submit" 
-                    disabled={isSubmitting || !newTransaction.productName || !newTransaction.quantity || !newTransaction.pricePerKg || parseFloat(newTransaction.quantity) <= 0}
-                  >
+                  <button type="button" className="btn-cancel" onClick={() => setShowAddModal(false)}>Cancel</button>
+                  <button type="submit" className="btn-submit" disabled={isSubmitting || !newTransaction.productId || !newTransaction.quantity || !newTransaction.pricePerKg || parseFloat(newTransaction.quantity) <= 0}>
                     {isSubmitting ? 'Adding...' : 'Add Transaction'}
                   </button>
                 </div>
@@ -601,82 +529,46 @@ const StaffTransactions = () => {
                 <div className="loading-state">Loading products...</div>
               ) : (
                 <>
-                  {/* Add New Product Section */}
                   {!editingProduct && (
                     <div className="add-product-section">
                       <h3>Add New Product</h3>
                       <div className="form-row">
                         <div className="form-group">
                           <label>Product Name</label>
-                          <input
-                            type="text"
-                            value={newProduct.name}
-                            onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
-                            placeholder="Enter product name"
-                          />
+                          <input type="text" value={newProduct.name} onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })} placeholder="Enter product name" />
                         </div>
                         <div className="form-group">
                           <label>Price per kg (₱)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={newProduct.price}
-                            onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
-                            placeholder="Enter price per kg"
-                          />
+                          <input type="number" step="0.01" value={newProduct.price} onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })} placeholder="Enter price per kg" />
                         </div>
                         <div className="form-group add-btn-group">
-                          <button className="btn-add-product" onClick={handleAddProduct}>
-                            + Add Product
-                          </button>
+                          <button className="btn-add-product" onClick={handleAddProduct}>+ Add Product</button>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* Edit Product Section */}
                   {editingProduct && (
                     <div className="edit-product-section">
                       <h3>Edit Product</h3>
                       <div className="form-row">
                         <div className="form-group">
                           <label>Product Name</label>
-                          <input
-                            type="text"
-                            value={editingProduct.name}
-                            onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
-                          />
+                          <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} />
                         </div>
                         <div className="form-group">
                           <label>Price per kg (₱)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={editingProduct.price}
-                            onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })}
-                          />
+                          <input type="number" step="0.01" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} />
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* Toggle Archived View */}
                   <div className="archive-toggle">
-                    <button 
-                      className={`toggle-btn ${!showArchived ? 'active' : ''}`}
-                      onClick={() => setShowArchived(false)}
-                    >
-                      Active Products
-                    </button>
-                    <button 
-                      className={`toggle-btn ${showArchived ? 'active' : ''}`}
-                      onClick={() => setShowArchived(true)}
-                    >
-                      Archived Products
-                    </button>
+                    <button className={`toggle-btn ${!showArchived ? 'active' : ''}`} onClick={() => setShowArchived(false)}>Active Products</button>
+                    <button className={`toggle-btn ${showArchived ? 'active' : ''}`} onClick={() => setShowArchived(true)}>Archived Products</button>
                   </div>
 
-                  {/* Products List */}
                   <div className="products-list">
                     <h3>{showArchived ? 'Archived Products' : 'Active Products'}</h3>
                     <div className="products-table-wrapper">
@@ -696,33 +588,13 @@ const StaffTransactions = () => {
                               <td className="product-actions">
                                 {!showArchived ? (
                                   <>
-                                    <button 
-                                      className="btn-edit-product"
-                                      onClick={() => openEditModal(product)}
-                                    >
-                                      Edit
-                                    </button>
-                                    <button 
-                                      className="btn-archive-product"
-                                      onClick={() => handleArchiveProduct(product.id)}
-                                    >
-                                      Archive
-                                    </button>
+                                    <button className="btn-edit-product" onClick={() => openEditModal(product)}>Edit</button>
+                                    <button className="btn-archive-product" onClick={() => handleArchiveProduct(product.id)}>Archive</button>
                                   </>
                                 ) : (
                                   <>
-                                    <button 
-                                      className="btn-restore-product"
-                                      onClick={() => handleRestoreProduct(product.id)}
-                                    >
-                                      Restore
-                                    </button>
-                                    <button 
-                                      className="btn-delete-product"
-                                      onClick={() => handleDeleteProduct(product.id)}
-                                    >
-                                      Delete
-                                    </button>
+                                    <button className="btn-restore-product" onClick={() => handleRestoreProduct(product.id)}>Restore</button>
+                                    <button className="btn-delete-product" onClick={() => handleDeleteProduct(product.id)}>Delete</button>
                                   </>
                                 )}
                               </td>
@@ -745,18 +617,12 @@ const StaffTransactions = () => {
             <div className="modal-footer">
               {editingProduct && (
                 <>
-                  <button className="btn-cancel" onClick={() => setEditingProduct(null)}>
-                    Cancel Edit
-                  </button>
-                  <button className="btn-save" onClick={handleEditProduct}>
-                    Save Changes
-                  </button>
+                  <button className="btn-cancel" onClick={() => setEditingProduct(null)}>Cancel Edit</button>
+                  <button className="btn-save" onClick={handleEditProduct}>Save Changes</button>
                 </>
               )}
               {!editingProduct && (
-                <button className="btn-cancel" onClick={() => setShowProductModal(false)}>
-                  Close
-                </button>
+                <button className="btn-cancel" onClick={() => setShowProductModal(false)}>Close</button>
               )}
             </div>
           </div>
