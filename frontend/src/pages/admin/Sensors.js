@@ -4,7 +4,7 @@ import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
 import './Sensors.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_URL = 'https://e-agrivend.onrender.com/api';
 
 const AdminSensors = () => {
   const { user } = useAuth();

@@ -1,4 +1,4 @@
-/* RefundRequest.css */
+/* RefundRequest.css - Professional Refund Portal Design */
 
 * {
   margin: 0;
@@ -8,7 +8,7 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e8edf2 100%);
+  background: #f5f5f5;
   color: #333;
   line-height: 1.5;
 }
@@ -19,36 +19,38 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  background: #f5f5f5;
 }
 
 .refund-card {
   max-width: 900px;
   width: 100%;
   background: #ffffff;
-  border-radius: 24px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
   overflow: hidden;
 }
 
-/* Header */
+/* Header - White background with green text like screenshot */
 .refund-header {
-  background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
-  padding: 32px 40px;
+  background: #0e2a1a;
+  padding: 30px 40px 20px 40px;
   text-align: center;
+  border-bottom: 1px solid #e8e8e8;
 }
 
 .refund-header h1 {
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 600;
   color: #ffffff;
   letter-spacing: -0.5px;
   margin-bottom: 8px;
 }
 
 .refund-header h2 {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.9);
+  color: #ffffff;
 }
 
 /* Content Sections */
@@ -60,39 +62,40 @@ body {
 }
 
 .refund-intro {
-  padding-top: 32px;
+  padding-top: 30px;
+  text-align: left;
 }
 
 .refund-intro h3 {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
-  color: #2e7d32;
+  color: #333;
   margin-bottom: 12px;
 }
 
 .refund-intro p {
   font-size: 14px;
-  color: #555;
+  color: #666;
   line-height: 1.6;
 }
 
 .important-notice {
-  background: #fff3e0;
+  background: #fff8e1;
   border-left: 4px solid #ff9800;
   margin: 20px 40px;
-  padding: 16px 20px;
-  border-radius: 8px;
+  padding: 14px 20px;
+  border-radius: 4px;
 }
 
 .important-notice h3 {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: #e65100;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .important-notice p {
-  font-size: 13px;
+  font-size: 12px;
   color: #5d4e37;
   line-height: 1.5;
 }
@@ -104,23 +107,23 @@ body {
 
 /* Countdown Timer */
 .countdown-timer {
-  background: linear-gradient(135deg, #fff9c4 0%, #fff3e0 100%);
+  background: #fff8e1;
   border: 1px solid #ffe082;
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 8px;
+  padding: 16px;
   margin: 20px 40px;
   text-align: center;
 }
 
 .countdown-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: #e65100;
   margin-bottom: 8px;
 }
 
 .countdown {
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 700;
   font-family: 'Courier New', monospace;
   color: #d84315;
@@ -132,20 +135,20 @@ body {
   background: #ffebee;
   border-left: 4px solid #f44336;
   color: #c62828;
-  padding: 14px 20px;
+  padding: 12px 18px;
   margin: 20px 40px;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 4px;
+  font-size: 13px;
 }
 
 .success-message {
   background: #e8f5e9;
   border-left: 4px solid #4caf50;
   color: #2e7d32;
-  padding: 14px 20px;
+  padding: 12px 18px;
   margin: 20px 40px;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 4px;
+  font-size: 13px;
 }
 
 /* Form */
@@ -154,39 +157,39 @@ body {
 }
 
 .form-section {
-  margin-bottom: 32px;
-  border-bottom: 1px solid #e0e0e0;
-  padding-bottom: 28px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 24px;
 }
 
 .form-section:last-of-type {
   border-bottom: none;
+  padding-bottom: 0;
 }
 
 .form-section h3 {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
-  color: #2e7d32;
+  color: #333;
   margin-bottom: 20px;
   padding-bottom: 8px;
-  border-bottom: 2px solid #e8f5e9;
 }
 
 .form-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 20px;
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 
 .form-group label {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: #555;
+  color: #666;
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -196,11 +199,11 @@ body {
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: 12px 14px;
+  padding: 10px 14px;
   font-size: 14px;
   font-family: inherit;
   border: 1px solid #ddd;
-  border-radius: 10px;
+  border-radius: 4px;
   transition: all 0.3s ease;
   background: #fff;
 }
@@ -210,13 +213,13 @@ body {
 .form-group textarea:focus {
   outline: none;
   border-color: #4caf50;
-  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
 }
 
 .form-group input:disabled,
 .form-group select:disabled,
 .form-group textarea:disabled {
-  background: #f5f5f5;
+  background: #fafafa;
   color: #999;
   cursor: not-allowed;
 }
@@ -233,13 +236,13 @@ body {
 }
 
 .validate-btn {
-  padding: 12px 24px;
+  padding: 10px 24px;
   background: #4caf50;
   color: white;
   border: none;
-  border-radius: 10px;
+  border-radius: 4px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
   white-space: nowrap;
@@ -247,7 +250,6 @@ body {
 
 .validate-btn:hover:not(:disabled) {
   background: #388e3c;
-  transform: translateY(-1px);
 }
 
 .validate-btn:disabled {
@@ -268,9 +270,11 @@ body {
 }
 
 /* Auto-filled styles */
-.auto-filled {
-  background: #e8f5e9 !important;
-  border-color: #4caf50 !important;
+.readonly-field {
+  background: #fafafa !important;
+  border-color: #e8e8e8 !important;
+  color: #333 !important;
+  font-weight: normal;
 }
 
 .auto-filled-note {
@@ -280,11 +284,40 @@ body {
   color: #4caf50;
 }
 
+.auto-badge,
+.manual-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
+.auto-badge {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.manual-badge {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.info-message {
+  background: #e3f2fd;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-top: 15px;
+  font-size: 12px;
+  color: #1565c0;
+  text-align: center;
+}
+
 /* Transaction Summary */
 .transaction-summary {
-  background: #f9f9f9;
-  border-radius: 12px;
-  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  padding: 15px;
   margin-top: 16px;
 }
 
@@ -300,15 +333,25 @@ body {
 }
 
 .summary-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #666;
 }
 
 .summary-value {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: #333;
+}
+
+.transaction-id {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e8e8e8;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
 }
 
 /* File Upload */
@@ -329,9 +372,9 @@ body {
   align-items: center;
   justify-content: center;
   padding: 32px 24px;
-  background: #f8f9fa;
-  border: 2px dashed #ccc;
-  border-radius: 12px;
+  background: #fafafa;
+  border: 2px dashed #ddd;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.3s ease;
   text-align: center;
@@ -343,7 +386,7 @@ body {
 }
 
 .upload-icon {
-  font-size: 48px;
+  font-size: 40px;
   margin-bottom: 12px;
 }
 
@@ -367,8 +410,8 @@ body {
 }
 
 .image-preview img {
-  max-width: 200px;
-  max-height: 200px;
+  max-width: 180px;
+  max-height: 180px;
   border-radius: 8px;
   border: 1px solid #ddd;
   padding: 4px;
@@ -383,8 +426,8 @@ body {
   color: white;
   border: none;
   border-radius: 50%;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   font-size: 12px;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -397,17 +440,17 @@ body {
 
 /* Terms Section */
 .terms-section {
-  background: #f5f5f5;
-  border-radius: 16px;
-  padding: 24px;
-  margin: 32px 0;
+  background: #fafafa;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 30px 0;
 }
 
 .terms-section h3 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: #333;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .terms-section ul {
@@ -418,8 +461,8 @@ body {
 .terms-section li {
   font-size: 12px;
   color: #666;
-  padding: 6px 0;
-  padding-left: 20px;
+  padding: 5px 0;
+  padding-left: 18px;
   position: relative;
 }
 
@@ -432,9 +475,9 @@ body {
 }
 
 .terms-note {
-  margin-top: 16px;
+  margin-top: 14px;
   font-size: 12px;
-  color: #555;
+  color: #666;
   padding: 12px;
   background: #fff;
   border-radius: 8px;
@@ -450,48 +493,59 @@ body {
   display: flex;
   gap: 16px;
   justify-content: flex-end;
-  margin-top: 32px;
-  padding-top: 16px;
-  border-top: 1px solid #e0e0e0;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #f0f0f0;
 }
 
 .btn-reset,
 .btn-submit {
-  padding: 12px 28px;
+  padding: 10px 28px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   border: none;
-  border-radius: 10px;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .btn-reset {
-  background: #f5f5f5;
+  background: #fff;
   color: #666;
   border: 1px solid #ddd;
 }
 
 .btn-reset:hover:not(:disabled) {
-  background: #e0e0e0;
-  transform: translateY(-1px);
+  background: #f5f5f5;
 }
 
 .btn-submit {
-  background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
+  background: #4caf50;
   color: white;
 }
 
 .btn-submit:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(46, 125, 50, 0.3);
+  background: #388e3c;
 }
 
 .btn-reset:disabled,
 .btn-submit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
+}
+
+/* Format Hint */
+.format-hint {
+  display: block;
+  font-size: 11px;
+  color: #999;
+  margin-top: 5px;
+}
+
+/* Input placeholder */
+input::placeholder,
+textarea::placeholder {
+  color: #bbb;
 }
 
 /* Responsive Design */
@@ -509,7 +563,7 @@ body {
   }
 
   .refund-header h2 {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .refund-intro,
@@ -520,16 +574,8 @@ body {
     padding-right: 20px;
   }
 
-  .important-notice {
-    margin-left: 20px;
-    margin-right: 20px;
-  }
-
-  .countdown-timer {
-    margin-left: 20px;
-    margin-right: 20px;
-  }
-
+  .important-notice,
+  .countdown-timer,
   .error-message,
   .success-message {
     margin-left: 20px;
@@ -577,6 +623,6 @@ body {
   }
 
   .upload-icon {
-    font-size: 36px;
+    font-size: 32px;
   }
 }

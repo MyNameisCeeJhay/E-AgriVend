@@ -1,9 +1,11 @@
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './CustomerPages.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
 
 const RateTransaction = () => {
   const { transactionId } = useParams();

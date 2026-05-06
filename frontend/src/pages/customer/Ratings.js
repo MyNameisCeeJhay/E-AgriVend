@@ -1,3 +1,5 @@
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
@@ -5,7 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import './CustomerPages.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
 
 const CustomerRatings = () => {
   const [ratings, setRatings] = useState([]);

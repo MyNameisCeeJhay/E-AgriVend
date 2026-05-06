@@ -143,7 +143,7 @@ router.get('/', protect, async (req, res) => {
   }
 });
 
-// ===== CREATE NEW TRANSACTION (Accepts both riceType and productName - NO QUANTITY LIMITS) =====
+// ===== CREATE NEW TRANSACTION (Walk-in customer - NO QUANTITY LIMITS) =====
 router.post('/', protect, async (req, res) => {
   try {
     const { riceType, productName, quantityKg, amountPaid, paymentMethod } = req.body;
@@ -188,7 +188,7 @@ router.post('/', protect, async (req, res) => {
     }
     
     // NO MAXIMUM QUANTITY LIMIT FOR MANUAL RECORDING
-    // Staff can enter any quantity
+    // Staff can enter any quantity for bulk sales
     
     const amountNum = parseFloat(amountPaid);
     if (isNaN(amountNum) || amountNum <= 0) {
@@ -211,7 +211,8 @@ router.post('/', protect, async (req, res) => {
       paymentMethod: paymentMethod || 'CASH',
       status: 'COMPLETED',
       recordedBy: req.user._id,
-      notes: `Transaction recorded by ${req.user.firstName} ${req.user.lastName}`
+      notes: `Transaction recorded by ${req.user.firstName} ${req.user.lastName}`,
+      source: 'walkin'
     });
     
     await newTransaction.save();
@@ -223,7 +224,8 @@ router.post('/', protect, async (req, res) => {
         transactionId: newTransaction.transactionId,
         productName: newTransaction.productName,
         quantityKg: newTransaction.quantityKg,
-        amountPaid: newTransaction.amountPaid
+        amountPaid: newTransaction.amountPaid,
+        source: 'walkin'
       });
     }
     
@@ -311,8 +313,11 @@ router.get('/:id', protect, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Transaction not found' });
     }
     
-    if (req.user.role !== 'admin' && req.user.role !== 'staff' && 
-        transaction.user && transaction.user._id.toString() !== req.user._id.toString()) {
+    // Check authorization
+    const isAdminOrStaff = req.user.role === 'admin' || req.user.role === 'staff';
+    const isOwner = transaction.user && transaction.user._id.toString() === req.user._id.toString();
+    
+    if (!isAdminOrStaff && !isOwner) {
       return res.status(403).json({ success: false, error: 'Unauthorized' });
     }
     
@@ -340,10 +345,14 @@ router.get('/recent', protect, async (req, res) => {
       let isManual = false;
       
       if (t.recordedBy) {
-        recordedByName = `${t.recordedBy.firstName || ''} ${t.recordedBy.lastName || ''}`.trim();
+        const firstName = t.recordedBy.firstName || '';
+        const lastName = t.recordedBy.lastName || '';
+        recordedByName = `${firstName} ${lastName}`.trim();
         isManual = true;
       } else if (t.user && t.user._id) {
-        recordedByName = `${t.user.firstName || ''} ${t.user.lastName || ''}`.trim();
+        const firstName = t.user.firstName || '';
+        const lastName = t.user.lastName || '';
+        recordedByName = `${firstName} ${lastName}`.trim();
         isManual = false;
       }
       
@@ -369,6 +378,26 @@ router.get('/recent', protect, async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching recent transactions:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// ===== GET UNIQUE PRODUCT NAMES (For filters) =====
+router.get('/products/list', protect, admin, async (req, res) => {
+  try {
+    const products = await Transaction.distinct('productName');
+    // Filter out null/undefined values
+    const validProducts = products.filter(p => p && p.trim());
+    
+    res.json({
+      success: true,
+      data: validProducts.sort()
+    });
+  } catch (error) {
+    console.error('Error fetching product names:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message 

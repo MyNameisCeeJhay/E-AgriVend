@@ -1,10 +1,12 @@
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import './Machine.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
 
 const AdminMachine = () => {
   const { user } = useAuth();
@@ -67,56 +69,59 @@ const AdminMachine = () => {
   const [refillingStorage, setRefillingStorage] = useState(null);
   const [refillAmount, setRefillAmount] = useState(0);
 
-  // Fetch machine data from database using machine routes
+  // Fetch machine data from ESP32
   const fetchMachineData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/machine/data`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      
+      // Fetch from ESP32 public endpoint (no auth needed)
+      const response = await axios.get(`${API_URL}/esp32/public/latest`);
       
       if (response.data.success) {
         const data = response.data.data;
         
+        // Update Storage 1 (Sinandomeng)
+        const storage1CurrentWeight = data.container1Level || 0;
+        const storage1Percentage = (storage1CurrentWeight / 20) * 100;
         setStorage1(prev => ({
           ...prev,
-          name: data.storage1.name,
-          productId: data.storage1.productId,
-          pricePerKg: data.storage1.pricePerKg,
-          currentWeight: data.storage1.currentWeight,
-          percentage: data.storage1.percentage,
-          status: data.storage1.status,
-          isLow: data.storage1.isLow
+          currentWeight: storage1CurrentWeight,
+          percentage: storage1Percentage,
+          status: storage1CurrentWeight <= 5 ? 'Critical' : storage1CurrentWeight <= 10 ? 'Low' : 'Normal',
+          isLow: storage1CurrentWeight <= 10
         }));
         
+        // Update Storage 2 (Dinorado)
+        const storage2CurrentWeight = data.container2Level || 0;
+        const storage2Percentage = (storage2CurrentWeight / 20) * 100;
         setStorage2(prev => ({
           ...prev,
-          name: data.storage2.name,
-          productId: data.storage2.productId,
-          pricePerKg: data.storage2.pricePerKg,
-          currentWeight: data.storage2.currentWeight,
-          percentage: data.storage2.percentage,
-          status: data.storage2.status,
-          isLow: data.storage2.isLow
+          currentWeight: storage2CurrentWeight,
+          percentage: storage2Percentage,
+          status: storage2CurrentWeight <= 5 ? 'Critical' : storage2CurrentWeight <= 10 ? 'Low' : 'Normal',
+          isLow: storage2CurrentWeight <= 10
         }));
         
+        // Update Battery
         setBattery(prev => ({
           ...prev,
-          percentage: data.battery.percentage,
-          voltage: data.battery.voltage,
-          status: data.battery.status,
-          isCharging: data.battery.isCharging,
-          health: data.battery.health
+          percentage: data.batteryPercentage || 100,
+          voltage: data.batteryVoltage || 12.6,
+          status: (data.batteryPercentage || 100) >= 70 ? 'Good' : (data.batteryPercentage || 100) >= 30 ? 'Warning' : 'Critical',
+          isCharging: true,
+          health: (data.batteryPercentage || 100) >= 70 ? 'Good' : 'Fair'
         }));
         
+        // Update Machine Status
         setMachineStatus(prev => ({
           ...prev,
-          isOnline: data.machineStatus.isOnline,
-          doorStatus: data.machineStatus.doorStatus,
-          securityStatus: data.machineStatus.securityStatus,
-          lastUpdate: new Date(data.machineStatus.lastUpdate)
+          isOnline: true,
+          doorStatus: data.doorStatus === 'OPEN' ? 'Open' : 'Closed',
+          securityStatus: data.doorStatus === 'OPEN' ? 'Alert - Door Open' : 'Safe',
+          lastUpdate: new Date()
         }));
+        
+        console.log('✅ Machine data loaded from ESP32');
       }
     } catch (error) {
       console.error('Error fetching machine data:', error);
@@ -126,9 +131,17 @@ const AdminMachine = () => {
     }
   };
 
+  const showNotification = (type, message) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 5000);
+  };
+
   // Socket listeners for real-time updates
   useEffect(() => {
     fetchMachineData();
+    
+    // Refresh data every 30 seconds
+    const interval = setInterval(fetchMachineData, 30000);
     
     if (socket) {
       socket.on('machine_data_updated', (data) => {
@@ -155,6 +168,7 @@ const AdminMachine = () => {
     }
     
     return () => {
+      clearInterval(interval);
       if (socket) {
         socket.off('machine_data_updated');
         socket.off('low_stock_alert');
@@ -162,17 +176,6 @@ const AdminMachine = () => {
       }
     };
   }, [socket]);
-
-  useEffect(() => {
-    if (notification) {
-      const timer = setTimeout(() => setNotification(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [notification]);
-
-  const showNotification = (type, message) => {
-    setNotification({ type, message });
-  };
 
   const handleEditProduct = (storage) => {
     setEditingStorage(storage);

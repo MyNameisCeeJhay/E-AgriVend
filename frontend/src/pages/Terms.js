@@ -1,9 +1,11 @@
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 
-const API_URL = 'http://localhost:5000/api';
+
 
 const Terms = () => {
   const [terms, setTerms] = useState(null);
