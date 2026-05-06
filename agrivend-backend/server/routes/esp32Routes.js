@@ -132,8 +132,8 @@ router.post('/sensors/update', async (req, res) => {
   try {
     let {
       deviceId,
-      loadCellLeft,
-      loadCellRight,
+      loadCellLeft,      // Sinandomeng (from ESP32)
+      loadCellRight,     // Dinorado (from ESP32)
       loadCellTotal,
       loadCellStatus,
       machineState,
@@ -145,99 +145,68 @@ router.post('/sensors/update', async (req, res) => {
       humidity
     } = req.body;
 
-    // ===== SANITIZE INPUT VALUES =====
-    // Fix transactionCount if it's too large or corrupted
+    // SANITIZE input values
     if (transactionCount > 10000 || transactionCount < 0 || isNaN(transactionCount)) {
-      console.log(`⚠️ Invalid transactionCount: ${transactionCount}, resetting to 0`);
       transactionCount = 0;
+      console.log(`⚠️ Invalid transactionCount, reset to 0`);
     }
     
-    // Fix loadCell values if invalid
-    if (isNaN(loadCellLeft)) loadCellLeft = 0;
-    if (isNaN(loadCellRight)) loadCellRight = 0;
-    if (isNaN(loadCellTotal)) loadCellTotal = 0;
+    let safeLoadCellLeft = (loadCellLeft < 0 || isNaN(loadCellLeft)) ? 0 : loadCellLeft;
+    let safeLoadCellRight = (loadCellRight < 0 || isNaN(loadCellRight)) ? 0 : loadCellRight;
+    let safeBattery = (batteryPercentage < 0 || batteryPercentage > 100 || isNaN(batteryPercentage)) ? 100 : batteryPercentage;
+    let safeTemp = (temperature < -10 || temperature > 100 || isNaN(temperature)) ? 25 : temperature;
     
-    // Fix battery percentage
-    if (batteryPercentage > 100 || batteryPercentage < 0 || isNaN(batteryPercentage)) {
-      batteryPercentage = 100;
-    }
+    // Map door status
+    let safeDoorStatus = "Closed";
+    if (doorStatus === "OPEN") safeDoorStatus = "Open";
+    else if (doorStatus === "CLOSED") safeDoorStatus = "Closed";
     
-    // Fix temperature
-    if (temperature > 100 || temperature < -10 || isNaN(temperature)) {
-      temperature = 25;
-    }
-    
-    // Map machineStatus to valid values
-    let validMachineStatus = "ACTIVE";
-    if (machineStatus === "MAINTENANCE") validMachineStatus = "MAINTENANCE";
-    else if (machineStatus === "ERROR") validMachineStatus = "ERROR";
-    else if (machineStatus === "ACTIVE") validMachineStatus = "ACTIVE";
-    else validMachineStatus = "ACTIVE";
+    // Map machine status
+    let safeMachineStatus = "ACTIVE";
+    if (machineStatus === "MAINTENANCE") safeMachineStatus = "MAINTENANCE";
+    else if (machineStatus === "ERROR") safeMachineStatus = "ERROR";
     
     // Get or create machine record
     let machine = await getOrCreateMachine(deviceId || 'AGRIVEND_001');
     
-    // Update storage1 (Sinandomeng - LEFT load cell)
-    machine.storage1.currentWeight = loadCellLeft || 0;
+    // ===== IMPORTANT: Map ESP32 fields to Machine schema =====
+    // loadCellLeft goes to storage1 (Sinandomeng)
+    machine.storage1.currentWeight = safeLoadCellLeft;
     machine.storage1.lastUpdated = new Date();
     
-    // Update storage2 (Dinorado - RIGHT load cell)
-    machine.storage2.currentWeight = loadCellRight || 0;
+    // loadCellRight goes to storage2 (Dinorado)
+    machine.storage2.currentWeight = safeLoadCellRight;
     machine.storage2.lastUpdated = new Date();
     
     // Update battery
-    if (batteryPercentage !== undefined) {
-      machine.battery.percentage = batteryPercentage;
-      machine.battery.lastUpdated = new Date();
-    }
+    machine.battery.percentage = safeBattery;
+    machine.battery.lastUpdated = new Date();
     
     // Update machine status
-    if (doorStatus) {
-      machine.machineStatus.doorStatus = doorStatus === 'OPEN' ? 'Open' : 'Closed';
-    }
-    if (temperature !== undefined) {
-      machine.machineStatus.temperature = temperature;
-    }
-    if (transactionCount !== undefined) {
-      machine.machineStatus.transactionCount = transactionCount;
-    }
-    if (loadCellStatus) {
-      machine.machineStatus.loadCellStatus = loadCellStatus;
-    }
-    
+    machine.machineStatus.doorStatus = safeDoorStatus;
+    machine.machineStatus.temperature = safeTemp;
+    machine.machineStatus.transactionCount = transactionCount;
     machine.machineStatus.isOnline = true;
     machine.machineStatus.lastUpdate = new Date();
     
-    // Save - pre-save middleware will auto-calculate percentages and statuses
+    // Set load cell status
+    if (safeLoadCellLeft <= 0.05 && safeLoadCellRight <= 0.05) {
+      machine.machineStatus.loadCellStatus = "LOW";
+    } else {
+      machine.machineStatus.loadCellStatus = "OK";
+    }
+    
+    // Save - pre-save middleware will auto-calculate percentages
     await machine.save();
     
     console.log(`✅ Machine data saved!`);
-    console.log(`   📍 Storage1 (Sinandomeng): ${machine.storage1.currentWeight}kg (${machine.storage1.status})`);
-    console.log(`   📍 Storage2 (Dinorado): ${machine.storage2.currentWeight}kg (${machine.storage2.status})`);
+    console.log(`   📍 Storage1 (Sinandomeng): ${machine.storage1.currentWeight}kg`);
+    console.log(`   📍 Storage2 (Dinorado): ${machine.storage2.currentWeight}kg`);
+    console.log(`   🔋 Battery: ${machine.battery.percentage}%`);
     console.log(`   📊 Transaction Count: ${machine.machineStatus.transactionCount}`);
 
-    // Emit real-time update
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('machine_update', {
-        storage1: {
-          weight: machine.storage1.currentWeight,
-          percentage: machine.storage1.percentage,
-          status: machine.storage1.status
-        },
-        storage2: {
-          weight: machine.storage2.currentWeight,
-          percentage: machine.storage2.percentage,
-          status: machine.storage2.status
-        },
-        totalStock: machine.totalStock,
-        battery: machine.battery.percentage,
-        doorStatus: machine.machineStatus.doorStatus,
-        loadCellStatus: machine.machineStatus.loadCellStatus
-      });
-    }
-
-    res.json({ success: true, message: 'Sensor data saved to Machine table' });
+    res.json({ success: true, message: 'Sensor data saved' });
+    
   } catch (error) {
     console.error('❌ Error saving sensor data:', error);
     res.status(500).json({ success: false, error: error.message });
