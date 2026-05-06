@@ -14,7 +14,10 @@ const AdminTransactions = () => {
   const [summary, setSummary] = useState({
     totalTransactions: 0,
     totalQuantity: 0,
-    totalRevenue: 0
+    manualTransactions: 0,
+    machineTransactions: 0,
+    manualRevenue: 0,
+    machineRevenue: 0
   });
   const [pagination, setPagination] = useState({
     page: 1,
@@ -26,14 +29,14 @@ const AdminTransactions = () => {
     startDate: '',
     endDate: '',
     productName: 'all',
-    search: ''
+    search: '',
+    transactionType: 'all'
   });
   const [showFilters, setShowFilters] = useState(false);
   const [notification, setNotification] = useState(null);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
   
-  // Complete list of all products (default + dynamically fetched)
   const [allProductNames, setAllProductNames] = useState([
     'Sinandomeng Rice',
     'Dinorado Rice', 
@@ -47,13 +50,13 @@ const AdminTransactions = () => {
   useEffect(() => {
     fetchTransactions();
     fetchSummary();
-    fetchUniqueProductNames(); // Fetch additional products from database
+    fetchUniqueProductNames();
 
     if (socket) {
       socket.on('new_transaction', () => {
         fetchTransactions();
         fetchSummary();
-        fetchUniqueProductNames(); // Refresh product names when new transaction added
+        fetchUniqueProductNames();
         showNotification('success', 'New transaction added');
       });
 
@@ -63,7 +66,6 @@ const AdminTransactions = () => {
     }
   }, [socket, pagination.page]);
 
-  // Fetch transactions when filters change
   useEffect(() => {
     if (pagination.page === 1) {
       fetchTransactions();
@@ -80,7 +82,6 @@ const AdminTransactions = () => {
       });
       
       if (response.data.success) {
-        // Merge default products with database products, remove duplicates
         const mergedProducts = [...allProductNames];
         response.data.data.forEach(product => {
           if (!mergedProducts.includes(product)) {
@@ -88,11 +89,9 @@ const AdminTransactions = () => {
           }
         });
         setAllProductNames(mergedProducts);
-        console.log('All available products:', mergedProducts);
       }
     } catch (error) {
       console.error('Error fetching product names:', error);
-      // Keep default products if fetch fails
     }
   };
 
@@ -101,22 +100,39 @@ const AdminTransactions = () => {
       setLoading(true);
       const token = localStorage.getItem('token');
       
+      // Build params for API request
+      const params = {
+        page: pagination.page,
+        limit: pagination.limit,
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        productName: filters.productName === 'all' ? null : filters.productName,
+        search: filters.search
+      };
+      
+      // Add transaction type filter for API
+      if (filters.transactionType === 'manual') {
+        params.hasRecordedBy = true;
+      } else if (filters.transactionType === 'machine') {
+        params.isMachineTransaction = true;
+      }
+      
       const response = await axios.get(`${API_URL}/transactions/all`, {
-        params: {
-          page: pagination.page,
-          limit: pagination.limit,
-          startDate: filters.startDate,
-          endDate: filters.endDate,
-          productName: filters.productName === 'all' ? null : filters.productName,
-          search: filters.search
-        },
+        params,
         headers: { Authorization: `Bearer ${token}` }
       });
       
       if (response.data.success) {
         let data = response.data.data || [];
         
-        // Apply client-side sorting
+        // Additional client-side filtering for transaction type if needed
+        if (filters.transactionType === 'manual') {
+          data = data.filter(t => t.recordedBy !== null && t.recordedBy !== undefined);
+        } else if (filters.transactionType === 'machine') {
+          data = data.filter(t => t.source === 'machine' || (!t.recordedBy && t.user === null));
+        }
+        
+        // Sort data
         data.sort((a, b) => {
           let aVal = a[sortBy];
           let bVal = b[sortBy];
@@ -129,8 +145,8 @@ const AdminTransactions = () => {
             bVal = b.productName || b.riceType;
           }
           if (sortBy === 'recordedBy') {
-            aVal = a.recordedBy?.firstName || a.user?.firstName || '';
-            bVal = b.recordedBy?.firstName || b.user?.firstName || '';
+            aVal = a.recordedBy?.firstName || a.user?.firstName || (a.source === 'machine' ? 'Machine' : 'System');
+            bVal = b.recordedBy?.firstName || b.user?.firstName || (b.source === 'machine' ? 'Machine' : 'System');
           }
           if (sortOrder === 'desc') {
             return aVal > bVal ? -1 : 1;
@@ -140,17 +156,23 @@ const AdminTransactions = () => {
         });
         
         setTransactions(data);
-        setPagination(response.data.pagination || {
-          page: pagination.page,
+        setPagination({
+          ...pagination,
           total: data.length,
           pages: Math.ceil(data.length / pagination.limit)
         });
         
         // Update summary based on filtered data
+        const manualTransactions = data.filter(t => t.recordedBy !== null && t.recordedBy !== undefined);
+        const machineTransactions = data.filter(t => t.source === 'machine' || (!t.recordedBy && t.user === null));
+        
         const filteredSummary = {
           totalTransactions: data.length,
           totalQuantity: data.reduce((s, t) => s + (t.quantityKg || 0), 0),
-          totalRevenue: data.reduce((s, t) => s + (t.amountPaid || 0), 0)
+          manualTransactions: manualTransactions.length,
+          machineTransactions: machineTransactions.length,
+          manualRevenue: manualTransactions.reduce((s, t) => s + (t.amountPaid || 0), 0),
+          machineRevenue: machineTransactions.reduce((s, t) => s + (t.amountPaid || 0), 0)
         };
         setSummary(filteredSummary);
       }
@@ -193,17 +215,16 @@ const AdminTransactions = () => {
       setSortBy(column);
       setSortOrder('desc');
     }
-    // Re-sort current transactions
     fetchTransactions();
   };
 
-  // Clear all filters
   const clearFilters = () => {
     setFilters({ 
       startDate: '', 
       endDate: '', 
       productName: 'all', 
-      search: '' 
+      search: '',
+      transactionType: 'all'
     });
     setPagination({ ...pagination, page: 1 });
   };
@@ -229,20 +250,15 @@ const AdminTransactions = () => {
     });
   };
 
-  const getRecordedByName = (transaction) => {
+  const getTransactionType = (transaction) => {
+    if (transaction.source === 'machine') {
+      return { type: 'machine', label: 'Machine', badgeClass: 'badge-machine' };
+    }
     if (transaction.recordedBy) {
-      return {
-        name: `${transaction.recordedBy.firstName} ${transaction.recordedBy.lastName}`,
-        type: 'manual'
-      };
+      const name = `${transaction.recordedBy.firstName || ''} ${transaction.recordedBy.lastName || ''}`.trim();
+      return { type: 'manual', label: name || 'Staff', badgeClass: 'badge-manual' };
     }
-    if (transaction.user) {
-      return {
-        name: `${transaction.user.firstName} ${transaction.user.lastName}`,
-        type: 'machine'
-      };
-    }
-    return { name: 'System', type: 'system' };
+    return { type: 'system', label: 'System', badgeClass: 'badge-system' };
   };
 
   const SortIcon = ({ column }) => {
@@ -269,7 +285,7 @@ const AdminTransactions = () => {
       <div className="transactions-header">
         <div className="header-title-section">
           <h1>Transaction History</h1>
-          <p>View all vending machine transactions</p>
+          <p>View all vending machine transactions - Manual & Machine Records</p>
         </div>
         <div className="header-actions">
           <button 
@@ -281,26 +297,31 @@ const AdminTransactions = () => {
         </div>
       </div>
 
+      {/* Summary Cards */}
       <div className="summary-cards">
-        <div className="summary-card">
+        <div className="summary-card total-card">
           <div className="card-content">
             <div className="card-label">Total Transactions</div>
             <div className="card-value">{summary.totalTransactions}</div>
-            <div className="card-trend">Completed sales</div>
+            <div className="card-trend">
+              {summary.manualTransactions} Manual | {summary.machineTransactions} Machine
+            </div>
           </div>
         </div>
-        <div className="summary-card">
+        <div className="summary-card manual-card">
           <div className="card-content">
-            <div className="card-label">Total Quantity</div>
-            <div className="card-value">{summary.totalQuantity} kg</div>
-            <div className="card-trend">Rice dispensed</div>
+            <div className="card-label">Manual Transactions</div>
+            <div className="card-value">{summary.manualTransactions}</div>
+            <div className="card-trend">{formatCurrency(summary.manualRevenue)}</div>
+            <div className="card-sub">Recorded by Staff</div>
           </div>
         </div>
-        <div className="summary-card">
+        <div className="summary-card machine-card">
           <div className="card-content">
-            <div className="card-label">Total Revenue</div>
-            <div className="card-value">{formatCurrency(summary.totalRevenue)}</div>
-            <div className="card-trend">Total sales</div>
+            <div className="card-label">Machine Transactions</div>
+            <div className="card-value">{summary.machineTransactions}</div>
+            <div className="card-trend">{formatCurrency(summary.machineRevenue)}</div>
+            <div className="card-sub">Auto-recorded by Vending Machine</div>
           </div>
         </div>
       </div>
@@ -325,6 +346,18 @@ const AdminTransactions = () => {
                 onChange={(e) => handleFilterChange('endDate', e.target.value)}
                 className="filter-input"
               />
+            </div>
+            <div className="filter-group">
+              <label>Transaction Type</label>
+              <select
+                value={filters.transactionType}
+                onChange={(e) => handleFilterChange('transactionType', e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Transactions</option>
+                <option value="manual">Manual (Staff Recorded)</option>
+                <option value="machine">Machine (Vending Machine)</option>
+              </select>
             </div>
             <div className="filter-group">
               <label>Product Name</label>
@@ -399,13 +432,16 @@ const AdminTransactions = () => {
                     <th onClick={() => handleSort('recordedBy')}>
                       Recorded By <SortIcon column="recordedBy" />
                     </th>
+                    <th>Type</th>
                   </tr>
                 </thead>
                 <tbody>
                   {transactions.map((transaction) => {
-                    const recordedBy = getRecordedByName(transaction);
+                    const txType = getTransactionType(transaction);
+                    // For manual transactions, show just the staff name (no extra text)
+                    const displayName = txType.type === 'manual' ? txType.label : (txType.type === 'machine' ? 'Machine' : 'System');
                     return (
-                      <tr key={transaction._id} className="transaction-row">
+                      <tr key={transaction._id} className={`transaction-row ${txType.type}`}>
                         <td className="tx-id">{transaction.transactionId}</td>
                         <td className="date-cell">{formatDate(transaction.createdAt)}</td>
                         <td className="product-cell">{getDisplayProductName(transaction)}</td>
@@ -413,14 +449,11 @@ const AdminTransactions = () => {
                         <td className="amount-cell">{formatCurrency(transaction.amountPaid)}</td>
                         <td className="payment-cell">{transaction.paymentMethod || 'CASH'}</td>
                         <td className="recorded-by-cell">
-                          <div className="recorded-by-info">
-                            <span className="staff-name">{recordedBy.name}</span>
-                            {recordedBy.type === 'manual' && (
-                              <span className="badge-manual">Manual Entry</span>
-                            )}
-                            {recordedBy.type === 'machine' && (
-                              <span className="badge-machine">Machine Transaction</span>
-                            )}
+                          <span className="staff-name">{displayName}</span>
+                        </td>
+                        <td className="type-cell">
+                          <div className={`type-badge ${txType.type}`}>
+                            {txType.type === 'manual' ? 'Manual' : 'Machine'}
                           </div>
                         </td>
                       </tr>

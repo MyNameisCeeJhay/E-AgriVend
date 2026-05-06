@@ -8,6 +8,7 @@ import './Reports.css';
 const AdminReports = () => {
   const { user } = useAuth();
   const [reportType, setReportType] = useState('daily');
+  const [transactionSource, setTransactionSource] = useState('all');
   const [dateRange, setDateRange] = useState({
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
@@ -18,8 +19,7 @@ const AdminReports = () => {
   const [salesSummary, setSalesSummary] = useState({
     daily: 0,
     weekly: 0,
-    monthly: 0,
-    total: 0
+    monthly: 0
   });
   const [chartData, setChartData] = useState([]);
   const [activeChartTab, setActiveChartTab] = useState('daily');
@@ -37,6 +37,16 @@ const AdminReports = () => {
       return () => clearTimeout(timer);
     }
   }, [notification]);
+
+  const getTransactionSourceText = (transaction) => {
+    if (transaction.recordedBy && transaction.recordedBy !== null) {
+      return 'Manual';
+    }
+    if (transaction.source === 'machine') {
+      return 'Machine';
+    }
+    return 'System';
+  };
 
   const fetchSalesSummary = async () => {
     try {
@@ -227,13 +237,31 @@ const AdminReports = () => {
           break;
       }
       
-      const response = await axios.get(url, { params });
-      setReportData(response.data.data);
-      
-      if (response.data.data && response.data.data.transactions) {
-        calculateProductRanking(response.data.data.transactions);
+      if (transactionSource !== 'all') {
+        params.source = transactionSource;
       }
       
+      const response = await axios.get(url, { params });
+      
+      let data = response.data.data;
+      if (data && data.transactions) {
+        if (transactionSource === 'manual') {
+          data.transactions = data.transactions.filter(t => t.recordedBy !== null && t.recordedBy !== undefined);
+          data.summary = calculateFilteredSummary(data.transactions);
+        } else if (transactionSource === 'machine') {
+          data.transactions = data.transactions.filter(t => t.source === 'machine' || (!t.recordedBy && t.user === null));
+          data.summary = calculateFilteredSummary(data.transactions);
+        }
+        
+        if (data.transactions.length > 0) {
+          calculateProductRanking(data.transactions);
+        } else {
+          setProductRanking([]);
+          setBestSellingProduct(null);
+        }
+      }
+      
+      setReportData(data);
       showNotification('success', 'Report generated successfully');
     } catch (error) {
       console.error('Error generating report:', error);
@@ -241,6 +269,15 @@ const AdminReports = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const calculateFilteredSummary = (transactions) => {
+    return {
+      totalTransactions: transactions.length,
+      totalQuantity: transactions.reduce((s, t) => s + (t.quantityKg || 0), 0),
+      totalSales: transactions.reduce((s, t) => s + (t.amountPaid || 0), 0),
+      averageOrderValue: transactions.length > 0 ? transactions.reduce((s, t) => s + (t.amountPaid || 0), 0) / transactions.length : 0
+    };
   };
 
   const handleChartTabChange = (tab) => {
@@ -251,6 +288,7 @@ const AdminReports = () => {
   const handlePrintReport = () => {
     const currentDate = new Date().toLocaleString();
     const reportTitle = getReportTitle();
+    const sourceText = getSourceText();
     
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
@@ -261,13 +299,11 @@ const AdminReports = () => {
           <meta charset="UTF-8">
           <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-            
             * {
               margin: 0;
               padding: 0;
               box-sizing: border-box;
             }
-            
             body {
               font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
               background: white;
@@ -275,299 +311,59 @@ const AdminReports = () => {
               color: #1a1a2e;
               line-height: 1.5;
             }
-            
-            .print-container {
-              max-width: 1200px;
-              margin: 0 auto;
-            }
-            
-            .print-header {
-              text-align: center;
-              margin-bottom: 30px;
-              padding-bottom: 20px;
-              border-bottom: 3px solid #2d6a4f;
-            }
-            
-            .company-name {
-              font-size: 28px;
-              font-weight: 700;
-              color: #2d6a4f;
-              margin-bottom: 8px;
-            }
-            
-            .company-tagline {
-              font-size: 14px;
-              color: #64748b;
-              margin-bottom: 15px;
-            }
-            
-            .report-title {
-              font-size: 22px;
-              font-weight: 600;
-              color: #1e293b;
-              margin-top: 15px;
-              margin-bottom: 10px;
-            }
-            
-            .report-meta {
-              display: flex;
-              justify-content: space-between;
-              margin-top: 10px;
-              padding-top: 10px;
-              border-top: 1px solid #e2e8f0;
-              font-size: 12px;
-              color: #64748b;
-            }
-            
-            .best-seller-section {
-              background: #2d6a4f;
-              border-radius: 8px;
-              padding: 25px;
-              margin-bottom: 30px;
-              color: white;
-              text-align: center;
-            }
-            
-            .best-seller-title {
-              font-size: 13px;
-              text-transform: uppercase;
-              letter-spacing: 2px;
-              opacity: 0.8;
-              margin-bottom: 10px;
-            }
-            
-            .best-seller-name {
-              font-size: 26px;
-              font-weight: 700;
-              margin-bottom: 10px;
-            }
-            
-            .best-seller-stats {
-              display: flex;
-              justify-content: center;
-              gap: 30px;
-              font-size: 14px;
-            }
-            
-            .best-seller-stats span {
-              font-weight: 600;
-              font-size: 18px;
-            }
-            
-            .summary-cards {
-              display: grid;
-              grid-template-columns: repeat(4, 1fr);
-              gap: 20px;
-              margin-bottom: 30px;
-            }
-            
-            .summary-card {
-              background: #f8fafc;
-              border-radius: 8px;
-              padding: 20px;
-              text-align: center;
-              border: 1px solid #e2e8f0;
-            }
-            
-            .summary-label {
-              font-size: 12px;
-              text-transform: uppercase;
-              letter-spacing: 1px;
-              color: #64748b;
-              margin-bottom: 8px;
-            }
-            
-            .summary-value {
-              font-size: 28px;
-              font-weight: 700;
-              color: #2d6a4f;
-            }
-            
-            .summary-sub {
-              font-size: 11px;
-              color: #94a3b8;
-              margin-top: 5px;
-            }
-            
-            .product-ranking-section {
-              margin-bottom: 30px;
-            }
-            
-            .product-ranking-title {
-              font-size: 18px;
-              font-weight: 600;
-              margin-bottom: 15px;
-              padding-bottom: 10px;
-              border-bottom: 2px solid #2d6a4f;
-            }
-            
-            .product-ranking-table {
-              width: 100%;
-              border-collapse: collapse;
-              font-size: 13px;
-            }
-            
-            .product-ranking-table th {
-              background: #f1f5f9;
-              padding: 12px;
-              text-align: left;
-              font-weight: 600;
-              color: #334155;
-              border-bottom: 1px solid #e2e8f0;
-            }
-            
-            .product-ranking-table td {
-              padding: 10px 12px;
-              border-bottom: 1px solid #e2e8f0;
-              color: #475569;
-            }
-            
-            .product-ranking-table tr:first-child {
-              background: #ecfdf5;
-            }
-            
-            .rank-number {
-              font-weight: 700;
-              width: 60px;
-            }
-            
-            .stats-grid-print {
-              display: grid;
-              grid-template-columns: repeat(3, 1fr);
-              gap: 20px;
-              margin-bottom: 30px;
-            }
-            
-            .stat-card-print {
-              background: #f8fafc;
-              border-radius: 8px;
-              padding: 20px;
-              text-align: center;
-            }
-            
-            .stat-label-print {
-              font-size: 12px;
-              text-transform: uppercase;
-              color: #64748b;
-              margin-bottom: 8px;
-            }
-            
-            .stat-number-print {
-              font-size: 32px;
-              font-weight: 700;
-              color: #2d6a4f;
-            }
-            
-            .chart-section-print {
-              margin-bottom: 30px;
-              padding: 20px;
-              background: #f8fafc;
-              border-radius: 8px;
-            }
-            
-            .chart-title {
-              font-size: 16px;
-              font-weight: 600;
-              margin-bottom: 20px;
-              color: #1e293b;
-            }
-            
-            .chart-bars {
-              display: flex;
-              align-items: flex-end;
-              justify-content: space-around;
-              gap: 15px;
-              height: 250px;
-              padding: 20px 0;
-            }
-            
-            .chart-bar-item {
-              flex: 1;
-              text-align: center;
-            }
-            
-            .chart-bar {
-              background: #2d6a4f;
-              border-radius: 4px 4px 0 0;
-              margin-bottom: 8px;
-              min-height: 4px;
-            }
-            
-            .chart-label {
-              font-size: 11px;
-              color: #64748b;
-            }
-            
-            .chart-value {
+            .print-container { max-width: 1200px; margin: 0 auto; }
+            .print-header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 3px solid #2d6a4f; }
+            .company-name { font-size: 28px; font-weight: 700; color: #2d6a4f; margin-bottom: 4px; }
+            .company-tagline { font-size: 14px; color: #64748b; margin-bottom: 15px; }
+            .report-title { font-size: 22px; font-weight: 600; color: #1e293b; margin-top: 15px; margin-bottom: 10px; }
+            .report-meta { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; }
+            .best-seller-section { background: #2d6a4f; border-radius: 8px; padding: 25px; margin-bottom: 30px; color: white; text-align: center; }
+            .best-seller-title { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.8; margin-bottom: 10px; }
+            .best-seller-name { font-size: 26px; font-weight: 700; margin-bottom: 10px; }
+            .best-seller-stats { display: flex; justify-content: center; gap: 30px; font-size: 14px; }
+            .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
+            .summary-card { background: #f8fafc; border-radius: 8px; padding: 20px; text-align: center; border: 1px solid #e2e8f0; }
+            .summary-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 8px; }
+            .summary-value { font-size: 28px; font-weight: 700; color: #2d6a4f; }
+            .summary-sub { font-size: 11px; color: #94a3b8; margin-top: 5px; }
+            .product-ranking-section { margin-bottom: 30px; }
+            .product-ranking-title { font-size: 18px; font-weight: 600; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #2d6a4f; }
+            .product-ranking-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            .product-ranking-table th { background: #f1f5f9; padding: 12px; text-align: left; font-weight: 600; color: #334155; border-bottom: 1px solid #e2e8f0; }
+            .product-ranking-table td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #475569; }
+            .stats-grid-print { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
+            .stat-card-print { background: #f8fafc; border-radius: 8px; padding: 20px; text-align: center; }
+            .stat-label-print { font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 8px; }
+            .stat-number-print { font-size: 32px; font-weight: 700; color: #2d6a4f; }
+            .chart-section-print { margin-bottom: 30px; padding: 20px; background: #f8fafc; border-radius: 8px; }
+            .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 20px; color: #1e293b; }
+            .chart-bars { display: flex; align-items: flex-end; justify-content: space-around; gap: 15px; height: 250px; padding: 20px 0; }
+            .chart-bar-item { flex: 1; text-align: center; }
+            .chart-bar { background: #2d6a4f; border-radius: 4px 4px 0 0; margin-bottom: 8px; min-height: 4px; }
+            .chart-label { font-size: 11px; color: #64748b; }
+            .chart-value { font-size: 10px; font-weight: 600; color: #2d6a4f; margin-bottom: 5px; }
+            .transaction-table-title { font-size: 18px; font-weight: 600; margin: 20px 0 15px; padding-bottom: 10px; border-bottom: 2px solid #2d6a4f; }
+            .transaction-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            .transaction-table th { background: #f1f5f9; padding: 12px; text-align: left; font-weight: 600; color: #334155; border-bottom: 2px solid #2d6a4f; }
+            .transaction-table td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #475569; }
+            .source-badge {
+              display: inline-block;
+              padding: 2px 8px;
+              border-radius: 12px;
               font-size: 10px;
               font-weight: 600;
-              color: #2d6a4f;
-              margin-bottom: 5px;
+              text-transform: uppercase;
             }
-            
-            .transaction-table-title {
-              font-size: 18px;
-              font-weight: 600;
-              margin: 20px 0 15px;
-              padding-bottom: 10px;
-              border-bottom: 2px solid #2d6a4f;
-            }
-            
-            .transaction-table {
-              width: 100%;
-              border-collapse: collapse;
-              font-size: 12px;
-            }
-            
-            .transaction-table th {
-              background: #f1f5f9;
-              padding: 12px;
-              text-align: left;
-              font-weight: 600;
-              color: #334155;
-              border-bottom: 2px solid #2d6a4f;
-            }
-            
-            .transaction-table td {
-              padding: 10px 12px;
-              border-bottom: 1px solid #e2e8f0;
-              color: #475569;
-            }
-            
+            .source-badge.manual { background: #eff6ff; color: #1e40af; }
+            .source-badge.machine { background: #ecfdf5; color: #065f46; }
+            .source-badge.system { background: #f1f5f9; color: #64748b; }
             .text-right { text-align: right; }
             .font-bold { font-weight: 700; }
-            
-            .print-footer {
-              margin-top: 40px;
-              padding-top: 20px;
-              border-top: 1px solid #e2e8f0;
-              text-align: center;
-              font-size: 10px;
-              color: #94a3b8;
-            }
-            
-            .signature-line {
-              margin-top: 40px;
-              display: flex;
-              justify-content: space-between;
-            }
-            
-            .signature {
-              text-align: center;
-              width: 250px;
-            }
-            
-            .signature-line-space {
-              border-top: 1px solid #1e293b;
-              margin-top: 30px;
-              padding-top: 5px;
-            }
-            
-            @media print {
-              body {
-                padding: 20px;
-              }
-            }
+            .print-footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 10px; color: #94a3b8; }
+            .signature-line { margin-top: 40px; display: flex; justify-content: space-between; }
+            .signature { text-align: center; width: 250px; }
+            .signature-line-space { border-top: 1px solid #1e293b; margin-top: 30px; padding-top: 5px; }
+            @media print { body { padding: 20px; } }
           </style>
         </head>
         <body>
@@ -576,6 +372,7 @@ const AdminReports = () => {
               <div class="company-name">AGRIVEND</div>
               <div class="company-tagline">Enterprise Grain Vending Solution</div>
               <div class="report-title">${reportTitle}</div>
+              <div class="report-source-info">Transaction Source: ${sourceText}</div>
               <div class="report-meta">
                 <span>Generated By: ${user?.firstName || 'Administrator'} ${user?.lastName || ''}</span>
                 <span>Date & Time: ${currentDate}</span>
@@ -596,63 +393,28 @@ const AdminReports = () => {
             ` : ''}
             
             <div class="summary-cards">
-              <div class="summary-card">
-                <div class="summary-label">Total Transactions</div>
-                <div class="summary-value">${reportData?.summary?.totalTransactions || 0}</div>
-                <div class="summary-sub">Completed Sales</div>
-              </div>
-              <div class="summary-card">
-                <div class="summary-label">Total Quantity</div>
-                <div class="summary-value">${reportData?.summary?.totalQuantity || 0} kg</div>
-                <div class="summary-sub">Grain Sold</div>
-              </div>
-              <div class="summary-card">
-                <div class="summary-label">Average Order Value</div>
-                <div class="summary-value">${formatCurrency(reportData?.summary?.totalSales / (reportData?.summary?.totalTransactions || 1))}</div>
-                <div class="summary-sub">Per Transaction</div>
-              </div>
-              <div class="summary-card">
-                <div class="summary-label">Total Revenue</div>
-                <div class="summary-value">${formatCurrency(reportData?.summary?.totalSales || 0)}</div>
-                <div class="summary-sub">Gross Sales</div>
-              </div>
+              <div class="summary-card"><div class="summary-label">Total Transactions</div><div class="summary-value">${reportData?.summary?.totalTransactions || 0}</div><div class="summary-sub">Completed Sales</div></div>
+              <div class="summary-card"><div class="summary-label">Total Quantity</div><div class="summary-value">${reportData?.summary?.totalQuantity || 0} kg</div><div class="summary-sub">Grain Sold</div></div>
+              <div class="summary-card"><div class="summary-label">Average Order Value</div><div class="summary-value">${formatCurrency(reportData?.summary?.totalSales / (reportData?.summary?.totalTransactions || 1))}</div><div class="summary-sub">Per Transaction</div></div>
+              <div class="summary-card"><div class="summary-label">Total Revenue</div><div class="summary-value">${formatCurrency(reportData?.summary?.totalSales || 0)}</div><div class="summary-sub">Gross Sales</div></div>
             </div>
             
             ${productRanking.length > 0 ? `
             <div class="product-ranking-section">
               <div class="product-ranking-title">Product Performance Ranking</div>
               <table class="product-ranking-table">
-                <thead>
-                  <tr><th>Rank</th><th>Product Name</th><th>Quantity Sold (kg)</th><th>Revenue</th><th>Transactions</th></tr>
-                </thead>
+                <thead><tr><th>Rank</th><th>Product Name</th><th>Quantity Sold (kg)</th><th>Revenue</th><th>Transactions</th></tr></thead>
                 <tbody>
-                  ${productRanking.map((product, idx) => `
-                    <tr>
-                      <td class="rank-number">${idx + 1}</td>
-                      <td><strong>${product.name}</strong></td>
-                      <td>${product.quantity.toFixed(1)} kg</td>
-                      <td>${formatCurrency(product.revenue)}</td>
-                      <td>${product.count}</td>
-                    </tr>
-                  `).join('')}
+                  ${productRanking.map((product, idx) => `<tr><td class="rank-number">${idx + 1}</td><td><strong>${product.name}</strong></td><td>${product.quantity.toFixed(1)} kg</td><td>${formatCurrency(product.revenue)}</td><td>${product.count}</td></tr>`).join('')}
                 </tbody>
               </table>
             </div>
             ` : ''}
             
             <div class="stats-grid-print">
-              <div class="stat-card-print">
-                <div class="stat-label-print">Today's Sales</div>
-                <div class="stat-number-print">${formatCurrency(salesSummary.daily)}</div>
-              </div>
-              <div class="stat-card-print">
-                <div class="stat-label-print">This Week</div>
-                <div class="stat-number-print">${formatCurrency(salesSummary.weekly)}</div>
-              </div>
-              <div class="stat-card-print">
-                <div class="stat-label-print">This Month</div>
-                <div class="stat-number-print">${formatCurrency(salesSummary.monthly)}</div>
-              </div>
+              <div class="stat-card-print"><div class="stat-label-print">Today's Sales</div><div class="stat-number-print">${formatCurrency(salesSummary.daily)}</div></div>
+              <div class="stat-card-print"><div class="stat-label-print">This Week</div><div class="stat-number-print">${formatCurrency(salesSummary.weekly)}</div></div>
+              <div class="stat-card-print"><div class="stat-label-print">This Month</div><div class="stat-number-print">${formatCurrency(salesSummary.monthly)}</div></div>
             </div>
             
             <div class="chart-section-print">
@@ -661,13 +423,7 @@ const AdminReports = () => {
                 ${chartData.map(item => {
                   const maxSales = Math.max(...chartData.map(d => d.sales || 0), 1);
                   const barHeight = ((item.sales || 0) / maxSales) * 200;
-                  return `
-                    <div class="chart-bar-item">
-                      <div class="chart-value">${formatCurrency(item.sales)}</div>
-                      <div class="chart-bar" style="height: ${Math.max(barHeight, 4)}px; width: 100%;"></div>
-                      <div class="chart-label">${item.label}</div>
-                    </div>
-                  `;
+                  return `<div class="chart-bar-item"><div class="chart-value">${formatCurrency(item.sales)}</div><div class="chart-bar" style="height: ${Math.max(barHeight, 4)}px; width: 100%;"></div><div class="chart-label">${item.label}</div></div>`;
                 }).join('')}
               </div>
             </div>
@@ -678,51 +434,42 @@ const AdminReports = () => {
                 <tr>
                   <th>Transaction ID</th>
                   <th>Date & Time</th>
-                  <th>Product Type</th>
+                  <th>Product Name</th>
                   <th>Quantity</th>
-                  <th class="text-right">Amount</th>
+                  <th>Amount</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
-                ${reportData?.transactions?.map(t => `
-                  <tr>
-                    <td>${t.transactionId || t._id?.slice(-8) || 'N/A'}</td>
-                    <td>${new Date(t.createdAt).toLocaleString()}</td>
-                    <td>${t.riceType}</td>
-                    <td>${t.quantityKg} kg</td>
-                    <td class="text-right font-bold">${formatCurrency(t.amountPaid || t.totalAmount)}</td>
-                  </tr>
-                `).join('') || '<tr><td colspan="5" class="text-center">No transactions found</td></tr>'}
+                ${reportData?.transactions?.map(t => {
+                  const source = getTransactionSourceText(t);
+                  const sourceClass = source === 'Manual' ? 'manual' : (source === 'Machine' ? 'machine' : 'system');
+                  return `
+                    <tr>
+                      <td>${t.transactionId || t._id?.slice(-8) || 'N/A'}</td>
+                      <td>${new Date(t.createdAt).toLocaleString()}</td>
+                      <td>${t.riceType || t.productName}</td>
+                      <td>${t.quantityKg} kg</td>
+                      <td class="text-right font-bold">${formatCurrency(t.amountPaid || t.totalAmount)}</td>
+                      <td><span class="source-badge ${sourceClass}">${source}</span></td>
+                    </tr>
+                  `;
+                }).join('') || '<tr><td colspan="6" class="text-center">No transactions found</td></tr>'}
               </tbody>
               <tfoot>
                 <tr style="background: #f1f5f9; font-weight: 700;">
                   <td colspan="4" class="text-right">Total:</td>
                   <td class="text-right">${formatCurrency(reportData?.summary?.totalSales || 0)}</td>
+                  <td></td>
                 </tr>
               </tfoot>
             </table>
             
-            <div class="print-footer">
-              <p>This is a computer-generated document. No signature is required.</p>
-              <p>AgriVend - Enterprise Grain Vending Management | support@agrivend.com</p>
-            </div>
-            
+            <div class="print-footer"><p>This is a computer-generated document. No signature is required.</p><p>AgriVend - Enterprise Grain Vending Management | support@agrivend.com</p></div>
             <div class="signature-line">
-              <div class="signature">
-                <div class="signature-line-space">_________________</div>
-                <div>Generated By</div>
-                <div style="font-size: 11px; color: #64748b;">${user?.firstName} ${user?.lastName}</div>
-              </div>
-              <div class="signature">
-                <div class="signature-line-space">_________________</div>
-                <div>Authorized Signature</div>
-                <div style="font-size: 11px; color: #64748b;">Management Officer</div>
-              </div>
-              <div class="signature">
-                <div class="signature-line-space">_________________</div>
-                <div>Date Received</div>
-                <div style="font-size: 11px; color: #64748b;">${new Date().toLocaleDateString()}</div>
-              </div>
+              <div class="signature"><div class="signature-line-space">_________________</div><div>Generated By</div><div style="font-size: 11px; color: #64748b;">${user?.firstName} ${user?.lastName}</div></div>
+              <div class="signature"><div class="signature-line-space">_________________</div><div>Authorized Signature</div><div style="font-size: 11px; color: #64748b;">Management Officer</div></div>
+              <div class="signature"><div class="signature-line-space">_________________</div><div>Date Received</div><div style="font-size: 11px; color: #64748b;">${new Date().toLocaleDateString()}</div></div>
             </div>
           </div>
         </body>
@@ -738,20 +485,17 @@ const AdminReports = () => {
       return;
     }
     
-    const headers = ['Transaction ID', 'Date', 'Product', 'Quantity (kg)', 'Amount'];
+    const headers = ['Transaction ID', 'Date', 'Product Name', 'Quantity (kg)', 'Amount', 'Source'];
     const rows = reportData.transactions.map(t => [
       t.transactionId || t._id?.slice(-8) || 'N/A',
       new Date(t.createdAt).toLocaleString(),
-      t.riceType,
+      t.riceType || t.productName,
       t.quantityKg,
-      t.amountPaid || t.totalAmount
+      t.amountPaid || t.totalAmount,
+      getTransactionSourceText(t)
     ]);
     
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
-    
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -761,7 +505,6 @@ const AdminReports = () => {
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
-    
     showNotification('success', 'CSV file downloaded');
   };
 
@@ -788,17 +531,21 @@ const AdminReports = () => {
 
   const getReportTitle = () => {
     switch(reportType) {
-      case 'daily':
-        return `Daily Sales Report - ${formatDate(dateRange.startDate)}`;
-      case 'weekly':
-        return `Weekly Sales Report - Week of ${formatDate(dateRange.startDate)}`;
-      case 'monthly':
+      case 'daily': return `Daily Sales Report - ${formatDate(dateRange.startDate)}`;
+      case 'weekly': return `Weekly Sales Report - Week of ${formatDate(dateRange.startDate)}`;
+      case 'monthly': 
         const date = new Date(dateRange.startDate);
         return `Monthly Sales Report - ${date.toLocaleString('default', { month: 'long' })} ${date.getFullYear()}`;
-      case 'custom':
-        return `Custom Sales Report - ${formatDate(dateRange.startDate)} to ${formatDate(dateRange.endDate)}`;
-      default:
-        return 'Sales Report';
+      case 'custom': return `Custom Sales Report - ${formatDate(dateRange.startDate)} to ${formatDate(dateRange.endDate)}`;
+      default: return 'Sales Report';
+    }
+  };
+
+  const getSourceText = () => {
+    switch(transactionSource) {
+      case 'manual': return 'Manual Sales Only';
+      case 'machine': return 'Machine Sales Only';
+      default: return 'All Sales';
     }
   };
 
@@ -808,7 +555,7 @@ const AdminReports = () => {
     <div className="admin-page-container">
       {notification && (
         <div className={`notification-toast ${notification.type}`}>
-          <span className="notification-message">{notification.message}</span>
+          <span className={notification.type === 'success' ? 'toast-success' : 'toast-error'}>{notification.message}</span>
           <button className="notification-close" onClick={() => setNotification(null)}>×</button>
         </div>
       )}
@@ -923,6 +670,19 @@ const AdminReports = () => {
             <button className={`report-type-btn ${reportType === 'custom' ? 'active' : ''}`} onClick={() => setReportType('custom')}>Custom Range</button>
           </div>
           
+          <div className="source-selector">
+            <label className="source-label">Transaction Source:</label>
+            <select 
+              value={transactionSource} 
+              onChange={(e) => setTransactionSource(e.target.value)}
+              className="source-select"
+            >
+              <option value="all">All Sales</option>
+              <option value="manual">Manual Sales Only</option>
+              <option value="machine">Machine Sales Only</option>
+            </select>
+          </div>
+          
           <div className="date-range">
             {reportType === 'custom' ? (
               <>
@@ -948,23 +708,15 @@ const AdminReports = () => {
               <h1 className="report-title">{getReportTitle()}</h1>
               <p className="report-date">Generated on: {new Date().toLocaleString()}</p>
               <p className="report-generator">Generated by: {user?.firstName} {user?.lastName}</p>
+              <p className="report-source">Transaction Source: {getSourceText()}</p>
             </div>
             
             <div className="report-summary">
               <h3>Summary</h3>
               <div className="summary-grid">
-                <div className="summary-item">
-                  <span className="summary-label">Total Transactions:</span>
-                  <span className="summary-value">{reportData.summary?.totalTransactions || 0}</span>
-                </div>
-                <div className="summary-item">
-                  <span className="summary-label">Total Quantity Sold:</span>
-                  <span className="summary-value">{reportData.summary?.totalQuantity || 0} kg</span>
-                </div>
-                <div className="summary-item">
-                  <span className="summary-label">Total Sales:</span>
-                  <span className="summary-value total">{formatCurrency(reportData.summary?.totalSales || 0)}</span>
-                </div>
+                <div className="summary-item"><span className="summary-label">Total Transactions:</span><span className="summary-value">{reportData.summary?.totalTransactions || 0}</span></div>
+                <div className="summary-item"><span className="summary-label">Total Quantity Sold:</span><span className="summary-value">{reportData.summary?.totalQuantity || 0} kg</span></div>
+                <div className="summary-item"><span className="summary-label">Total Sales:</span><span className="summary-value total">{formatCurrency(reportData.summary?.totalSales || 0)}</span></div>
               </div>
             </div>
             
@@ -973,7 +725,7 @@ const AdminReports = () => {
               <div className="report-table-wrapper">
                 <table className="report-table">
                   <thead>
-                    <tr><th>Transaction ID</th><th>Date & Time</th><th>Product</th><th>Quantity (kg)</th><th>Total Amount</th></tr>
+                    <tr><th>Transaction ID</th><th>Date & Time</th><th>Product Name</th><th>Quantity (kg)</th><th>Total Amount</th></tr>
                   </thead>
                   <tbody>
                     {reportData.transactions.map((transaction) => (
@@ -999,7 +751,7 @@ const AdminReports = () => {
       )}
       
       {reportData && (!reportData.transactions || reportData.transactions.length === 0) && (
-        <div className="no-data-message full"><p>No transactions found for this period.</p></div>
+        <div className="no-data-message full"><p>No transactions found for this period with the selected filter.</p></div>
       )}
     </div>
   );
