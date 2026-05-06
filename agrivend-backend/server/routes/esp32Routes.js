@@ -132,50 +132,36 @@ router.post('/sensors/update', async (req, res) => {
   try {
     let {
       deviceId,
-      loadCellLeft,      // Sinandomeng (from ESP32)
-      loadCellRight,     // Dinorado (from ESP32)
+      loadCellLeft,
+      loadCellRight,
       loadCellTotal,
       loadCellStatus,
-      machineState,
-      transactionCount,
-      machineStatus,
       batteryPercentage,
       doorStatus,
       temperature,
-      humidity
+      machineStatus
     } = req.body;
 
-    // SANITIZE input values
-    if (transactionCount > 10000 || transactionCount < 0 || isNaN(transactionCount)) {
-      transactionCount = 0;
-      console.log(`⚠️ Invalid transactionCount, reset to 0`);
-    }
-    
+    // Sanitize values
     let safeLoadCellLeft = (loadCellLeft < 0 || isNaN(loadCellLeft)) ? 0 : loadCellLeft;
     let safeLoadCellRight = (loadCellRight < 0 || isNaN(loadCellRight)) ? 0 : loadCellRight;
     let safeBattery = (batteryPercentage < 0 || batteryPercentage > 100 || isNaN(batteryPercentage)) ? 100 : batteryPercentage;
     let safeTemp = (temperature < -10 || temperature > 100 || isNaN(temperature)) ? 25 : temperature;
+    let safeDoorStatus = (doorStatus === 'OPEN') ? 'Open' : 'Closed';
     
-    // Map door status
-    let safeDoorStatus = "Closed";
-    if (doorStatus === "OPEN") safeDoorStatus = "Open";
-    else if (doorStatus === "CLOSED") safeDoorStatus = "Closed";
+    // Get or create machine
+    let machine = await Machine.findOne({ deviceId: deviceId || 'AGRIVEND_001' });
     
-    // Map machine status
-    let safeMachineStatus = "ACTIVE";
-    if (machineStatus === "MAINTENANCE") safeMachineStatus = "MAINTENANCE";
-    else if (machineStatus === "ERROR") safeMachineStatus = "ERROR";
+    if (!machine) {
+      machine = new Machine({ deviceId: deviceId || 'AGRIVEND_001' });
+      await machine.save();
+      console.log(`✅ Created new machine record for ${deviceId}`);
+    }
     
-    // Get or create machine record
-    let machine = await getOrCreateMachine(deviceId || 'AGRIVEND_001');
-    
-    // ===== IMPORTANT: Map ESP32 fields to Machine schema =====
-    // loadCellLeft goes to storage1 (Sinandomeng)
-    machine.storage1.currentWeight = safeLoadCellLeft;
+    // Update storage values
+    machine.storage1.currentWeight = safeLoadCellLeft;   // Sinandomeng
+    machine.storage2.currentWeight = safeLoadCellRight;  // Dinorado
     machine.storage1.lastUpdated = new Date();
-    
-    // loadCellRight goes to storage2 (Dinorado)
-    machine.storage2.currentWeight = safeLoadCellRight;
     machine.storage2.lastUpdated = new Date();
     
     // Update battery
@@ -185,26 +171,23 @@ router.post('/sensors/update', async (req, res) => {
     // Update machine status
     machine.machineStatus.doorStatus = safeDoorStatus;
     machine.machineStatus.temperature = safeTemp;
-    machine.machineStatus.transactionCount = transactionCount;
     machine.machineStatus.isOnline = true;
     machine.machineStatus.lastUpdate = new Date();
     
     // Set load cell status
     if (safeLoadCellLeft <= 0.05 && safeLoadCellRight <= 0.05) {
-      machine.machineStatus.loadCellStatus = "LOW";
+      machine.machineStatus.loadCellStatus = 'LOW';
     } else {
-      machine.machineStatus.loadCellStatus = "OK";
+      machine.machineStatus.loadCellStatus = 'OK';
     }
     
-    // Save - pre-save middleware will auto-calculate percentages
+    // Save the machine
     await machine.save();
     
     console.log(`✅ Machine data saved!`);
-    console.log(`   📍 Storage1 (Sinandomeng): ${machine.storage1.currentWeight}kg`);
-    console.log(`   📍 Storage2 (Dinorado): ${machine.storage2.currentWeight}kg`);
-    console.log(`   🔋 Battery: ${machine.battery.percentage}%`);
-    console.log(`   📊 Transaction Count: ${machine.machineStatus.transactionCount}`);
-
+    console.log(`   📍 Storage1 (Sinandomeng): ${machine.storage1.currentWeight}kg (${machine.storage1.status})`);
+    console.log(`   📍 Storage2 (Dinorado): ${machine.storage2.currentWeight}kg (${machine.storage2.status})`);
+    
     res.json({ success: true, message: 'Sensor data saved' });
     
   } catch (error) {
