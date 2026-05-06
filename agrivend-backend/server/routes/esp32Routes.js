@@ -1,27 +1,41 @@
 import express from 'express';
 import Transaction from '../models/Transaction.js';
-import SensorData from '../models/SensorData.js';
+import Machine from '../models/Machine.js';
+import Product from '../models/Product.js';
 
 const router = express.Router();
+
+// ============================================
+// HELPER FUNCTION - Get or create machine
+// ============================================
+async function getOrCreateMachine(deviceId) {
+  let machine = await Machine.findOne({ deviceId: deviceId });
+  if (!machine) {
+    machine = new Machine({ deviceId: deviceId });
+    await machine.save();
+    console.log(`✅ Created new machine record for ${deviceId}`);
+  }
+  return machine;
+}
 
 // ============================================
 // PUBLIC ENDPOINTS (No authentication required)
 // ============================================
 
-// Get latest sensor data for public dashboard
+// Get latest machine data for public dashboard
 router.get('/public/latest', async (req, res) => {
   try {
-    const latestData = await SensorData.findOne().sort({ createdAt: -1 });
+    const machine = await Machine.findOne().sort({ createdAt: -1 });
     
-    if (!latestData) {
+    if (!machine) {
       return res.json({
         success: true,
         data: {
-          container1Level: 0,
-          container2Level: 0,
+          storage1: { currentWeight: 0, percentage: 0, status: 'NO_DATA' },
+          storage2: { currentWeight: 0, percentage: 0, status: 'NO_DATA' },
           totalStock: 0,
           batteryPercentage: 100,
-          doorStatus: 'CLOSED',
+          doorStatus: 'Closed',
           machineStatus: 'ACTIVE',
           lastUpdate: null
         }
@@ -31,15 +45,22 @@ router.get('/public/latest', async (req, res) => {
     res.json({
       success: true,
       data: {
-        container1Level: latestData.container1Level,
-        container2Level: latestData.container2Level,
-        totalStock: latestData.container1Level + latestData.container2Level,
-        batteryPercentage: latestData.batteryPercentage,
-        doorStatus: latestData.doorStatus,
-        machineStatus: latestData.machineStatus,
-        container1Stock: latestData.container1Stock,
-        container2Stock: latestData.container2Stock,
-        lastUpdate: latestData.updatedAt || latestData.createdAt
+        storage1: {
+          currentWeight: machine.storage1.currentWeight,
+          percentage: machine.storage1.percentage,
+          status: machine.storage1.status
+        },
+        storage2: {
+          currentWeight: machine.storage2.currentWeight,
+          percentage: machine.storage2.percentage,
+          status: machine.storage2.status
+        },
+        totalStock: machine.totalStock,
+        batteryPercentage: machine.battery.percentage,
+        doorStatus: machine.machineStatus.doorStatus,
+        machineStatus: machine.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE',
+        loadCellStatus: machine.machineStatus.loadCellStatus,
+        lastUpdate: machine.machineStatus.lastUpdate
       }
     });
   } catch (error) {
@@ -52,29 +73,27 @@ router.get('/public/latest', async (req, res) => {
 router.get('/public/storage/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const latestData = await SensorData.findOne().sort({ createdAt: -1 });
+    const machine = await Machine.findOne().sort({ createdAt: -1 });
     const maxLevel = 20;
     
-    if (!latestData) {
+    if (!machine) {
       return res.json({
         success: true,
         data: { level: 0, maxLevel, percentage: 0, fillLevel: '0%', status: 'OK', remainingKg: 0 }
       });
     }
     
-    const level = id === '1' ? latestData.container1Level : latestData.container2Level;
-    const percentage = (level / maxLevel) * 100;
-    const stockStatus = id === '1' ? latestData.container1Stock : latestData.container2Stock;
+    const storage = id === '1' ? machine.storage1 : machine.storage2;
     
     res.json({
       success: true,
       data: {
-        level: level,
-        maxLevel: maxLevel,
-        percentage: percentage,
-        fillLevel: percentage.toFixed(1) + '%',
-        status: stockStatus,
-        remainingKg: level
+        level: storage.currentWeight,
+        maxLevel: storage.maxCapacity,
+        percentage: storage.percentage,
+        fillLevel: storage.percentage.toFixed(1) + '%',
+        status: storage.status,
+        remainingKg: storage.currentWeight
       }
     });
   } catch (error) {
@@ -86,15 +105,15 @@ router.get('/public/storage/:id', async (req, res) => {
 // Get machine summary
 router.get('/public/summary', async (req, res) => {
   try {
-    const latestData = await SensorData.findOne().sort({ createdAt: -1 });
+    const machine = await Machine.findOne().sort({ createdAt: -1 });
     
     res.json({
       success: true,
       data: {
-        totalStock: latestData ? (latestData.container1Level + latestData.container2Level) : 0,
-        batteryPercentage: latestData?.batteryPercentage || 100,
-        doorStatus: latestData?.doorStatus || 'CLOSED',
-        machineStatus: latestData?.machineStatus || 'ACTIVE'
+        totalStock: machine ? machine.totalStock : 0,
+        batteryPercentage: machine?.battery.percentage || 100,
+        doorStatus: machine?.machineStatus.doorStatus || 'Closed',
+        machineStatus: machine?.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE'
       }
     });
   } catch (error) {
@@ -106,104 +125,161 @@ router.get('/public/summary', async (req, res) => {
 // ESP32 ENDPOINTS (No authentication)
 // ============================================
 
-// ===== ENDPOINT 1: Main sensor update from ESP32 =====
+// ===== ENDPOINT 1: Main sensor update from ESP32 (UPDATES MACHINE TABLE) =====
 router.post('/sensors/update', async (req, res) => {
   console.log('📡 ESP32 Sensor data received');
   
   try {
     const {
-      container1Level, container2Level, collectionBinWeight,
-      batteryVoltage, batteryPercentage, temperature, humidity,
-      doorStatus, vibrationDetected, machineStatus,
-      container1Stock, container2Stock, deviceId,
-      // LOAD CELL SPECIFIC FIELDS (ADD THESE)
-      loadCellLeft, loadCellRight, loadCellTotal, loadCellStatus,
-      machineState, transactionCount
+      deviceId,
+      // Load cell data
+      loadCellLeft,      // Sinandomeng (Regular) - Storage 1
+      loadCellRight,     // Dinorado (Premium) - Storage 2
+      loadCellTotal,
+      loadCellStatus,
+      // Machine state
+      machineState,
+      transactionCount,
+      machineStatus,
+      // Other sensors
+      batteryPercentage,
+      doorStatus,
+      temperature,
+      humidity
     } = req.body;
 
-    const sensorData = new SensorData({
-      container1Level: container1Level || 0,
-      container2Level: container2Level || 0,
-      collectionBinWeight: collectionBinWeight || 0,
-      batteryVoltage: batteryVoltage || 12.5,
-      batteryPercentage: batteryPercentage || 100,
-      temperature: temperature || 25,
-      humidity: humidity || 60,
-      doorStatus: doorStatus || 'CLOSED',
-      vibrationDetected: vibrationDetected || false,
-      machineStatus: machineStatus || 'ACTIVE',
-      container1Stock: container1Stock || (container1Level >= 5 ? 'OK' : (container1Level > 0 ? 'LOW' : 'EMPTY')),
-      container2Stock: container2Stock || (container2Level >= 5 ? 'OK' : (container2Level > 0 ? 'LOW' : 'EMPTY')),
-      deviceId: deviceId || 'AGRIVEND_001',
-      // LOAD CELL FIELDS (ADD THESE)
-      loadCellLeft: loadCellLeft || container1Level || 0,
-      loadCellRight: loadCellRight || container2Level || 0,
-      loadCellTotal: loadCellTotal || (container1Level + container2Level) || 0,
-      loadCellStatus: loadCellStatus || 'OK',
-      machineState: machineState || 0,
-      transactionCount: transactionCount || 0
-    });
+    // Get or create machine record
+    let machine = await getOrCreateMachine(deviceId || 'AGRIVEND_001');
+    
+    // Update storage1 (Sinandomeng - LEFT load cell)
+    machine.storage1.currentWeight = loadCellLeft || 0;
+    machine.storage1.lastUpdated = new Date();
+    
+    // Update storage2 (Dinorado - RIGHT load cell)
+    machine.storage2.currentWeight = loadCellRight || 0;
+    machine.storage2.lastUpdated = new Date();
+    
+    // Update battery
+    if (batteryPercentage) {
+      machine.battery.percentage = batteryPercentage;
+      machine.battery.lastUpdated = new Date();
+    }
+    
+    // Update machine status
+    if (doorStatus) {
+      machine.machineStatus.doorStatus = doorStatus === 'OPEN' ? 'Open' : 'Closed';
+    }
+    if (temperature) {
+      machine.machineStatus.temperature = temperature;
+    }
+    if (transactionCount !== undefined) {
+      machine.machineStatus.transactionCount = transactionCount;
+    }
+    if (loadCellStatus) {
+      machine.machineStatus.loadCellStatus = loadCellStatus;
+    }
+    
+    machine.machineStatus.isOnline = true;
+    machine.machineStatus.lastUpdate = new Date();
+    
+    // Save - pre-save middleware will auto-calculate percentages and statuses
+    await machine.save();
+    
+    console.log(`✅ Machine data saved!`);
+    console.log(`   📍 Storage1 (Sinandomeng): ${machine.storage1.currentWeight}kg (${machine.storage1.status})`);
+    console.log(`   📍 Storage2 (Dinorado): ${machine.storage2.currentWeight}kg (${machine.storage2.status})`);
+    console.log(`   🔋 Battery: ${machine.battery.percentage}% (${machine.battery.status})`);
+    console.log(`   🚪 Door: ${machine.machineStatus.doorStatus}`);
+    console.log(`   📊 Load Cell Status: ${machine.machineStatus.loadCellStatus}`);
 
-    await sensorData.save();
-    console.log(`✅ Saved: Stock1=${container1Level}kg, Stock2=${container2Level}kg`);
-    console.log(`   Load Cell - Left: ${sensorData.loadCellLeft}kg, Right: ${sensorData.loadCellRight}kg, Total: ${sensorData.loadCellTotal}kg`);
-
+    // Emit real-time update via Socket.io
     const io = req.app.get('io');
-    if (io) io.emit('sensor_update', sensorData);
+    if (io) {
+      io.emit('machine_update', {
+        storage1: {
+          weight: machine.storage1.currentWeight,
+          percentage: machine.storage1.percentage,
+          status: machine.storage1.status
+        },
+        storage2: {
+          weight: machine.storage2.currentWeight,
+          percentage: machine.storage2.percentage,
+          status: machine.storage2.status
+        },
+        totalStock: machine.totalStock,
+        battery: machine.battery.percentage,
+        doorStatus: machine.machineStatus.doorStatus,
+        loadCellStatus: machine.machineStatus.loadCellStatus
+      });
+    }
 
-    res.json({ success: true, message: 'Sensor data saved' });
+    res.json({ success: true, message: 'Sensor data saved to Machine table' });
   } catch (error) {
     console.error('❌ Error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// ===== NEW ENDPOINT: Get latest machine data by deviceId (FOR ESP32 LATEST) =====
+// ===== ENDPOINT: Get latest machine data by deviceId =====
 router.get('/latest/:deviceId', async (req, res) => {
   try {
     const { deviceId } = req.params;
     
-    const latestData = await SensorData.findOne({ deviceId: deviceId || 'AGRIVEND_001' })
-      .sort({ createdAt: -1 });
+    const machine = await Machine.findOne({ deviceId: deviceId || 'AGRIVEND_001' });
     
-    if (!latestData) {
+    if (!machine) {
       return res.json({
         success: true,
         deviceId: deviceId || 'AGRIVEND_001',
-        container1Level: 0,
-        container2Level: 0,
-        loadCellLeft: 0,
-        loadCellRight: 0,
-        loadCellTotal: 0,
-        loadCellStatus: 'NO_DATA',
-        container1Stock: 'NO_DATA',
-        container2Stock: 'NO_DATA',
-        machineState: 0,
+        storage1: { 
+          currentWeight: 0, 
+          percentage: 0, 
+          status: 'NO_DATA', 
+          maxCapacity: 20 
+        },
+        storage2: { 
+          currentWeight: 0, 
+          percentage: 0, 
+          status: 'NO_DATA', 
+          maxCapacity: 20 
+        },
+        totalStock: 0,
         machineStatus: 'UNKNOWN',
         transactionCount: 0,
+        batteryPercentage: 100,
+        doorStatus: 'Closed',
+        loadCellStatus: 'NO_DATA',
+        temperature: 25,
         message: 'No data yet. Waiting for ESP32 to send data...'
       });
     }
     
     res.json({
       success: true,
-      deviceId: latestData.deviceId,
-      container1Level: latestData.container1Level,
-      container2Level: latestData.container2Level,
-      loadCellLeft: latestData.loadCellLeft || latestData.container1Level,
-      loadCellRight: latestData.loadCellRight || latestData.container2Level,
-      loadCellTotal: latestData.loadCellTotal || (latestData.container1Level + latestData.container2Level),
-      loadCellStatus: latestData.loadCellStatus || 'OK',
-      container1Stock: latestData.container1Stock,
-      container2Stock: latestData.container2Stock,
-      machineState: latestData.machineState || 0,
-      machineStatus: latestData.machineStatus,
-      transactionCount: latestData.transactionCount || 0,
-      batteryPercentage: latestData.batteryPercentage,
-      doorStatus: latestData.doorStatus,
-      temperature: latestData.temperature,
-      humidity: latestData.humidity,
-      lastUpdate: latestData.updatedAt || latestData.createdAt
+      deviceId: machine.deviceId,
+      storage1: {
+        currentWeight: machine.storage1.currentWeight,
+        percentage: machine.storage1.percentage,
+        status: machine.storage1.status,
+        maxCapacity: machine.storage1.maxCapacity,
+        name: machine.storage1.name
+      },
+      storage2: {
+        currentWeight: machine.storage2.currentWeight,
+        percentage: machine.storage2.percentage,
+        status: machine.storage2.status,
+        maxCapacity: machine.storage2.maxCapacity,
+        name: machine.storage2.name
+      },
+      totalStock: machine.totalStock,
+      machineStatus: machine.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE',
+      transactionCount: machine.machineStatus.transactionCount,
+      batteryPercentage: machine.battery.percentage,
+      batteryStatus: machine.battery.status,
+      doorStatus: machine.machineStatus.doorStatus,
+      temperature: machine.machineStatus.temperature,
+      loadCellStatus: machine.machineStatus.loadCellStatus,
+      lastUpdate: machine.machineStatus.lastUpdate
     });
     
   } catch (error) {
@@ -212,20 +288,19 @@ router.get('/latest/:deviceId', async (req, res) => {
   }
 });
 
-// ===== NEW ENDPOINT: Get current stock quick view =====
+// ===== ENDPOINT: Get current stock quick view =====
 router.get('/stock/:deviceId', async (req, res) => {
   try {
     const { deviceId } = req.params;
     
-    const latestData = await SensorData.findOne({ deviceId: deviceId || 'AGRIVEND_001' })
-      .sort({ createdAt: -1 });
+    const machine = await Machine.findOne({ deviceId: deviceId || 'AGRIVEND_001' });
     
-    if (!latestData) {
+    if (!machine) {
       return res.json({
         success: true,
         deviceId: deviceId || 'AGRIVEND_001',
-        premium: { kg: 0, status: 'NO_DATA' },
-        regular: { kg: 0, status: 'NO_DATA' },
+        premium: { kg: 0, status: 'NO_DATA', percentage: 0 },
+        regular: { kg: 0, status: 'NO_DATA', percentage: 0 },
         total: 0,
         loadCellStatus: 'NO_DATA'
       });
@@ -233,18 +308,20 @@ router.get('/stock/:deviceId', async (req, res) => {
     
     res.json({
       success: true,
-      deviceId: latestData.deviceId,
+      deviceId: machine.deviceId,
       premium: {
-        kg: latestData.container1Level,
-        status: latestData.container1Stock
+        kg: machine.storage2.currentWeight,  // Dinorado = storage2
+        status: machine.storage2.status,
+        percentage: machine.storage2.percentage
       },
       regular: {
-        kg: latestData.container2Level,
-        status: latestData.container2Stock
+        kg: machine.storage1.currentWeight,  // Sinandomeng = storage1
+        status: machine.storage1.status,
+        percentage: machine.storage1.percentage
       },
-      total: latestData.loadCellTotal || (latestData.container1Level + latestData.container2Level),
-      loadCellStatus: latestData.loadCellStatus || 'OK',
-      lastUpdate: latestData.updatedAt || latestData.createdAt
+      total: machine.totalStock,
+      loadCellStatus: machine.machineStatus.loadCellStatus,
+      lastUpdate: machine.machineStatus.lastUpdate
     });
     
   } catch (error) {
@@ -253,63 +330,101 @@ router.get('/stock/:deviceId', async (req, res) => {
   }
 });
 
-// ===== NEW ENDPOINT: Get all machine data history =====
-router.get('/all/:deviceId', async (req, res) => {
+// ===== ENDPOINT: Get product prices =====
+router.get('/prices', async (req, res) => {
   try {
-    const { deviceId } = req.params;
-    const limit = parseInt(req.query.limit) || 100;
-    
-    const allData = await SensorData.find({ deviceId: deviceId || 'AGRIVEND_001' })
-      .sort({ createdAt: -1 })
-      .limit(limit);
+    // Get prices from Products table
+    const dinoradoProduct = await Product.findOne({ name: 'DINORADO' });
+    const sinandomengProduct = await Product.findOne({ name: 'SINANDOMENG' });
     
     res.json({
       success: true,
-      count: allData.length,
-      data: allData
+      prices: {
+        dinorado: dinoradoProduct ? dinoradoProduct.price : 65.0,
+        sinandomeng: sinandomengProduct ? sinandomengProduct.price : 52.0
+      }
     });
     
   } catch (error) {
-    console.error('❌ Error fetching all data:', error);
+    console.error('❌ Error fetching prices:', error);
+    res.json({
+      success: true,
+      prices: {
+        dinorado: 65.0,
+        sinandomeng: 52.0
+      }
+    });
+  }
+});
+
+// ===== ENDPOINT: Update product prices =====
+router.post('/prices/update', async (req, res) => {
+  try {
+    const { dinoradoPrice, sinandomengPrice } = req.body;
+    
+    // Update prices in Products table
+    await Product.findOneAndUpdate(
+      { name: 'DINORADO' },
+      { price: dinoradoPrice || 65.0 },
+      { upsert: true, new: true }
+    );
+    
+    await Product.findOneAndUpdate(
+      { name: 'SINANDOMENG' },
+      { price: sinandomengPrice || 52.0 },
+      { upsert: true, new: true }
+    );
+    
+    console.log(`💰 Prices updated - Dinorado: PHP ${dinoradoPrice}, Sinandomeng: PHP ${sinandomengPrice}`);
+    
+    res.json({
+      success: true,
+      message: 'Prices updated successfully',
+      prices: {
+        dinorado: dinoradoPrice,
+        sinandomeng: sinandomengPrice
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating prices:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// ===== NEW ENDPOINT: Get machine history by hours =====
-router.get('/history/:deviceId', async (req, res) => {
+// ===== ENDPOINT: Get current prices =====
+router.get('/prices/current', async (req, res) => {
   try {
-    const { deviceId } = req.params;
-    const hours = parseInt(req.query.hours) || 24;
-    
-    const since = new Date();
-    since.setHours(since.getHours() - hours);
-    
-    const history = await SensorData.find({
-      deviceId: deviceId || 'AGRIVEND_001',
-      createdAt: { $gte: since }
-    }).sort({ createdAt: -1 });
+    const dinoradoProduct = await Product.findOne({ name: 'DINORADO' });
+    const sinandomengProduct = await Product.findOne({ name: 'SINANDOMENG' });
     
     res.json({
       success: true,
-      hours: hours,
-      count: history.length,
-      history: history
+      prices: {
+        dinorado: dinoradoProduct ? dinoradoProduct.price : 65.0,
+        sinandomeng: sinandomengProduct ? sinandomengProduct.price : 52.0
+      }
     });
     
   } catch (error) {
-    console.error('❌ Error fetching history:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('❌ Error fetching current prices:', error);
+    res.json({
+      success: true,
+      prices: {
+        dinorado: 65.0,
+        sinandomeng: 52.0
+      }
+    });
   }
 });
 
-// ===== EXISTING: Transaction confirm from ESP32 =====
+// ===== Transaction confirm from ESP32 =====
 router.post('/transaction/confirm', async (req, res) => {
   console.log('📝 ESP32 Transaction received:', req.body);
   
   try {
     const { transactionId, riceType, quantityKg, amountPaid, status, remainingStockPremium, remainingStockRegular } = req.body;
     
-    // Validate required fields
     if (!riceType) {
       return res.status(400).json({ 
         success: false, 
@@ -324,7 +439,6 @@ router.post('/transaction/confirm', async (req, res) => {
       });
     }
     
-    // Map rice type to product name
     let productName;
     let pricePerKg;
     
@@ -339,7 +453,6 @@ router.post('/transaction/confirm', async (req, res) => {
       pricePerKg = 52.0;
     }
     
-    // Check if transaction already exists
     const existingTransaction = await Transaction.findOne({ transactionId: transactionId });
     if (existingTransaction) {
       console.log(`⚠️ Transaction ${transactionId} already exists, skipping...`);
@@ -350,7 +463,6 @@ router.post('/transaction/confirm', async (req, res) => {
       });
     }
     
-    // Create transaction WITHOUT user and recordedBy
     const transaction = new Transaction({
       transactionId: transactionId || `TXN-${Date.now()}`,
       productName: productName,
@@ -359,14 +471,21 @@ router.post('/transaction/confirm', async (req, res) => {
       amountPaid: parseFloat(amountPaid),
       paymentMethod: 'CASH',
       status: 'COMPLETED',
-      source: 'machine',  // Mark as machine transaction
-      notes: `Auto-recorded by vending machine. Remaining stock: Premium=${remainingStockPremium}kg, Regular=${remainingStockRegular}kg`
+      source: 'machine',
+      notes: `Auto-recorded by vending machine.`
     });
     
     await transaction.save();
     
     console.log(`✅ Transaction saved: ${transaction.transactionId}`);
     console.log(`   Product: ${productName}, ${quantityKg}kg, PHP ${amountPaid}`);
+    
+    // Update transaction count in machine
+    const machine = await Machine.findOne({ deviceId: 'AGRIVEND_001' });
+    if (machine) {
+      machine.machineStatus.transactionCount += 1;
+      await machine.save();
+    }
     
     const io = req.app.get('io');
     if (io) {
@@ -411,7 +530,7 @@ router.get('/transactions/:deviceId', async (req, res) => {
   }
 });
 
-// ===== EXISTING: Security alert from ESP32 =====
+// ===== Security alert from ESP32 =====
 router.post('/security/alert', async (req, res) => {
   console.log('🚨 Security alert:', req.body.alertType);
   
@@ -425,16 +544,16 @@ router.post('/security/alert', async (req, res) => {
 router.get('/test', (req, res) => {
   res.json({
     success: true,
-    message: 'ESP32 Routes are working!',
+    message: 'ESP32 Routes are working with MACHINE table!',
     endpoints: [
-      'POST /api/esp32/sensors/update - Send sensor data',
+      'POST /api/esp32/sensors/update - Update Machine table',
       'GET /api/esp32/latest/:deviceId - Get latest machine data',
-      'GET /api/esp32/all/:deviceId - Get all machine data',
       'GET /api/esp32/stock/:deviceId - Quick stock view',
-      'GET /api/esp32/history/:deviceId - Get history',
       'POST /api/esp32/transaction/confirm - Send transaction',
       'GET /api/esp32/transactions/:deviceId - Get transactions',
-      'POST /api/esp32/security/alert - Send security alert',
+      'GET /api/esp32/prices - Get product prices',
+      'POST /api/esp32/prices/update - Update product prices',
+      'GET /api/esp32/prices/current - Get current prices',
       'GET /api/esp32/public/latest - Public dashboard',
       'GET /api/esp32/public/storage/:id - Public storage view',
       'GET /api/esp32/public/summary - Public summary'
@@ -448,8 +567,8 @@ router.get('/test', (req, res) => {
 
 router.get('/machine/status', async (req, res) => {
   try {
-    const latestData = await SensorData.findOne().sort({ createdAt: -1 });
-    res.json({ success: true, data: latestData || null });
+    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    res.json({ success: true, data: machine || null });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -457,15 +576,8 @@ router.get('/machine/status', async (req, res) => {
 
 router.get('/sensors/history', async (req, res) => {
   try {
-    const { limit = 100, days = 7 } = req.query;
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
-    
-    const history = await SensorData.find({
-      createdAt: { $gte: cutoffDate }
-    }).sort({ createdAt: -1 }).limit(parseInt(limit));
-    
-    res.json({ success: true, data: history });
+    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    res.json({ success: true, data: machine || null });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
