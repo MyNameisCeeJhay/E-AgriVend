@@ -1,5 +1,6 @@
 /**
  * ESP32 CODE - WiFi Bridge for Rice Vending Machine
+ * WITH LOAD CELL DATA INTEGRATION
  * FIXED: Product names match database format
  */
 
@@ -19,6 +20,7 @@ void parseTransactionData(String data);
 void parseStockData(String data);
 void parseStateData(String data);
 void parseErrorData(String data);
+void parseLoadCellData(String data);  // NEW: Parse load cell data
 void sendSensorDataToBackend();
 void sendTransactionToBackend(float kg, float amount, String riceType, String status, String transactionID);
 void sendSecurityAlertToBackend(String alertType, String doorStatus);
@@ -55,8 +57,16 @@ const char* DEVICE_ID = "AGRIVEND_001";
 // ============================================
 // VARIABLES
 // ============================================
-float container1Level = 20.0;
-float container2Level = 20.0;
+// Load cell data (from Arduino Mega)
+float container1Level = 20.0;      // Premium/Dinorado stock from load cell (kg)
+float container2Level = 20.0;      // Regular/Sinandomeng stock from load cell (kg)
+float loadCellLeft = 20.0;         // Raw left load cell reading (kg)
+float loadCellRight = 20.0;        // Raw right load cell reading (kg)
+float loadCellTotal = 40.0;        // Total weight from both load cells (kg)
+bool loadCellLeftError = false;     // Left load cell error flag
+bool loadCellRightError = false;    // Right load cell error flag
+unsigned long lastLoadCellRead = 0; // Last time load cell data was received
+
 float collectionBinWeight = 0;
 float batteryVoltage = 12.5;
 int batteryPercentage = 100;
@@ -100,6 +110,11 @@ String getContainer2StockStatus() {
   return "OK";
 }
 
+String getLoadCellStatus() {
+  if (loadCellLeftError || loadCellRightError) return "ERROR";
+  return "OK";
+}
+
 // ============================================
 // SETUP
 // ============================================
@@ -115,11 +130,13 @@ void setup() {
   
   Serial.println("\n╔═══════════════════════════════════════╗");
   Serial.println("║   ESP32 - Arduino Mega 2560 Bridge   ║");
-  Serial.println("║         E-AgriVend System            ║");
+  Serial.println("║      E-AgriVend System v2.0          ║");
+  Serial.println("║      WITH LOAD CELL MONITORING       ║");
   Serial.println("╚═══════════════════════════════════════╝\n");
   Serial.println("=================================");
   Serial.println("🌾 ESP32 - WiFi Bridge");
   Serial.println("Receives data from Arduino Mega 2560");
+  Serial.println("📊 INCLUDES: 2x 20kg Load Cells");
   Serial.println("=================================");
   Serial.print("Device ID: ");
   Serial.println(DEVICE_ID);
@@ -198,8 +215,16 @@ void sendSensorDataToBackend() {
   
   JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
-  doc["container1Level"] = container1Level;
-  doc["container2Level"] = container2Level;
+  
+  // Load cell data (REAL weight from sensors)
+  doc["container1Level"] = container1Level;        // Premium stock (from load cell)
+  doc["container2Level"] = container2Level;        // Regular stock (from load cell)
+  doc["loadCellLeft"] = loadCellLeft;              // Raw left load cell reading
+  doc["loadCellRight"] = loadCellRight;            // Raw right load cell reading
+  doc["loadCellTotal"] = loadCellTotal;            // Total weight
+  doc["loadCellStatus"] = getLoadCellStatus();     // Load cell health status
+  doc["lastLoadCellUpdate"] = lastLoadCellRead;    // Timestamp of last update
+  
   doc["collectionBinWeight"] = collectionBinWeight;
   doc["batteryVoltage"] = batteryVoltage;
   doc["batteryPercentage"] = batteryPercentage;
@@ -219,8 +244,15 @@ void sendSensorDataToBackend() {
   int httpResponseCode = http.POST(jsonString);
   
   if (httpResponseCode > 0) {
-    if (httpResponseCode == 200) {
+    if (httpResponseCode == 200 || httpResponseCode == 201) {
       Serial.println("✅ Sensor data sent successfully!");
+      Serial.print("   Load Cell Data - Left: ");
+      Serial.print(loadCellLeft);
+      Serial.print("kg, Right: ");
+      Serial.print(loadCellRight);
+      Serial.print("kg, Total: ");
+      Serial.print(loadCellTotal);
+      Serial.println("kg");
     }
   } else {
     Serial.printf("❌ Error sending sensor data: %d\n", httpResponseCode);
@@ -256,14 +288,16 @@ void sendTransactionToBackend(float kg, float amount, String riceType, String st
     pricePerKg = 52.0;
   }
   
-  // IMPORTANT: Use 'riceType' not 'productName' for ESP32 endpoint
   JsonDocument doc;
   doc["transactionId"] = transactionID;
-  doc["riceType"] = fullRiceType;        // ← CHANGE THIS (was productName)
+  doc["riceType"] = fullRiceType;
   doc["quantityKg"] = kg;
   doc["amountPaid"] = amount;
   doc["status"] = "COMPLETED";
-  // Don't send user/recordedBy - ESP32 endpoint doesn't need them
+  
+  // Add load cell data to transaction
+  doc["remainingStockPremium"] = container1Level;
+  doc["remainingStockRegular"] = container2Level;
   
   String jsonString;
   serializeJson(doc, jsonString);
@@ -279,8 +313,11 @@ void sendTransactionToBackend(float kg, float amount, String riceType, String st
   Serial.println(" kg");
   Serial.print("  Amount: PHP ");
   Serial.println(amount);
-  Serial.print("  JSON: ");
-  Serial.println(jsonString);
+  Serial.print("  Remaining Stock: ");
+  Serial.print(container1Level);
+  Serial.print("kg / ");
+  Serial.print(container2Level);
+  Serial.println("kg");
   Serial.println("========================================");
   
   int httpResponseCode = http.POST(jsonString);
@@ -327,6 +364,14 @@ void sendSecurityAlertToBackend(String alertType, String doorStatus) {
   doc["doorStatus"] = doorStatus;
   doc["timestamp"] = millis();
   
+  // Include load cell status in security alerts
+  if (alertType == "LOAD_CELL_ERROR") {
+    doc["loadCellLeftError"] = loadCellLeftError;
+    doc["loadCellRightError"] = loadCellRightError;
+    doc["loadCellLeftValue"] = loadCellLeft;
+    doc["loadCellRightValue"] = loadCellRight;
+  }
+  
   String jsonString;
   serializeJson(doc, jsonString);
   
@@ -372,6 +417,9 @@ void processMegaData() {
       else if (data.startsWith("STOCK|")) {
         parseStockData(data);
       }
+      else if (data.startsWith("LOADCELL|")) {  // NEW: Parse load cell data
+        parseLoadCellData(data);
+      }
       else if (data.startsWith("STATE|")) {
         parseStateData(data);
       }
@@ -381,6 +429,51 @@ void processMegaData() {
       else if (data == "PONG") {
         Serial.println("✅ Mega responded to ping");
       }
+    }
+  }
+}
+
+// NEW: Parse load cell data from Mega
+void parseLoadCellData(String data) {
+  // Format: LOADCELL|leftKg|rightKg|totalKg|leftError|rightError
+  data = data.substring(9);  // Remove "LOADCELL|"
+  
+  int firstBar = data.indexOf('|');
+  int secondBar = data.indexOf('|', firstBar + 1);
+  int thirdBar = data.indexOf('|', secondBar + 1);
+  int fourthBar = data.indexOf('|', thirdBar + 1);
+  
+  if (firstBar > 0 && secondBar > 0 && thirdBar > 0 && fourthBar > 0) {
+    loadCellLeft = data.substring(0, firstBar).toFloat();
+    loadCellRight = data.substring(firstBar + 1, secondBar).toFloat();
+    loadCellTotal = data.substring(secondBar + 1, thirdBar).toFloat();
+    loadCellLeftError = data.substring(thirdBar + 1, fourthBar).toInt() == 1;
+    loadCellRightError = data.substring(fourthBar + 1).toInt() == 1;
+    
+    // Update container levels from load cells
+    container1Level = loadCellLeft;
+    container2Level = loadCellRight;
+    
+    lastLoadCellRead = millis();
+    
+    Serial.println("========================================");
+    Serial.println("📊 LOAD CELL DATA RECEIVED:");
+    Serial.print("  Left (Premium): ");
+    Serial.print(loadCellLeft);
+    Serial.println(" kg");
+    Serial.print("  Right (Regular): ");
+    Serial.print(loadCellRight);
+    Serial.println(" kg");
+    Serial.print("  Total Weight: ");
+    Serial.print(loadCellTotal);
+    Serial.println(" kg");
+    if (loadCellLeftError) Serial.println("  ⚠️ Left load cell ERROR!");
+    if (loadCellRightError) Serial.println("  ⚠️ Right load cell ERROR!");
+    Serial.println("========================================");
+    
+    // Send alert if load cell error detected
+    if (loadCellLeftError || loadCellRightError) {
+      sendSecurityAlertToBackend("LOAD_CELL_ERROR", doorStatus);
     }
   }
 }
@@ -400,14 +493,22 @@ void parseStatusData(String data) {
   if (partIndex >= 9) {
     int start = 0;
     machineState = data.substring(start, parts[0]).toInt();
-    container1Level = data.substring(parts[0] + 1, parts[1]).toFloat();
-    container2Level = data.substring(parts[1] + 1, parts[2]).toFloat();
+    // Note: Stock data now comes from load cells, so we don't overwrite
+    // container1Level and container2Level here anymore
+    float megaStock1 = data.substring(parts[0] + 1, parts[1]).toFloat();
+    float megaStock2 = data.substring(parts[1] + 1, parts[2]).toFloat();
     insertedAmount = data.substring(parts[2] + 1, parts[3]).toFloat();
     lastDispenseKg = data.substring(parts[3] + 1, parts[4]).toFloat();
     selectedGrain = data.substring(parts[4] + 1, parts[5]).toInt();
     targetQuantity = data.substring(parts[5] + 1, parts[6]).toInt();
     errorCode = data.substring(parts[6] + 1, parts[7]).toInt();
     transactionCount = data.substring(parts[7] + 1, parts[8]).toInt();
+    
+    // Only use Mega stock if load cells haven't sent data recently
+    if (millis() - lastLoadCellRead > 5000) {
+      container1Level = megaStock1;
+      container2Level = megaStock2;
+    }
     
     if (errorCode != 0) {
       machineStatus = "ERROR";
@@ -469,8 +570,11 @@ void parseStockData(String data) {
   data = data.substring(6);
   int barPos = data.indexOf('|');
   if (barPos > 0) {
-    container1Level = data.substring(0, barPos).toFloat();
-    container2Level = data.substring(barPos + 1).toFloat();
+    // Only update if load cells haven't sent data recently
+    if (millis() - lastLoadCellRead > 5000) {
+      container1Level = data.substring(0, barPos).toFloat();
+      container2Level = data.substring(barPos + 1).toFloat();
+    }
   }
 }
 
@@ -512,8 +616,14 @@ void printStatus() {
   Serial.printf("║ 🔗 Mega: %-25s ║\n", megaConnected ? "Connected ✅" : "Disconnected ❌");
   Serial.printf("║ 📡 WiFi: %-25s ║\n", WiFi.status() == WL_CONNECTED ? "Connected ✅" : "Disconnected ❌");
   Serial.printf("║ 📊 State: %-25s ║\n", stateNames[machineState]);
+  Serial.println("╠────────────── LOAD CELLS ──────────────╣");
   Serial.printf("║ 🍚 Premium: %.1f kg (%-5s)     ║\n", container1Level, getContainer1StockStatus().c_str());
   Serial.printf("║ 🍚 Regular: %.1f kg (%-5s)     ║\n", container2Level, getContainer2StockStatus().c_str());
+  Serial.printf("║ 📐 Load Cell L: %.1f kg                 ║\n", loadCellLeft);
+  Serial.printf("║ 📐 Load Cell R: %.1f kg                 ║\n", loadCellRight);
+  Serial.printf("║ ⚖️ Total: %.1f kg                       ║\n", loadCellTotal);
+  Serial.printf("║ 🔧 Status: %-24s ║\n", getLoadCellStatus().c_str());
+  Serial.println("╠───────────────────────────────────────╣");
   Serial.printf("║ 🔋 Battery: %d%%                 ║\n", batteryPercentage);
   Serial.printf("║ 🚪 Door: %-25s ║\n", doorStatus.c_str());
   Serial.printf("║ 📈 Transactions: %-16d ║\n", transactionCount);
@@ -528,6 +638,7 @@ void loop() {
   processMegaData();
   checkMegaConnection();
   
+  // Send load cell data to backend more frequently
   if (millis() - lastSendToBackend >= BACKEND_INTERVAL) {
     if (megaConnected && WiFi.status() == WL_CONNECTED) {
       sendSensorDataToBackend();
