@@ -135,39 +135,42 @@ router.post('/sensors/update', async (req, res) => {
 // PRODUCT PRICE MANAGEMENT (PRESERVED)
 // ============================================
 
-// Get product prices
+// Get product prices AND names (for ESP32)
 router.get('/prices', async (req, res) => {
   try {
-    // First try to get from Products table
-    let dinoradoProduct = await Product.findOne({ name: 'DINORADO' });
-    let sinandomengProduct = await Product.findOne({ name: 'SINANDOMENG' });
+    const machine = await Machine.findOne({});
     
-    // If not found in Products table, get from Machine table
-    if (!dinoradoProduct || !sinandomengProduct) {
-      const machine = await Machine.findOne({});
-      if (machine) {
-        return res.json({
-          success: true,
-          prices: {
-            dinorado: machine.storage2?.pricePerKg || 65,
-            sinandomeng: machine.storage1?.pricePerKg || 52
-          }
-        });
-      }
+    if (!machine) {
+      return res.json({
+        success: true,
+        prices: {
+          dinorado: 65,
+          sinandomeng: 52
+        },
+        names: {
+          dinorado: 'Dinorado Rice',
+          sinandomeng: 'Sinandomeng Rice'
+        }
+      });
     }
     
     res.json({
       success: true,
       prices: {
-        dinorado: dinoradoProduct ? dinoradoProduct.price : 65,
-        sinandomeng: sinandomengProduct ? sinandomengProduct.price : 52
+        dinorado: machine.storage2?.pricePerKg || 65,
+        sinandomeng: machine.storage1?.pricePerKg || 52
+      },
+      names: {
+        dinorado: machine.storage2?.name || 'Dinorado Rice',
+        sinandomeng: machine.storage1?.name || 'Sinandomeng Rice'
       }
     });
   } catch (error) {
     console.error('❌ Error fetching prices:', error);
     res.json({
       success: true,
-      prices: { dinorado: 65, sinandomeng: 52 }
+      prices: { dinorado: 65, sinandomeng: 52 },
+      names: { dinorado: 'Dinorado Rice', sinandomeng: 'Sinandomeng Rice' }
     });
   }
 });
@@ -253,6 +256,101 @@ router.post('/prices/force-update', async (req, res) => {
       }
     });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
+// UPDATE PRODUCT NAME AND PRICE (from website)
+// ============================================
+router.put('/product/update/:storageId', async (req, res) => {
+  try {
+    const { storageId } = req.params;
+    const { name, pricePerKg } = req.body;
+    
+    console.log(`📝 Updating Storage ${storageId}: Name="${name}", Price=${pricePerKg}`);
+    
+    // Find the machine
+    let machine = await Machine.findOne({});
+    
+    if (!machine) {
+      machine = new Machine();
+    }
+    
+    // Update the correct storage
+    if (storageId === '1') {
+      if (name) machine.storage1.name = name;
+      if (pricePerKg) machine.storage1.pricePerKg = pricePerKg;
+    } else if (storageId === '2') {
+      if (name) machine.storage2.name = name;
+      if (pricePerKg) machine.storage2.pricePerKg = pricePerKg;
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid storage ID' });
+    }
+    
+    await machine.save();
+    
+    // Also update the Products table
+    const productName = storageId === '1' ? 'SINANDOMENG' : 'DINORADO';
+    await Product.findOneAndUpdate(
+      { name: productName },
+      { name: name, price: pricePerKg },
+      { upsert: true, new: true }
+    );
+    
+    console.log(`✅ Product updated: ${name} @ PHP ${pricePerKg}/kg`);
+    
+    // Emit socket event for real-time update
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('product_updated', {
+        storageId: storageId,
+        name: name,
+        pricePerKg: pricePerKg
+      });
+      console.log('📡 Product update sent to all connected clients');
+    }
+    
+    res.json({
+      success: true,
+      message: 'Product updated successfully',
+      data: storageId === '1' ? machine.storage1 : machine.storage2
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating product:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
+// GET PRODUCTS (names and prices) for website
+// ============================================
+router.get('/products/current', async (req, res) => {
+  try {
+    const machine = await Machine.findOne({});
+    
+    if (!machine) {
+      return res.json({
+        success: true,
+        storage1: { name: 'Sinandomeng Rice', pricePerKg: 52 },
+        storage2: { name: 'Dinorado Rice', pricePerKg: 65 }
+      });
+    }
+    
+    res.json({
+      success: true,
+      storage1: {
+        name: machine.storage1.name || 'Sinandomeng Rice',
+        pricePerKg: machine.storage1.pricePerKg || 52
+      },
+      storage2: {
+        name: machine.storage2.name || 'Dinorado Rice',
+        pricePerKg: machine.storage2.pricePerKg || 65
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching products:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

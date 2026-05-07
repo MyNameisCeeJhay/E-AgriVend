@@ -180,17 +180,19 @@ const AdminMachine = () => {
   };
 
   const handleSaveProduct = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const storageId = editingStorage.id;
-      
-      await axios.put(`${API_URL}/machine/product/${storageId}`, {
-        name: editFormData.name,
-        pricePerKg: parseFloat(editFormData.pricePerKg)
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
+  try {
+    const token = localStorage.getItem('token');
+    const storageId = editingStorage.id;
+    
+    // CHANGE THIS URL
+    const response = await axios.put(`${API_URL}/esp32/product/update/${storageId}`, {
+      name: editFormData.name,
+      pricePerKg: parseFloat(editFormData.pricePerKg)
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (response.data.success) {
       if (editingStorage.id === 1) {
         setStorage1(prev => ({
           ...prev,
@@ -209,11 +211,14 @@ const AdminMachine = () => {
       setShowEditModal(false);
       setEditingStorage(null);
       
-    } catch (error) {
-      console.error('Error saving product:', error);
-      showNotification('error', 'Failed to save product');
+      // Refresh data
+      fetchMachineData();
     }
-  };
+  } catch (error) {
+    console.error('Error saving product:', error);
+    showNotification('error', 'Failed to save product');
+  }
+};
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-PH', {
