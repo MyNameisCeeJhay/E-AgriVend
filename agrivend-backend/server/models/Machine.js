@@ -32,7 +32,6 @@ const machineStatusSchema = new mongoose.Schema({
 });
 
 const machineSchema = new mongoose.Schema({
-  deviceId: { type: String, default: 'AGRIVEND_001', unique: true },
   storage1: { type: storageSchema, default: () => ({}) },
   storage2: { type: storageSchema, default: () => ({}) },
   battery: { type: batterySchema, default: () => ({}) },
