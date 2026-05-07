@@ -177,20 +177,20 @@ router.post('/prices/update', async (req, res) => {
   try {
     const { dinoradoPrice, sinandomengPrice } = req.body;
     
-    // Update prices in Products table
+    // Update prices in database
     await Product.findOneAndUpdate(
       { name: 'DINORADO' },
-      { price: dinoradoPrice || 65 },
+      { price: dinoradoPrice || 65.0 },
       { upsert: true, new: true }
     );
     
     await Product.findOneAndUpdate(
       { name: 'SINANDOMENG' },
-      { price: sinandomengPrice || 52 },
+      { price: sinandomengPrice || 52.0 },
       { upsert: true, new: true }
     );
     
-    // Also update prices in Machine table
+    // Update machine table
     const machine = await Machine.findOne({});
     if (machine) {
       machine.storage1.pricePerKg = sinandomengPrice || 52;
@@ -200,14 +200,17 @@ router.post('/prices/update', async (req, res) => {
     
     console.log(`💰 Prices updated - Dinorado: PHP ${dinoradoPrice}, Sinandomeng: PHP ${sinandomengPrice}`);
     
-    res.json({
-      success: true,
-      message: 'Prices updated successfully',
-      prices: {
+    // ***** ADD THIS - Send price update to ESP32 via Socket.io *****
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('price_updated', {
         dinorado: dinoradoPrice,
         sinandomeng: sinandomengPrice
-      }
-    });
+      });
+      console.log('📡 Price update sent to ESP32 via WebSocket');
+    }
+    
+    res.json({ success: true, message: 'Prices updated successfully' });
     
   } catch (error) {
     console.error('❌ Error updating prices:', error);
@@ -233,6 +236,24 @@ router.get('/prices/current', async (req, res) => {
       success: true,
       prices: { dinorado: 65, sinandomeng: 52 }
     });
+  }
+});
+
+// Force ESP32 to fetch latest prices
+router.post('/prices/force-update', async (req, res) => {
+  try {
+    const dinoradoProduct = await Product.findOne({ name: 'DINORADO' });
+    const sinandomengProduct = await Product.findOne({ name: 'SINANDOMENG' });
+    
+    res.json({
+      success: true,
+      prices: {
+        dinorado: dinoradoProduct ? dinoradoProduct.price : 65,
+        sinandomeng: sinandomengProduct ? sinandomengProduct.price : 52
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
