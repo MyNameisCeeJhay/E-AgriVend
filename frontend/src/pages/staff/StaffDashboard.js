@@ -12,12 +12,12 @@ const StaffDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
   
-  // Storage 1 - Sinandomeng should be 52, not 54 or 65
+ // Storage 1 - Sinandomeng should be 52
 const [storage1, setStorage1] = useState({
   id: 1,
   name: 'Storage 1 - Sinandomeng',
   productId: null,
-  pricePerKg: 52,  // CHANGE to 52
+  pricePerKg: 52,  // CHANGE from 65 to 52
   currentWeight: 0,
   maxCapacity: 20,
   percentage: 0,
@@ -25,12 +25,12 @@ const [storage1, setStorage1] = useState({
   isLow: false
 });
 
-// Storage 2 - Dinorado should be 65, not 52
+// Storage 2 - Dinorado should be 65
 const [storage2, setStorage2] = useState({
   id: 2,
   name: 'Storage 2 - Dinorado',
   productId: null,
-  pricePerKg: 65,  // CHANGE to 65
+  pricePerKg: 65,  // CHANGE from 52 to 65
   currentWeight: 0,
   maxCapacity: 20,
   percentage: 0,
@@ -72,41 +72,42 @@ const [storage2, setStorage2] = useState({
   try {
     setLoading(true);
     
-    // CHANGE: Use /api/esp32/latest instead of /public/latest
+    // CHANGE: Use the correct endpoint
     const response = await axios.get(`${API_URL}/esp32/latest`);
     
+    console.log('API Response:', response.data);
+    
     if (response.data.success) {
-      const data = response.data;  // CHANGE: data is directly in response
+      const data = response.data;
       
-      // Update Storage 1 (Sinandomeng) - use storage1.currentWeight
-      const storage1CurrentWeight = data.storage1?.currentWeight || 0;
-      const storage1Percentage = (storage1CurrentWeight / 20) * 100;
+      // Update Storage 1 (Sinandomeng) - using correct field names
+      const storage1Weight = data.storage1?.currentWeight || 0;
+      const storage1Percentage = (storage1Weight / 20) * 100;
       setStorage1(prev => ({
         ...prev,
-        currentWeight: storage1CurrentWeight,
+        currentWeight: storage1Weight,
         percentage: storage1Percentage,
-        status: storage1CurrentWeight <= 5 ? 'Critical' : storage1CurrentWeight <= 10 ? 'Low' : 'Normal',
-        isLow: storage1CurrentWeight <= 10,
-        pricePerKg: data.storage1?.pricePerKg || prev.pricePerKg
+        status: storage1Weight <= 0.1 ? 'Empty' : storage1Weight <= 5 ? 'Low' : 'Normal',
+        isLow: storage1Weight <= 10,
+        pricePerKg: 52  // Force correct price for Sinandomeng
       }));
       
-      // Update Storage 2 (Dinorado) - use storage2.currentWeight
-      const storage2CurrentWeight = data.storage2?.currentWeight || 0;
-      const storage2Percentage = (storage2CurrentWeight / 20) * 100;
+      // Update Storage 2 (Dinorado)
+      const storage2Weight = data.storage2?.currentWeight || 0;
+      const storage2Percentage = (storage2Weight / 20) * 100;
       setStorage2(prev => ({
         ...prev,
-        currentWeight: storage2CurrentWeight,
+        currentWeight: storage2Weight,
         percentage: storage2Percentage,
-        status: storage2CurrentWeight <= 5 ? 'Critical' : storage2CurrentWeight <= 10 ? 'Low' : 'Normal',
-        isLow: storage2CurrentWeight <= 10,
-        pricePerKg: data.storage2?.pricePerKg || prev.pricePerKg
+        status: storage2Weight <= 0.1 ? 'Empty' : storage2Weight <= 5 ? 'Low' : 'Normal',
+        isLow: storage2Weight <= 10,
+        pricePerKg: 65  // Force correct price for Dinorado
       }));
       
       // Update Battery
       setBattery(prev => ({
         ...prev,
-        percentage: data.batteryPercentage || 100,
-        status: (data.batteryPercentage || 100) >= 70 ? 'Good' : (data.batteryPercentage || 100) >= 30 ? 'Warning' : 'Critical'
+        percentage: data.batteryPercentage || 100
       }));
       
       // Update Machine Status
@@ -118,7 +119,8 @@ const [storage2, setStorage2] = useState({
         lastUpdate: new Date()
       }));
       
-      console.log('✅ Machine data loaded:', data);
+      console.log('✅ Storage1 weight:', storage1Weight);
+      console.log('✅ Storage2 weight:', storage2Weight);
     }
   } catch (error) {
     console.error('Error fetching machine data:', error);
