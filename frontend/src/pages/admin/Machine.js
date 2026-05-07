@@ -14,30 +14,31 @@ const AdminMachine = () => {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
   
-  // Storage 1 & 2 Data
-  const [storage1, setStorage1] = useState({
-    id: 1,
-    name: 'Storage 1 - Sinandomeng',
-    productId: null,
-    pricePerKg: 65,
-    currentWeight: 0,
-    maxCapacity: 20,
-    percentage: 0,
-    status: 'Normal',
-    isLow: false
-  });
-  
-  const [storage2, setStorage2] = useState({
-    id: 2,
-    name: 'Storage 2 - Dinorado',
-    productId: null,
-    pricePerKg: 52,
-    currentWeight: 0,
-    maxCapacity: 20,
-    percentage: 0,
-    status: 'Normal',
-    isLow: false
-  });
+  // Storage 1 - Sinandomeng should be 52, not 54 or 65
+const [storage1, setStorage1] = useState({
+  id: 1,
+  name: 'Storage 1 - Sinandomeng',
+  productId: null,
+  pricePerKg: 52,  // CHANGE to 52
+  currentWeight: 0,
+  maxCapacity: 20,
+  percentage: 0,
+  status: 'Normal',
+  isLow: false
+});
+
+// Storage 2 - Dinorado should be 65, not 52
+const [storage2, setStorage2] = useState({
+  id: 2,
+  name: 'Storage 2 - Dinorado',
+  productId: null,
+  pricePerKg: 65,  // CHANGE to 65
+  currentWeight: 0,
+  maxCapacity: 20,
+  percentage: 0,
+  status: 'Normal',
+  isLow: false
+});
   
   // Battery Monitoring
   const [battery, setBattery] = useState({
@@ -69,67 +70,65 @@ const AdminMachine = () => {
   const [refillingStorage, setRefillingStorage] = useState(null);
   const [refillAmount, setRefillAmount] = useState(0);
 
-  // Fetch machine data from ESP32
-  const fetchMachineData = async () => {
-    try {
-      setLoading(true);
+ const fetchMachineData = async () => {
+  try {
+    setLoading(true);
+    
+    // CHANGE: Use /api/esp32/latest instead of /public/latest
+    const response = await axios.get(`${API_URL}/esp32/latest`);
+    
+    if (response.data.success) {
+      const data = response.data;  // CHANGE: data is directly in response
       
-      // Fetch from ESP32 public endpoint (no auth needed)
-      const response = await axios.get(`${API_URL}/esp32/public/latest`);
+      // Update Storage 1 (Sinandomeng) - use storage1.currentWeight
+      const storage1CurrentWeight = data.storage1?.currentWeight || 0;
+      const storage1Percentage = (storage1CurrentWeight / 20) * 100;
+      setStorage1(prev => ({
+        ...prev,
+        currentWeight: storage1CurrentWeight,
+        percentage: storage1Percentage,
+        status: storage1CurrentWeight <= 5 ? 'Critical' : storage1CurrentWeight <= 10 ? 'Low' : 'Normal',
+        isLow: storage1CurrentWeight <= 10,
+        pricePerKg: data.storage1?.pricePerKg || prev.pricePerKg
+      }));
       
-      if (response.data.success) {
-        const data = response.data.data;
-        
-        // Update Storage 1 (Sinandomeng)
-        const storage1CurrentWeight = data.container1Level || 0;
-        const storage1Percentage = (storage1CurrentWeight / 20) * 100;
-        setStorage1(prev => ({
-          ...prev,
-          currentWeight: storage1CurrentWeight,
-          percentage: storage1Percentage,
-          status: storage1CurrentWeight <= 5 ? 'Critical' : storage1CurrentWeight <= 10 ? 'Low' : 'Normal',
-          isLow: storage1CurrentWeight <= 10
-        }));
-        
-        // Update Storage 2 (Dinorado)
-        const storage2CurrentWeight = data.container2Level || 0;
-        const storage2Percentage = (storage2CurrentWeight / 20) * 100;
-        setStorage2(prev => ({
-          ...prev,
-          currentWeight: storage2CurrentWeight,
-          percentage: storage2Percentage,
-          status: storage2CurrentWeight <= 5 ? 'Critical' : storage2CurrentWeight <= 10 ? 'Low' : 'Normal',
-          isLow: storage2CurrentWeight <= 10
-        }));
-        
-        // Update Battery
-        setBattery(prev => ({
-          ...prev,
-          percentage: data.batteryPercentage || 100,
-          voltage: data.batteryVoltage || 12.6,
-          status: (data.batteryPercentage || 100) >= 70 ? 'Good' : (data.batteryPercentage || 100) >= 30 ? 'Warning' : 'Critical',
-          isCharging: true,
-          health: (data.batteryPercentage || 100) >= 70 ? 'Good' : 'Fair'
-        }));
-        
-        // Update Machine Status
-        setMachineStatus(prev => ({
-          ...prev,
-          isOnline: true,
-          doorStatus: data.doorStatus === 'OPEN' ? 'Open' : 'Closed',
-          securityStatus: data.doorStatus === 'OPEN' ? 'Alert - Door Open' : 'Safe',
-          lastUpdate: new Date()
-        }));
-        
-        console.log('✅ Machine data loaded from ESP32');
-      }
-    } catch (error) {
-      console.error('Error fetching machine data:', error);
-      showNotification('error', 'Failed to load machine data');
-    } finally {
-      setLoading(false);
+      // Update Storage 2 (Dinorado) - use storage2.currentWeight
+      const storage2CurrentWeight = data.storage2?.currentWeight || 0;
+      const storage2Percentage = (storage2CurrentWeight / 20) * 100;
+      setStorage2(prev => ({
+        ...prev,
+        currentWeight: storage2CurrentWeight,
+        percentage: storage2Percentage,
+        status: storage2CurrentWeight <= 5 ? 'Critical' : storage2CurrentWeight <= 10 ? 'Low' : 'Normal',
+        isLow: storage2CurrentWeight <= 10,
+        pricePerKg: data.storage2?.pricePerKg || prev.pricePerKg
+      }));
+      
+      // Update Battery
+      setBattery(prev => ({
+        ...prev,
+        percentage: data.batteryPercentage || 100,
+        status: (data.batteryPercentage || 100) >= 70 ? 'Good' : (data.batteryPercentage || 100) >= 30 ? 'Warning' : 'Critical'
+      }));
+      
+      // Update Machine Status
+      setMachineStatus(prev => ({
+        ...prev,
+        isOnline: true,
+        doorStatus: data.doorStatus || 'Closed',
+        securityStatus: data.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe',
+        lastUpdate: new Date()
+      }));
+      
+      console.log('✅ Machine data loaded:', data);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching machine data:', error);
+    showNotification('error', 'Failed to load machine data');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const showNotification = (type, message) => {
     setNotification({ type, message });
