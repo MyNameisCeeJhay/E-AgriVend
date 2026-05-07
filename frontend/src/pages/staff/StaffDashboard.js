@@ -12,31 +12,31 @@ const StaffDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
   
- // Storage 1 - Sinandomeng should be 52
-const [storage1, setStorage1] = useState({
-  id: 1,
-  name: 'Storage 1 - Sinandomeng',
-  productId: null,
-  pricePerKg: 52,  // CHANGE from 65 to 52
-  currentWeight: 0,
-  maxCapacity: 20,
-  percentage: 0,
-  status: 'Normal',
-  isLow: false
-});
+  // Storage 1 - Sinandomeng should be 52
+  const [storage1, setStorage1] = useState({
+    id: 1,
+    name: 'Storage 1 - Sinandomeng',
+    productId: null,
+    pricePerKg: 52,
+    currentWeight: 0,
+    maxCapacity: 20,
+    percentage: 0,
+    status: 'Normal',
+    isLow: false
+  });
 
-// Storage 2 - Dinorado should be 65
-const [storage2, setStorage2] = useState({
-  id: 2,
-  name: 'Storage 2 - Dinorado',
-  productId: null,
-  pricePerKg: 65,  // CHANGE from 52 to 65
-  currentWeight: 0,
-  maxCapacity: 20,
-  percentage: 0,
-  status: 'Normal',
-  isLow: false
-});
+  // Storage 2 - Dinorado should be 65
+  const [storage2, setStorage2] = useState({
+    id: 2,
+    name: 'Storage 2 - Dinorado',
+    productId: null,
+    pricePerKg: 65,
+    currentWeight: 0,
+    maxCapacity: 20,
+    percentage: 0,
+    status: 'Normal',
+    isLow: false
+  });
   
   // Battery Monitoring
   const [battery, setBattery] = useState({
@@ -62,75 +62,69 @@ const [storage2, setStorage2] = useState({
     name: '',
     pricePerKg: ''
   });
-  
-  // Refill Modal
-  const [showRefillModal, setShowRefillModal] = useState(false);
-  const [refillingStorage, setRefillingStorage] = useState(null);
-  const [refillAmount, setRefillAmount] = useState(0);
 
   const fetchMachineData = async () => {
-  try {
-    setLoading(true);
-    
-    // CHANGE: Use the correct endpoint
-    const response = await axios.get(`${API_URL}/esp32/latest`);
-    
-    console.log('API Response:', response.data);
-    
-    if (response.data.success) {
-      const data = response.data;
+    try {
+      setLoading(true);
       
-      // Update Storage 1 (Sinandomeng) - using correct field names
-      const storage1Weight = data.storage1?.currentWeight || 0;
-      const storage1Percentage = (storage1Weight / 20) * 100;
-      setStorage1(prev => ({
-        ...prev,
-        currentWeight: storage1Weight,
-        percentage: storage1Percentage,
-        status: storage1Weight <= 0.1 ? 'Empty' : storage1Weight <= 5 ? 'Low' : 'Normal',
-        isLow: storage1Weight <= 10,
-        pricePerKg: 52  // Force correct price for Sinandomeng
-      }));
+      const response = await axios.get(`${API_URL}/esp32/latest`);
       
-      // Update Storage 2 (Dinorado)
-      const storage2Weight = data.storage2?.currentWeight || 0;
-      const storage2Percentage = (storage2Weight / 20) * 100;
-      setStorage2(prev => ({
-        ...prev,
-        currentWeight: storage2Weight,
-        percentage: storage2Percentage,
-        status: storage2Weight <= 0.1 ? 'Empty' : storage2Weight <= 5 ? 'Low' : 'Normal',
-        isLow: storage2Weight <= 10,
-        pricePerKg: 65  // Force correct price for Dinorado
-      }));
+      console.log('API Response:', response.data);
       
-      // Update Battery
-      setBattery(prev => ({
-        ...prev,
-        percentage: data.batteryPercentage || 100
-      }));
-      
-      // Update Machine Status
-      setMachineStatus(prev => ({
-        ...prev,
-        isOnline: true,
-        doorStatus: data.doorStatus || 'Closed',
-        securityStatus: data.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe',
-        lastUpdate: new Date()
-      }));
-      
-      console.log('✅ Storage1 weight:', storage1Weight);
-      console.log('✅ Storage2 weight:', storage2Weight);
+      if (response.data.success) {
+        const data = response.data;
+        
+        // Update Storage 1 (Sinandomeng)
+        const storage1Weight = data.storage1?.currentWeight || 0;
+        const storage1Percentage = (storage1Weight / 20) * 100;
+        setStorage1(prev => ({
+          ...prev,
+          currentWeight: storage1Weight,
+          percentage: storage1Percentage,
+          status: storage1Weight <= 0.1 ? 'Empty' : storage1Weight <= 5 ? 'Low' : 'Normal',
+          isLow: storage1Weight <= 10,
+          pricePerKg: 52
+        }));
+        
+        // Update Storage 2 (Dinorado)
+        const storage2Weight = data.storage2?.currentWeight || 0;
+        const storage2Percentage = (storage2Weight / 20) * 100;
+        setStorage2(prev => ({
+          ...prev,
+          currentWeight: storage2Weight,
+          percentage: storage2Percentage,
+          status: storage2Weight <= 0.1 ? 'Empty' : storage2Weight <= 5 ? 'Low' : 'Normal',
+          isLow: storage2Weight <= 10,
+          pricePerKg: 65
+        }));
+        
+        // Update Battery
+        setBattery(prev => ({
+          ...prev,
+          percentage: data.batteryPercentage || 100
+        }));
+        
+        // Update Machine Status
+        setMachineStatus(prev => ({
+          ...prev,
+          isOnline: true,
+          doorStatus: data.doorStatus || 'Closed',
+          securityStatus: data.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe',
+          lastUpdate: new Date()
+        }));
+        
+        console.log('✅ Storage1 weight:', storage1Weight);
+        console.log('✅ Storage2 weight:', storage2Weight);
+      }
+    } catch (error) {
+      console.error('Error fetching machine data:', error);
+      showNotification('error', 'Failed to load machine data');
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error('Error fetching machine data:', error);
-    showNotification('error', 'Failed to load machine data');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
-  // Also fetch product names and prices from database (these don't come from ESP32)
+  // Also fetch product names and prices from database
   const fetchProductSettings = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -140,7 +134,6 @@ const [storage2, setStorage2] = useState({
       
       if (response.data.success) {
         const products = response.data.data;
-        // Update storage names and prices from database settings
         setStorage1(prev => ({
           ...prev,
           name: products.storage1?.name || prev.name,
@@ -154,25 +147,22 @@ const [storage2, setStorage2] = useState({
       }
     } catch (error) {
       console.error('Error fetching product settings:', error);
-      // Non-critical error, don't show notification
     }
   };
 
   // Socket listeners for real-time updates
   useEffect(() => {
     fetchMachineData();
-    fetchProductSettings(); // Get product names and prices
+    fetchProductSettings();
     
-    // Refresh data every 30 seconds (same as AdminMachine)
     const interval = setInterval(() => {
       fetchMachineData();
     }, 30000);
     
     if (socket) {
       socket.on('machine_data_updated', (data) => {
-        // Handle real-time updates from ESP32 via socket
-        if (data.container1Level !== undefined) {
-          const storage1CurrentWeight = data.container1Level;
+        if (data.storage1?.currentWeight !== undefined) {
+          const storage1CurrentWeight = data.storage1.currentWeight;
           const storage1Percentage = (storage1CurrentWeight / 20) * 100;
           setStorage1(prev => ({
             ...prev,
@@ -183,8 +173,8 @@ const [storage2, setStorage2] = useState({
           }));
         }
         
-        if (data.container2Level !== undefined) {
-          const storage2CurrentWeight = data.container2Level;
+        if (data.storage2?.currentWeight !== undefined) {
+          const storage2CurrentWeight = data.storage2.currentWeight;
           const storage2Percentage = (storage2CurrentWeight / 20) * 100;
           setStorage2(prev => ({
             ...prev,
@@ -195,20 +185,19 @@ const [storage2, setStorage2] = useState({
           }));
         }
         
-        if (data.batteryPercentage !== undefined) {
+        if (data.battery?.percentage !== undefined) {
           setBattery(prev => ({
             ...prev,
-            percentage: data.batteryPercentage,
-            voltage: data.batteryVoltage || prev.voltage,
-            status: data.batteryPercentage >= 70 ? 'Good' : data.batteryPercentage >= 30 ? 'Warning' : 'Critical'
+            percentage: data.battery.percentage,
+            status: data.battery.percentage >= 70 ? 'Good' : data.battery.percentage >= 30 ? 'Warning' : 'Critical'
           }));
         }
         
-        if (data.doorStatus !== undefined) {
+        if (data.machineStatus?.doorStatus !== undefined) {
           setMachineStatus(prev => ({
             ...prev,
-            doorStatus: data.doorStatus === 'OPEN' ? 'Open' : 'Closed',
-            securityStatus: data.doorStatus === 'OPEN' ? 'Alert - Door Open' : 'Safe'
+            doorStatus: data.machineStatus.doorStatus,
+            securityStatus: data.machineStatus.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe'
           }));
         }
         
@@ -293,51 +282,6 @@ const [storage2, setStorage2] = useState({
     } catch (error) {
       console.error('Error saving product:', error);
       showNotification('error', 'Failed to save product');
-    }
-  };
-
-  const handleRefill = (storage) => {
-    setRefillingStorage(storage);
-    setRefillAmount(storage.currentWeight);
-    setShowRefillModal(true);
-  };
-
-  const confirmRefill = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      await axios.post(`${API_URL}/machine/refill`, {
-        storageId: refillingStorage.id,
-        amount: refillAmount
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (refillingStorage.id === 1) {
-        setStorage1(prev => ({
-          ...prev,
-          currentWeight: refillAmount,
-          percentage: (refillAmount / prev.maxCapacity) * 100,
-          status: refillAmount < 5 ? 'Critical' : refillAmount < 10 ? 'Low' : 'Normal',
-          isLow: refillAmount < 10
-        }));
-      } else {
-        setStorage2(prev => ({
-          ...prev,
-          currentWeight: refillAmount,
-          percentage: (refillAmount / prev.maxCapacity) * 100,
-          status: refillAmount < 5 ? 'Critical' : refillAmount < 10 ? 'Low' : 'Normal',
-          isLow: refillAmount < 10
-        }));
-      }
-      
-      showNotification('success', `Refilled ${refillingStorage.name} to ${refillAmount}kg`);
-      setShowRefillModal(false);
-      setRefillingStorage(null);
-      
-    } catch (error) {
-      console.error('Error refilling:', error);
-      showNotification('error', 'Failed to refill storage');
     }
   };
 
@@ -475,12 +419,6 @@ const [storage2, setStorage2] = useState({
               <span className="detail-value">{storage1.currentWeight.toFixed(1)} / 20 kg</span>
             </div>
           </div>
-          
-          <div className="storage-actions">
-            <button className="btn-refill" onClick={() => handleRefill(storage1)}>
-              Refill Storage
-            </button>
-          </div>
         </div>
 
         {/* Storage 2 */}
@@ -527,12 +465,6 @@ const [storage2, setStorage2] = useState({
               <span className="detail-label">Load Cell:</span>
               <span className="detail-value">{storage2.currentWeight.toFixed(1)} / 20 kg</span>
             </div>
-          </div>
-          
-          <div className="storage-actions">
-            <button className="btn-refill" onClick={() => handleRefill(storage2)}>
-              Refill Storage
-            </button>
           </div>
         </div>
       </div>
@@ -641,48 +573,6 @@ const [storage2, setStorage2] = useState({
             <div className="modal-footer">
               <button className="btn-cancel" onClick={() => setShowEditModal(false)}>Cancel</button>
               <button className="btn-save" onClick={handleSaveProduct}>Save Changes</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Refill Modal */}
-      {showRefillModal && refillingStorage && (
-        <div className="modal-overlay" onClick={() => setShowRefillModal(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Refill {refillingStorage.name}</h2>
-              <button className="modal-close" onClick={() => setShowRefillModal(false)}>×</button>
-            </div>
-            
-            <div className="modal-body">
-              <div className="form-group">
-                <label>Current Weight: {refillingStorage.currentWeight.toFixed(1)} kg</label>
-                <label>Max Capacity: {refillingStorage.maxCapacity} kg</label>
-                <label>Remaining Space: {(refillingStorage.maxCapacity - refillingStorage.currentWeight).toFixed(1)} kg</label>
-              </div>
-              
-              <div className="form-group">
-                <label>New Total Weight After Refill (kg)</label>
-                <input
-                  type="number"
-                  value={refillAmount}
-                  onChange={(e) => setRefillAmount(parseFloat(e.target.value))}
-                  placeholder="Enter total weight after refill"
-                  step="0.5"
-                  min="0"
-                  max={refillingStorage.maxCapacity}
-                />
-              </div>
-              
-              <div className="info-text">
-                <small>This will update the load cell reading to the new weight. The amount added will be: {(refillAmount - refillingStorage.currentWeight).toFixed(1)} kg</small>
-              </div>
-            </div>
-            
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setShowRefillModal(false)}>Cancel</button>
-              <button className="btn-save" onClick={confirmRefill}>Confirm Refill</button>
             </div>
           </div>
         </div>
