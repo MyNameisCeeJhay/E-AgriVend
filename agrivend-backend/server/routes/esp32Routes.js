@@ -6,17 +6,9 @@ import Product from '../models/Product.js';
 const router = express.Router();
 
 // ============================================
-// HELPER FUNCTION - Get or create machine
+// YOUR SPECIFIC MACHINE ID (DO NOT CHANGE)
 // ============================================
-async function getOrCreateMachine(deviceId) {
-  let machine = await Machine.findOne({ deviceId: deviceId });
-  if (!machine) {
-    machine = new Machine({ deviceId: deviceId });
-    await machine.save();
-    console.log(`✅ Created new machine record for ${deviceId}`);
-  }
-  return machine;
-}
+const MACHINE_ID = "69fa1ca4e581a073cd09c802";
 
 // ============================================
 // PUBLIC ENDPOINTS (No authentication required)
@@ -25,7 +17,8 @@ async function getOrCreateMachine(deviceId) {
 // Get latest machine data for public dashboard
 router.get('/public/latest', async (req, res) => {
   try {
-    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    // Use your specific machine ID
+    const machine = await Machine.findById(MACHINE_ID);
     
     if (!machine) {
       return res.json({
@@ -55,7 +48,7 @@ router.get('/public/latest', async (req, res) => {
           percentage: machine.storage2.percentage,
           status: machine.storage2.status
         },
-        totalStock: machine.totalStock,
+        totalStock: (machine.storage1.currentWeight || 0) + (machine.storage2.currentWeight || 0),
         batteryPercentage: machine.battery.percentage,
         doorStatus: machine.machineStatus.doorStatus,
         machineStatus: machine.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE',
@@ -73,7 +66,7 @@ router.get('/public/latest', async (req, res) => {
 router.get('/public/storage/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    const machine = await Machine.findById(MACHINE_ID);
     const maxLevel = 20;
     
     if (!machine) {
@@ -105,12 +98,12 @@ router.get('/public/storage/:id', async (req, res) => {
 // Get machine summary
 router.get('/public/summary', async (req, res) => {
   try {
-    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    const machine = await Machine.findById(MACHINE_ID);
     
     res.json({
       success: true,
       data: {
-        totalStock: machine ? machine.totalStock : 0,
+        totalStock: machine ? (machine.storage1.currentWeight + machine.storage2.currentWeight) : 0,
         batteryPercentage: machine?.battery.percentage || 100,
         doorStatus: machine?.machineStatus.doorStatus || 'Closed',
         machineStatus: machine?.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE'
@@ -125,6 +118,7 @@ router.get('/public/summary', async (req, res) => {
 // ESP32 ENDPOINTS (No authentication)
 // ============================================
 
+// ESP32 sends sensor data - updates your machine
 router.post('/sensors/update', async (req, res) => {
   console.log('📡 ESP32 Data received');
   console.log('📦 Body:', req.body);
@@ -138,45 +132,30 @@ router.post('/sensors/update', async (req, res) => {
       temperature
     } = req.body;
 
-    // FIND THE EXISTING DOCUMENT BY ITS _id (NO deviceId)
-    // Use the actual _id from your database
-    const machine = await Machine.findById("69fa1ca4e581a073cd09c802");
+    // Find your specific machine by ID
+    const machine = await Machine.findById(MACHINE_ID);
     
     if (!machine) {
-      console.log('❌ Machine document not found!');
+      console.log('❌ Machine not found!');
       return res.status(404).json({ success: false, error: 'Machine not found' });
     }
     
     // UPDATE THE WEIGHTS
     machine.storage1.currentWeight = loadCellLeft || 0;
     machine.storage2.currentWeight = loadCellRight || 0;
-    machine.storage1.lastUpdated = new Date();
-    machine.storage2.lastUpdated = new Date();
     
-    // Calculate percentages
-    const maxCapacity = 20;
-    machine.storage1.percentage = (machine.storage1.currentWeight / maxCapacity) * 100;
-    machine.storage2.percentage = (machine.storage2.currentWeight / maxCapacity) * 100;
+    // Calculate percentage
+    machine.storage1.percentage = (machine.storage1.currentWeight / 20) * 100;
+    machine.storage2.percentage = (machine.storage2.currentWeight / 20) * 100;
     
     // Update status
-    if (machine.storage1.currentWeight <= 0.05) {
-      machine.storage1.status = "Empty";
-    } else if (machine.storage1.currentWeight < 5) {
-      machine.storage1.status = "Low";
-    } else {
-      machine.storage1.status = "Normal";
-    }
-    
-    if (machine.storage2.currentWeight <= 0.05) {
-      machine.storage2.status = "Empty";
-    } else if (machine.storage2.currentWeight < 5) {
-      machine.storage2.status = "Low";
-    } else {
-      machine.storage2.status = "Normal";
-    }
+    machine.storage1.status = machine.storage1.currentWeight <= 0.05 ? 'Empty' : 
+                              machine.storage1.currentWeight < 5 ? 'Low' : 'Normal';
+    machine.storage2.status = machine.storage2.currentWeight <= 0.05 ? 'Empty' : 
+                              machine.storage2.currentWeight < 5 ? 'Low' : 'Normal';
     
     // Update battery
-    if (batteryPercentage) {
+    if (batteryPercentage !== undefined) {
       machine.battery.percentage = batteryPercentage;
     }
     
@@ -186,19 +165,19 @@ router.post('/sensors/update', async (req, res) => {
     }
     
     // Update temperature
-    if (temperature) {
+    if (temperature !== undefined) {
       machine.machineStatus.temperature = temperature;
     }
     
     machine.machineStatus.lastUpdate = new Date();
     machine.machineStatus.isOnline = true;
+    machine.machineStatus.loadCellStatus = 'OK';
     
-    // SAVE TO DATABASE
     await machine.save();
     
     console.log(`✅ Updated machine document!`);
-    console.log(`   Sinandomeng: ${machine.storage1.currentWeight}kg`);
-    console.log(`   Dinorado: ${machine.storage2.currentWeight}kg`);
+    console.log(`   Sinandomeng: ${machine.storage1.currentWeight}kg (${machine.storage1.status})`);
+    console.log(`   Dinorado: ${machine.storage2.currentWeight}kg (${machine.storage2.status})`);
     
     res.json({ success: true, message: 'Machine updated' });
     
@@ -208,57 +187,63 @@ router.post('/sensors/update', async (req, res) => {
   }
 });
 
-// CHANGE FROM: router.get('/latest/:deviceId', ...)
-// TO:
+// Get latest machine data - MAIN ENDPOINT for website
 router.get('/latest', async (req, res) => {
   try {
-    // Get the first (and only) machine document
-    const machine = await Machine.findOne(); // No filter, just get the document
+    // Get your specific machine by ID
+    const machine = await Machine.findById(MACHINE_ID);
     
     if (!machine) {
+      console.log('❌ Machine not found');
       return res.json({
         success: true,
-        storage1: { currentWeight: 0, percentage: 0, status: 'Empty' },
-        storage2: { currentWeight: 0, percentage: 0, status: 'Empty' }
+        storage1: { currentWeight: 0, percentage: 0, status: 'Empty', pricePerKg: 52 },
+        storage2: { currentWeight: 0, percentage: 0, status: 'Empty', pricePerKg: 65 },
+        batteryPercentage: 100,
+        doorStatus: 'Closed',
+        temperature: 25,
+        totalStock: 0
       });
     }
+    
+    console.log('✅ Found machine with data:');
+    console.log('   Sinandomeng weight:', machine.storage1.currentWeight);
+    console.log('   Dinorado weight:', machine.storage2.currentWeight);
     
     res.json({
       success: true,
       storage1: {
-        currentWeight: machine.storage1.currentWeight,
-        percentage: machine.storage1.percentage,
-        status: machine.storage1.status,
-        pricePerKg: machine.storage1.pricePerKg
+        currentWeight: machine.storage1.currentWeight || 0,
+        percentage: machine.storage1.percentage || 0,
+        status: machine.storage1.status || 'Empty',
+        pricePerKg: 52  // Fixed price for Sinandomeng
       },
       storage2: {
-        currentWeight: machine.storage2.currentWeight,
-        percentage: machine.storage2.percentage,
-        status: machine.storage2.status,
-        pricePerKg: machine.storage2.pricePerKg
+        currentWeight: machine.storage2.currentWeight || 0,
+        percentage: machine.storage2.percentage || 0,
+        status: machine.storage2.status || 'Empty',
+        pricePerKg: 65  // Fixed price for Dinorado
       },
-      batteryPercentage: machine.battery.percentage,
-      doorStatus: machine.machineStatus.doorStatus,
-      temperature: machine.machineStatus.temperature,
-      totalStock: machine.storage1.currentWeight + machine.storage2.currentWeight
+      batteryPercentage: machine.battery.percentage || 100,
+      doorStatus: machine.machineStatus.doorStatus || 'Closed',
+      temperature: machine.machineStatus.temperature || 25,
+      totalStock: (machine.storage1.currentWeight || 0) + (machine.storage2.currentWeight || 0)
     });
     
   } catch (error) {
+    console.error('❌ Error fetching latest:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 // ===== ENDPOINT: Get current stock quick view =====
-router.get('/stock/:deviceId', async (req, res) => {
+router.get('/stock', async (req, res) => {
   try {
-    const { deviceId } = req.params;
-    
-    const machine = await Machine.findOne({ deviceId: deviceId || 'AGRIVEND_001' });
+    const machine = await Machine.findById(MACHINE_ID);
     
     if (!machine) {
       return res.json({
         success: true,
-        deviceId: deviceId || 'AGRIVEND_001',
         premium: { kg: 0, status: 'NO_DATA', percentage: 0 },
         regular: { kg: 0, status: 'NO_DATA', percentage: 0 },
         total: 0,
@@ -268,7 +253,6 @@ router.get('/stock/:deviceId', async (req, res) => {
     
     res.json({
       success: true,
-      deviceId: machine.deviceId,
       premium: {
         kg: machine.storage2.currentWeight,  // Dinorado = storage2
         status: machine.storage2.status,
@@ -279,7 +263,7 @@ router.get('/stock/:deviceId', async (req, res) => {
         status: machine.storage1.status,
         percentage: machine.storage1.percentage
       },
-      total: machine.totalStock,
+      total: (machine.storage1.currentWeight || 0) + (machine.storage2.currentWeight || 0),
       loadCellStatus: machine.machineStatus.loadCellStatus,
       lastUpdate: machine.machineStatus.lastUpdate
     });
@@ -293,18 +277,13 @@ router.get('/stock/:deviceId', async (req, res) => {
 // ===== ENDPOINT: Get product prices =====
 router.get('/prices', async (req, res) => {
   try {
-    // Get prices from Products table
-    const dinoradoProduct = await Product.findOne({ name: 'DINORADO' });
-    const sinandomengProduct = await Product.findOne({ name: 'SINANDOMENG' });
-    
     res.json({
       success: true,
       prices: {
-        dinorado: dinoradoProduct ? dinoradoProduct.price : 65.0,
-        sinandomeng: sinandomengProduct ? sinandomengProduct.price : 52.0
+        dinorado: 65.0,
+        sinandomeng: 52.0
       }
     });
-    
   } catch (error) {
     console.error('❌ Error fetching prices:', error);
     res.json({
@@ -322,18 +301,13 @@ router.post('/prices/update', async (req, res) => {
   try {
     const { dinoradoPrice, sinandomengPrice } = req.body;
     
-    // Update prices in Products table
-    await Product.findOneAndUpdate(
-      { name: 'DINORADO' },
-      { price: dinoradoPrice || 65.0 },
-      { upsert: true, new: true }
-    );
-    
-    await Product.findOneAndUpdate(
-      { name: 'SINANDOMENG' },
-      { price: sinandomengPrice || 52.0 },
-      { upsert: true, new: true }
-    );
+    // Update prices in the machine document
+    const machine = await Machine.findById(MACHINE_ID);
+    if (machine) {
+      machine.storage1.pricePerKg = sinandomengPrice || 52;
+      machine.storage2.pricePerKg = dinoradoPrice || 65;
+      await machine.save();
+    }
     
     console.log(`💰 Prices updated - Dinorado: PHP ${dinoradoPrice}, Sinandomeng: PHP ${sinandomengPrice}`);
     
@@ -355,17 +329,15 @@ router.post('/prices/update', async (req, res) => {
 // ===== ENDPOINT: Get current prices =====
 router.get('/prices/current', async (req, res) => {
   try {
-    const dinoradoProduct = await Product.findOne({ name: 'DINORADO' });
-    const sinandomengProduct = await Product.findOne({ name: 'SINANDOMENG' });
+    const machine = await Machine.findById(MACHINE_ID);
     
     res.json({
       success: true,
       prices: {
-        dinorado: dinoradoProduct ? dinoradoProduct.price : 65.0,
-        sinandomeng: sinandomengProduct ? sinandomengProduct.price : 52.0
+        dinorado: machine?.storage2.pricePerKg || 65,
+        sinandomeng: machine?.storage1.pricePerKg || 52
       }
     });
-    
   } catch (error) {
     console.error('❌ Error fetching current prices:', error);
     res.json({
@@ -383,7 +355,7 @@ router.post('/transaction/confirm', async (req, res) => {
   console.log('📝 ESP32 Transaction received:', req.body);
   
   try {
-    const { transactionId, riceType, quantityKg, amountPaid, status, remainingStockPremium, remainingStockRegular } = req.body;
+    const { transactionId, riceType, quantityKg, amountPaid, status } = req.body;
     
     if (!riceType) {
       return res.status(400).json({ 
@@ -441,9 +413,9 @@ router.post('/transaction/confirm', async (req, res) => {
     console.log(`   Product: ${productName}, ${quantityKg}kg, PHP ${amountPaid}`);
     
     // Update transaction count in machine
-    const machine = await Machine.findOne({ deviceId: 'AGRIVEND_001' });
+    const machine = await Machine.findById(MACHINE_ID);
     if (machine) {
-      machine.machineStatus.transactionCount += 1;
+      machine.machineStatus.transactionCount = (machine.machineStatus.transactionCount || 0) + 1;
       await machine.save();
     }
     
@@ -470,7 +442,7 @@ router.post('/transaction/confirm', async (req, res) => {
 });
 
 // ===== GET transactions history =====
-router.get('/transactions/:deviceId', async (req, res) => {
+router.get('/transactions', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
     
@@ -504,16 +476,15 @@ router.post('/security/alert', async (req, res) => {
 router.get('/test', (req, res) => {
   res.json({
     success: true,
-    message: 'ESP32 Routes are working with MACHINE table!',
+    message: 'ESP32 Routes are working with your MACHINE table!',
     endpoints: [
-      'POST /api/esp32/sensors/update - Update Machine table',
-      'GET /api/esp32/latest/:deviceId - Get latest machine data',
-      'GET /api/esp32/stock/:deviceId - Quick stock view',
+      'POST /api/esp32/sensors/update - Update machine weights',
+      'GET /api/esp32/latest - Get latest machine data',
+      'GET /api/esp32/stock - Quick stock view',
       'POST /api/esp32/transaction/confirm - Send transaction',
-      'GET /api/esp32/transactions/:deviceId - Get transactions',
+      'GET /api/esp32/transactions - Get transactions',
       'GET /api/esp32/prices - Get product prices',
       'POST /api/esp32/prices/update - Update product prices',
-      'GET /api/esp32/prices/current - Get current prices',
       'GET /api/esp32/public/latest - Public dashboard',
       'GET /api/esp32/public/storage/:id - Public storage view',
       'GET /api/esp32/public/summary - Public summary'
@@ -527,7 +498,7 @@ router.get('/test', (req, res) => {
 
 router.get('/machine/status', async (req, res) => {
   try {
-    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    const machine = await Machine.findById(MACHINE_ID);
     res.json({ success: true, data: machine || null });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -536,7 +507,7 @@ router.get('/machine/status', async (req, res) => {
 
 router.get('/sensors/history', async (req, res) => {
   try {
-    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    const machine = await Machine.findById(MACHINE_ID);
     res.json({ success: true, data: machine || null });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
