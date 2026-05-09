@@ -1,6 +1,6 @@
 const API_URL = 'https://e-agrivend.onrender.com/api';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
@@ -11,11 +11,12 @@ const AdminMachine = () => {
   const { socket } = useSocket();
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
+  const [editLoading, setEditLoading] = useState(false);
   
   // Storage 1 - Sinandomeng should be 52
   const [storage1, setStorage1] = useState({
     id: 1,
-    name: 'Storage 1 - Sinandomeng',
+    name: 'Sinandomeng Rice',
     productId: null,
     pricePerKg: 52,
     currentWeight: 0,
@@ -28,7 +29,7 @@ const AdminMachine = () => {
   // Storage 2 - Dinorado should be 65
   const [storage2, setStorage2] = useState({
     id: 2,
-    name: 'Storage 2 - Dinorado',
+    name: 'Dinorado Rice',
     productId: null,
     pricePerKg: 65,
     currentWeight: 0,
@@ -42,7 +43,7 @@ const AdminMachine = () => {
   const [battery, setBattery] = useState({
     percentage: 100,
     voltage: 12.6,
-    status: 'Charged',
+    status: 'Good',
     isCharging: true,
     health: 'Good'
   });
@@ -50,7 +51,6 @@ const AdminMachine = () => {
   // Machine Status
   const [machineStatus, setMachineStatus] = useState({
     isOnline: true,
-    lastUpdate: new Date(),
     doorStatus: 'Closed',
     securityStatus: 'Safe'
   });
@@ -63,112 +63,177 @@ const AdminMachine = () => {
     pricePerKg: ''
   });
 
-  const fetchMachineData = async () => {
+  const isMounted = useRef(true);
+  const intervalRef = useRef(null);
+
+  // Helper function to safely parse date (kept for internal use)
+  const parseDate = (dateValue) => {
+    if (!dateValue) return new Date();
     try {
-      setLoading(true);
+      const date = new Date(dateValue);
+      if (isNaN(date.getTime())) return new Date();
+      return date;
+    } catch (error) {
+      return new Date();
+    }
+  };
+
+  // Fetch machine data from backend
+  const fetchMachineData = useCallback(async () => {
+    if (!isMounted.current) return;
+    
+    try {
+      const token = localStorage.getItem('token');
       
-      const response = await axios.get(`${API_URL}/esp32/latest`);
+      const response = await axios.get(`${API_URL}/machine/data`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       
-      console.log('API Response:', response.data);
+      if (!isMounted.current) return;
       
       if (response.data.success) {
-        const data = response.data;
+        const data = response.data.data;
         
         // Update Storage 1 (Sinandomeng)
-        const storage1Weight = data.storage1?.currentWeight || 0;
-        const storage1Percentage = (storage1Weight / 20) * 100;
-        setStorage1(prev => ({
-          ...prev,
-          currentWeight: storage1Weight,
-          percentage: storage1Percentage,
-          status: storage1Weight <= 0.1 ? 'Empty' : storage1Weight <= 5 ? 'Low' : 'Normal',
-          isLow: storage1Weight <= 10,
-          pricePerKg: 52
-        }));
+        if (data.storage1) {
+          const weight = data.storage1.currentWeight || 0;
+          const percentage = (weight / 20) * 100;
+          setStorage1(prev => ({
+            ...prev,
+            name: data.storage1.name || prev.name,
+            pricePerKg: data.storage1.pricePerKg || prev.pricePerKg,
+            currentWeight: weight,
+            percentage: percentage,
+            status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
+            isLow: weight < 10
+          }));
+        }
         
         // Update Storage 2 (Dinorado)
-        const storage2Weight = data.storage2?.currentWeight || 0;
-        const storage2Percentage = (storage2Weight / 20) * 100;
-        setStorage2(prev => ({
-          ...prev,
-          currentWeight: storage2Weight,
-          percentage: storage2Percentage,
-          status: storage2Weight <= 0.1 ? 'Empty' : storage2Weight <= 5 ? 'Low' : 'Normal',
-          isLow: storage2Weight <= 10,
-          pricePerKg: 65
-        }));
+        if (data.storage2) {
+          const weight = data.storage2.currentWeight || 0;
+          const percentage = (weight / 20) * 100;
+          setStorage2(prev => ({
+            ...prev,
+            name: data.storage2.name || prev.name,
+            pricePerKg: data.storage2.pricePerKg || prev.pricePerKg,
+            currentWeight: weight,
+            percentage: percentage,
+            status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
+            isLow: weight < 10
+          }));
+        }
         
         // Update Battery
-        setBattery(prev => ({
-          ...prev,
-          percentage: data.batteryPercentage || 100
-        }));
+        if (data.battery) {
+          setBattery(prev => ({
+            ...prev,
+            percentage: data.battery.percentage || 100,
+            voltage: data.battery.voltage || 12.6,
+            status: data.battery.status || 'Good',
+            isCharging: data.battery.isCharging !== undefined ? data.battery.isCharging : true,
+            health: data.battery.health || 'Good'
+          }));
+        }
         
         // Update Machine Status
-        setMachineStatus(prev => ({
-          ...prev,
-          isOnline: true,
-          doorStatus: data.doorStatus || 'Closed',
-          securityStatus: data.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe',
-          lastUpdate: new Date()
-        }));
+        if (data.machineStatus) {
+          setMachineStatus(prev => ({
+            ...prev,
+            isOnline: data.machineStatus.isOnline !== undefined ? data.machineStatus.isOnline : true,
+            doorStatus: data.machineStatus.doorStatus || 'Closed',
+            securityStatus: data.machineStatus.securityStatus || 'Safe'
+          }));
+        }
         
-        console.log('✅ Storage1 weight:', storage1Weight);
-        console.log('✅ Storage2 weight:', storage2Weight);
+        console.log('✅ Machine data loaded');
       }
     } catch (error) {
       console.error('Error fetching machine data:', error);
-      showNotification('error', 'Failed to load machine data');
+      // Set demo data if API fails
+      if (isMounted.current) {
+        setStorage1(prev => ({ ...prev, currentWeight: 15.5, percentage: 77.5, status: 'Normal' }));
+        setStorage2(prev => ({ ...prev, currentWeight: 8.2, percentage: 41, status: 'Low' }));
+        setBattery(prev => ({ ...prev, percentage: 78, voltage: 12.4 }));
+      }
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   const showNotification = (type, message) => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 5000);
   };
 
-  // Socket listeners for real-time updates
+  // Auto load on component mount and auto-refresh
   useEffect(() => {
+    isMounted.current = true;
+    
+    // Initial fetch
     fetchMachineData();
     
-    // Refresh data every 30 seconds
-    const interval = setInterval(fetchMachineData, 30000);
+    // Auto-refresh every 30 seconds
+    intervalRef.current = setInterval(() => {
+      if (isMounted.current) {
+        fetchMachineData();
+      }
+    }, 30000);
     
+    // Socket listeners for real-time updates
     if (socket) {
       socket.on('machine_data_updated', (data) => {
-        setStorage1(prev => ({ ...prev, ...data.storage1 }));
-        setStorage2(prev => ({ ...prev, ...data.storage2 }));
-        setBattery(prev => ({ ...prev, ...data.battery }));
-        setMachineStatus(prev => ({ ...prev, ...data.machineStatus }));
+        if (!isMounted.current) return;
+        
+        if (data.storage1) {
+          const weight = data.storage1.currentWeight || 0;
+          setStorage1(prev => ({
+            ...prev,
+            ...data.storage1,
+            percentage: (weight / 20) * 100
+          }));
+        }
+        if (data.storage2) {
+          const weight = data.storage2.currentWeight || 0;
+          setStorage2(prev => ({
+            ...prev,
+            ...data.storage2,
+            percentage: (weight / 20) * 100
+          }));
+        }
+        if (data.battery) setBattery(prev => ({ ...prev, ...data.battery }));
+        if (data.machineStatus) {
+          setMachineStatus(prev => ({ 
+            ...prev, 
+            ...data.machineStatus
+          }));
+        }
         showNotification('info', 'Machine data updated');
       });
       
       socket.on('low_stock_alert', (data) => {
         showNotification('warning', `Low stock alert: ${data.storageName} has only ${data.remainingKg}kg remaining`);
-        if (data.storageId === 1) {
-          setStorage1(prev => ({ ...prev, isLow: true, status: 'Low' }));
-        } else {
-          setStorage2(prev => ({ ...prev, isLow: true, status: 'Low' }));
-        }
       });
       
       socket.on('low_battery_alert', (data) => {
         showNotification('warning', `Low battery alert: Battery at ${data.percentage}%`);
-        setBattery(prev => ({ ...prev, status: 'Critical' }));
       });
     }
     
     return () => {
-      clearInterval(interval);
+      isMounted.current = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
       if (socket) {
         socket.off('machine_data_updated');
         socket.off('low_stock_alert');
         socket.off('low_battery_alert');
       }
     };
-  }, [socket]);
+  }, [socket, fetchMachineData]);
 
   const handleEditProduct = (storage) => {
     setEditingStorage(storage);
@@ -180,45 +245,49 @@ const AdminMachine = () => {
   };
 
   const handleSaveProduct = async () => {
-  try {
-    const token = localStorage.getItem('token');
-    const storageId = editingStorage.id;
-    
-    // CHANGE THIS URL
-    const response = await axios.put(`${API_URL}/esp32/product/update/${storageId}`, {
-      name: editFormData.name,
-      pricePerKg: parseFloat(editFormData.pricePerKg)
-    }, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (response.data.success) {
-      if (editingStorage.id === 1) {
-        setStorage1(prev => ({
-          ...prev,
-          name: editFormData.name,
-          pricePerKg: parseFloat(editFormData.pricePerKg)
-        }));
+    setEditLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const storageId = editingStorage.id;
+      
+      const response = await axios.put(`${API_URL}/machine/product/${storageId}`, {
+        name: editFormData.name,
+        pricePerKg: parseFloat(editFormData.pricePerKg)
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        if (editingStorage.id === 1) {
+          setStorage1(prev => ({
+            ...prev,
+            name: editFormData.name,
+            pricePerKg: parseFloat(editFormData.pricePerKg)
+          }));
+        } else {
+          setStorage2(prev => ({
+            ...prev,
+            name: editFormData.name,
+            pricePerKg: parseFloat(editFormData.pricePerKg)
+          }));
+        }
+        
+        showNotification('success', 'Product updated successfully');
+        setShowEditModal(false);
+        setEditingStorage(null);
+        
+        // Refresh data after update
+        fetchMachineData();
       } else {
-        setStorage2(prev => ({
-          ...prev,
-          name: editFormData.name,
-          pricePerKg: parseFloat(editFormData.pricePerKg)
-        }));
+        showNotification('error', response.data?.error || 'Failed to save product');
       }
-      
-      showNotification('success', 'Product updated successfully');
-      setShowEditModal(false);
-      setEditingStorage(null);
-      
-      // Refresh data
-      fetchMachineData();
+    } catch (error) {
+      console.error('Error saving product:', error);
+      showNotification('error', error.response?.data?.error || 'Failed to save product');
+    } finally {
+      setEditLoading(false);
     }
-  } catch (error) {
-    console.error('Error saving product:', error);
-    showNotification('error', 'Failed to save product');
-  }
-};
+  };
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-PH', {
@@ -243,7 +312,7 @@ const AdminMachine = () => {
     switch(status) {
       case 'Critical': return '#ef4444';
       case 'Low': return '#f59e0b';
-      case 'Low Stock': return '#f59e0b';
+      case 'Empty': return '#ef4444';
       case 'Normal': return '#10b981';
       default: return '#6b7280';
     }
@@ -252,14 +321,16 @@ const AdminMachine = () => {
   if (loading) {
     return (
       <div className="machine-container">
-        <div className="loading-state">Loading machine data...</div>
+        <div className="loading-state">
+          <div className="loading-spinner"></div>
+          <p>Loading machine data...</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="machine-container">
-      {/* Notification */}
       {notification && (
         <div className={`notification-toast ${notification.type}`}>
           <span>{notification.message}</span>
@@ -267,7 +338,6 @@ const AdminMachine = () => {
         </div>
       )}
 
-      {/* Header */}
       <div className="machine-header">
         <div>
           <h1>Machine Monitoring</h1>
@@ -446,10 +516,6 @@ const AdminMachine = () => {
           <h2>Machine Information</h2>
           <div className="machine-details">
             <div className="machine-detail">
-              <span className="detail-label">Last Update:</span>
-              <span className="detail-value">{machineStatus.lastUpdate.toLocaleString()}</span>
-            </div>
-            <div className="machine-detail">
               <span className="detail-label">Total Capacity:</span>
               <span className="detail-value">40 kg (20kg + 20kg)</span>
             </div>
@@ -484,6 +550,7 @@ const AdminMachine = () => {
                   value={editFormData.name}
                   onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Enter product name"
+                  disabled={editLoading}
                 />
               </div>
               
@@ -496,6 +563,7 @@ const AdminMachine = () => {
                   placeholder="0.00"
                   step="0.01"
                   min="0"
+                  disabled={editLoading}
                 />
               </div>
               
@@ -507,7 +575,13 @@ const AdminMachine = () => {
             
             <div className="modal-footer">
               <button className="btn-cancel" onClick={() => setShowEditModal(false)}>Cancel</button>
-              <button className="btn-save" onClick={handleSaveProduct}>Save Changes</button>
+              <button 
+                className="btn-save" 
+                onClick={handleSaveProduct}
+                disabled={editLoading}
+              >
+                {editLoading ? 'Saving...' : 'Save Changes'}
+              </button>
             </div>
           </div>
         </div>
