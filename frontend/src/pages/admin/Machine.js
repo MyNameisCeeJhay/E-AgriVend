@@ -64,65 +64,92 @@ const AdminMachine = () => {
   });
 
   const fetchMachineData = async () => {
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
+    
+    // CHANGE: Use the correct endpoint that returns names and prices
+    const response = await axios.get(`${API_URL}/esp32/latest`);
+    
+    console.log('API Response:', response.data);
+    
+    if (response.data.success) {
+      const data = response.data;
       
-      const response = await axios.get(`${API_URL}/esp32/latest`);
+      // Update Storage 1 (Sinandomeng) - now includes name and price
+      const storage1Weight = data.storage1?.currentWeight || 0;
+      const storage1Percentage = (storage1Weight / 20) * 100;
+      setStorage1(prev => ({
+        ...prev,
+        name: data.storage1?.name || 'Storage 1 - Sinandomeng',
+        currentWeight: storage1Weight,
+        percentage: storage1Percentage,
+        status: storage1Weight <= 0.1 ? 'Empty' : storage1Weight <= 5 ? 'Low' : 'Normal',
+        isLow: storage1Weight <= 10,
+        pricePerKg: data.storage1?.pricePerKg || 52
+      }));
       
-      console.log('API Response:', response.data);
+      // Update Storage 2 (Dinorado) - now includes name and price
+      const storage2Weight = data.storage2?.currentWeight || 0;
+      const storage2Percentage = (storage2Weight / 20) * 100;
+      setStorage2(prev => ({
+        ...prev,
+        name: data.storage2?.name || 'Storage 2 - Dinorado',
+        currentWeight: storage2Weight,
+        percentage: storage2Percentage,
+        status: storage2Weight <= 0.1 ? 'Empty' : storage2Weight <= 5 ? 'Low' : 'Normal',
+        isLow: storage2Weight <= 10,
+        pricePerKg: data.storage2?.pricePerKg || 65
+      }));
       
-      if (response.data.success) {
-        const data = response.data;
-        
-        // Update Storage 1 (Sinandomeng)
-        const storage1Weight = data.storage1?.currentWeight || 0;
-        const storage1Percentage = (storage1Weight / 20) * 100;
-        setStorage1(prev => ({
-          ...prev,
-          currentWeight: storage1Weight,
-          percentage: storage1Percentage,
-          status: storage1Weight <= 0.1 ? 'Empty' : storage1Weight <= 5 ? 'Low' : 'Normal',
-          isLow: storage1Weight <= 10,
-          pricePerKg: 52
-        }));
-        
-        // Update Storage 2 (Dinorado)
-        const storage2Weight = data.storage2?.currentWeight || 0;
-        const storage2Percentage = (storage2Weight / 20) * 100;
-        setStorage2(prev => ({
-          ...prev,
-          currentWeight: storage2Weight,
-          percentage: storage2Percentage,
-          status: storage2Weight <= 0.1 ? 'Empty' : storage2Weight <= 5 ? 'Low' : 'Normal',
-          isLow: storage2Weight <= 10,
-          pricePerKg: 65
-        }));
-        
-        // Update Battery
-        setBattery(prev => ({
-          ...prev,
-          percentage: data.batteryPercentage || 100
-        }));
-        
-        // Update Machine Status
-        setMachineStatus(prev => ({
-          ...prev,
-          isOnline: true,
-          doorStatus: data.doorStatus || 'Closed',
-          securityStatus: data.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe',
-          lastUpdate: new Date()
-        }));
-        
-        console.log('✅ Storage1 weight:', storage1Weight);
-        console.log('✅ Storage2 weight:', storage2Weight);
-      }
-    } catch (error) {
-      console.error('Error fetching machine data:', error);
-      showNotification('error', 'Failed to load machine data');
-    } finally {
-      setLoading(false);
+      // Update Battery
+      setBattery(prev => ({
+        ...prev,
+        percentage: data.batteryPercentage || 100
+      }));
+      
+      // Update Machine Status
+      setMachineStatus(prev => ({
+        ...prev,
+        isOnline: true,
+        doorStatus: data.doorStatus || 'Closed',
+        securityStatus: data.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe',
+        lastUpdate: new Date()
+      }));
+      
+      console.log('✅ Storage1:', storage1.name, storage1.pricePerKg);
+      console.log('✅ Storage2:', storage2.name, storage2.pricePerKg);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching machine data:', error);
+    showNotification('error', 'Failed to load machine data');
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Refresh machine data after product update
+const refreshAfterUpdate = async () => {
+  // Immediately fetch new data
+  await fetchMachineData();
+  
+  // Also force fetch product settings
+  await fetchProductSettings();
+  
+  // Show success message
+  showNotification('success', 'Product updated and displayed');
+};
+
+// Refresh machine data after product update
+const refreshAfterUpdate = async () => {
+  // Immediately fetch new data
+  await fetchMachineData();
+  
+  // Also force fetch product settings
+  await fetchProductSettings();
+  
+  // Show success message
+  showNotification('success', 'Product updated and displayed');
+};
 
   const showNotification = (type, message) => {
     setNotification({ type, message });
@@ -184,7 +211,6 @@ const AdminMachine = () => {
     const token = localStorage.getItem('token');
     const storageId = editingStorage.id;
     
-    // CHANGE THIS URL
     const response = await axios.put(`${API_URL}/esp32/product/update/${storageId}`, {
       name: editFormData.name,
       pricePerKg: parseFloat(editFormData.pricePerKg)
@@ -193,6 +219,7 @@ const AdminMachine = () => {
     });
     
     if (response.data.success) {
+      // Immediate update to local state
       if (editingStorage.id === 1) {
         setStorage1(prev => ({
           ...prev,
@@ -207,12 +234,12 @@ const AdminMachine = () => {
         }));
       }
       
+      // Refresh from server to ensure sync
+      await fetchMachineData();
+      
       showNotification('success', 'Product updated successfully');
       setShowEditModal(false);
       setEditingStorage(null);
-      
-      // Refresh data
-      fetchMachineData();
     }
   } catch (error) {
     console.error('Error saving product:', error);

@@ -6,7 +6,7 @@ const sensorDataSchema = new mongoose.Schema({
   loadCellLeft: { type: Number, default: 0 },        // Raw left load cell reading (kg) - Premium/Dinorado
   loadCellRight: { type: Number, default: 0 },       // Raw right load cell reading (kg) - Regular/Sinandomeng
   loadCellTotal: { type: Number, default: 0 },       // Total weight from both load cells (kg)
-  loadCellStatus: { type: String, default: 'OK' },   // Status: 'OK', 'LOW', 'ERROR', 'NO_DATA'
+  loadCellStatus: { type: String, default: 'OK' },   // Status: 'OK', 'LOW', 'ERROR', 'NO_DATA' 
   
   // ===== STOCK LEVELS (FROM LOAD CELLS) =====
   container1Level: { type: Number, default: 0 },     // Premium/Dinorado actual weight (kg)
