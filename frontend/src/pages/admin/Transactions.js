@@ -47,6 +47,18 @@ const AdminTransactions = () => {
     'Organic Rice'
   ]);
 
+  // Helper function to check if transaction is from machine
+  const isMachineTransaction = (transaction) => {
+    return transaction.source === 'machine' || 
+           transaction.transactionType === 'machine' ||
+           (transaction.recordedBy === null && transaction.user === null && !transaction.recordedBy);
+  };
+
+  // Helper function to check if transaction is manual
+  const isManualTransaction = (transaction) => {
+    return transaction.recordedBy !== null && transaction.recordedBy !== undefined;
+  };
+
   useEffect(() => {
     fetchTransactions();
     fetchSummary();
@@ -100,7 +112,6 @@ const AdminTransactions = () => {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      // Build params for API request
       const params = {
         page: pagination.page,
         limit: pagination.limit,
@@ -110,13 +121,6 @@ const AdminTransactions = () => {
         search: filters.search
       };
       
-      // Add transaction type filter for API
-      if (filters.transactionType === 'manual') {
-        params.hasRecordedBy = true;
-      } else if (filters.transactionType === 'machine') {
-        params.isMachineTransaction = true;
-      }
-      
       const response = await axios.get(`${API_URL}/transactions/all`, {
         params,
         headers: { Authorization: `Bearer ${token}` }
@@ -125,11 +129,11 @@ const AdminTransactions = () => {
       if (response.data.success) {
         let data = response.data.data || [];
         
-        // Additional client-side filtering for transaction type if needed
+        // Additional client-side filtering for transaction type
         if (filters.transactionType === 'manual') {
-          data = data.filter(t => t.recordedBy !== null && t.recordedBy !== undefined);
+          data = data.filter(t => isManualTransaction(t));
         } else if (filters.transactionType === 'machine') {
-          data = data.filter(t => t.source === 'machine' || (!t.recordedBy && t.user === null));
+          data = data.filter(t => isMachineTransaction(t));
         }
         
         // Sort data
@@ -145,8 +149,8 @@ const AdminTransactions = () => {
             bVal = b.productName || b.riceType;
           }
           if (sortBy === 'recordedBy') {
-            aVal = a.recordedBy?.firstName || a.user?.firstName || (a.source === 'machine' ? 'Machine' : 'System');
-            bVal = b.recordedBy?.firstName || b.user?.firstName || (b.source === 'machine' ? 'Machine' : 'System');
+            aVal = a.recordedBy?.firstName || a.user?.firstName || (isMachineTransaction(a) ? 'Machine' : 'System');
+            bVal = b.recordedBy?.firstName || b.user?.firstName || (isMachineTransaction(b) ? 'Machine' : 'System');
           }
           if (sortOrder === 'desc') {
             return aVal > bVal ? -1 : 1;
@@ -162,9 +166,9 @@ const AdminTransactions = () => {
           pages: Math.ceil(data.length / pagination.limit)
         });
         
-        // Update summary based on filtered data
-        const manualTransactions = data.filter(t => t.recordedBy !== null && t.recordedBy !== undefined);
-        const machineTransactions = data.filter(t => t.source === 'machine' || (!t.recordedBy && t.user === null));
+        // Calculate summary based on filtered data
+        const manualTransactions = data.filter(t => isManualTransaction(t));
+        const machineTransactions = data.filter(t => isMachineTransaction(t));
         
         const filteredSummary = {
           totalTransactions: data.length,
@@ -195,6 +199,7 @@ const AdminTransactions = () => {
       }
     } catch (error) {
       console.error('Error fetching summary:', error);
+      // Fallback to calculate from transactions
     }
   };
 
@@ -234,7 +239,7 @@ const AdminTransactions = () => {
       style: 'currency',
       currency: 'PHP',
       minimumFractionDigits: 2
-    }).format(amount);
+    }).format(amount || 0);
   };
 
   const formatDate = (dateString) => {
@@ -251,11 +256,11 @@ const AdminTransactions = () => {
   };
 
   const getTransactionType = (transaction) => {
-    if (transaction.source === 'machine') {
+    if (isMachineTransaction(transaction)) {
       return { type: 'machine', label: 'Machine', badgeClass: 'badge-machine' };
     }
-    if (transaction.recordedBy) {
-      const name = `${transaction.recordedBy.firstName || ''} ${transaction.recordedBy.lastName || ''}`.trim();
+    if (isManualTransaction(transaction)) {
+      const name = `${transaction.recordedBy?.firstName || ''} ${transaction.recordedBy?.lastName || ''}`.trim();
       return { type: 'manual', label: name || 'Staff', badgeClass: 'badge-manual' };
     }
     return { type: 'system', label: 'System', badgeClass: 'badge-system' };
@@ -438,7 +443,6 @@ const AdminTransactions = () => {
                 <tbody>
                   {transactions.map((transaction) => {
                     const txType = getTransactionType(transaction);
-                    // For manual transactions, show just the staff name (no extra text)
                     const displayName = txType.type === 'manual' ? txType.label : (txType.type === 'machine' ? 'Machine' : 'System');
                     return (
                       <tr key={transaction._id} className={`transaction-row ${txType.type}`}>

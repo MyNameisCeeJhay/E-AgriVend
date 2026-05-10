@@ -287,11 +287,123 @@ const AdminReturns = () => {
     return refund?.description || '';
   };
 
-  const viewReceipt = (filename) => {
-    if (!filename) return;
+  const viewReceipt = async (filename) => {
+  if (!filename) {
+    showNotification('error', 'No receipt file attached');
+    return;
+  }
+  
+  try {
     const authToken = localStorage.getItem('token');
-    window.open(`${API_URL}/refund/receipt-image/${filename}?token=${authToken}`, '_blank');
-  };
+    
+    if (!authToken) {
+      showNotification('error', 'Please log in to view receipt');
+      return;
+    }
+    
+    // Open a new window with loading message
+    const receiptWindow = window.open('', '_blank');
+    receiptWindow.document.write('<div style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial;">Loading receipt...</div>');
+    
+    // Fetch the receipt image with authentication
+    const response = await fetch(`${API_URL}/refund/receipt-image/${filename}`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const blob = await response.blob();
+    const imageUrl = URL.createObjectURL(blob);
+    
+    // Display the image in the new window
+    receiptWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Receipt - ${filename}</title>
+          <style>
+            body {
+              margin: 0;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              background: #f5f5f5;
+              font-family: Arial, sans-serif;
+            }
+            .container {
+              max-width: 90%;
+              max-height: 90vh;
+              text-align: center;
+            }
+            img {
+              max-width: 100%;
+              max-height: 85vh;
+              object-fit: contain;
+              box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+              border-radius: 8px;
+            }
+            .button-group {
+              margin-top: 20px;
+            }
+            button {
+              padding: 10px 20px;
+              margin: 0 10px;
+              border: none;
+              border-radius: 5px;
+              cursor: pointer;
+              font-size: 14px;
+            }
+            .btn-download {
+              background: #2d6a4f;
+              color: white;
+            }
+            .btn-close {
+              background: #6c757d;
+              color: white;
+            }
+            .error-message {
+              text-align: center;
+              color: red;
+              font-family: Arial, sans-serif;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <img src="${imageUrl}" alt="Receipt Image" onerror="this.style.display='none'; document.getElementById('errorMsg').style.display='block';" />
+            <div id="errorMsg" style="display:none; color:red; margin-top:20px;">
+              Failed to load receipt image.
+            </div>
+            <div class="button-group">
+              <button class="btn-download" onclick="downloadImage()">📥 Download Receipt</button>
+              <button class="btn-close" onclick="window.close()">✖ Close</button>
+            </div>
+          </div>
+          <script>
+            function downloadImage() {
+              const link = document.createElement('a');
+              link.href = "${imageUrl}";
+              link.download = "${filename}";
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    receiptWindow.document.close();
+    
+  } catch (error) {
+    console.error('Error viewing receipt:', error);
+    showNotification('error', 'Failed to load receipt. Please try again.');
+  }
+};
 
   // Loading state
   if (loading && refunds.length === 0) {

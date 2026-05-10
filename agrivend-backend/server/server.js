@@ -94,8 +94,6 @@ const allowedOrigins = [
 ];
 
 // FIX: Regex to match ANY localhost port
-// Flutter Web picks a random port on every run (60767, 61713, etc.)
-// We cannot hardcode specific ports — this regex allows all of them
 const localhostRegex = /^http:\/\/localhost(:\d+)?$/;
 
 const corsOptions = {
@@ -177,22 +175,44 @@ app.use(
 app.use(cors(corsOptions));
 
 // FIX: Explicitly handle preflight OPTIONS requests for every route
-// Browsers always send OPTIONS before cross-origin POST/PUT/DELETE
 app.options('*', cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// Create uploads directory if it doesn't exist
+// ============================================
+// CREATE UPLOADS DIRECTORIES
+// ============================================
 const uploadsDir = path.join(__dirname, 'uploads');
+const refundReceiptsDir = path.join(__dirname, 'uploads/refund-receipts');
+const returnsDir = path.join(__dirname, 'uploads/returns');
+
+// Create main uploads directory
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
   console.log('📁 Created uploads directory');
 }
 
-// Serve static files
+// Create refund-receipts subdirectory
+if (!fs.existsSync(refundReceiptsDir)) {
+  fs.mkdirSync(refundReceiptsDir, { recursive: true });
+  console.log('📁 Created refund-receipts directory');
+}
+
+// Create returns subdirectory
+if (!fs.existsSync(returnsDir)) {
+  fs.mkdirSync(returnsDir, { recursive: true });
+  console.log('📁 Created returns directory');
+}
+
+// Serve static files from uploads directory
 app.use('/uploads', express.static(uploadsDir));
+
+console.log('📁 Upload directories ready:');
+console.log(`   - ${uploadsDir}`);
+console.log(`   - ${refundReceiptsDir}`);
+console.log(`   - ${returnsDir}`);
 
 // ===== REGISTER ALL ROUTES =====
 console.log('\n📌 Registering routes:');

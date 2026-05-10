@@ -26,6 +26,20 @@ const AdminReports = () => {
   const [productRanking, setProductRanking] = useState([]);
   const [bestSellingProduct, setBestSellingProduct] = useState(null);
 
+  // ============================================
+  // HELPER FUNCTIONS FOR TRANSACTION TYPE DETECTION
+  // ============================================
+  const isMachineTransaction = (transaction) => {
+    return transaction.source === 'machine' || 
+           transaction.transactionType === 'machine' ||
+           (transaction.recordedBy === null && transaction.user === null);
+  };
+
+  const isManualTransaction = (transaction) => {
+    return transaction.recordedBy !== null && transaction.recordedBy !== undefined;
+  };
+  // ============================================
+
   useEffect(() => {
     fetchSalesSummary();
     fetchChartData('daily');
@@ -39,10 +53,10 @@ const AdminReports = () => {
   }, [notification]);
 
   const getTransactionSourceText = (transaction) => {
-    if (transaction.recordedBy && transaction.recordedBy !== null) {
+    if (isManualTransaction(transaction)) {
       return 'Manual';
     }
-    if (transaction.source === 'machine') {
+    if (isMachineTransaction(transaction)) {
       return 'Machine';
     }
     return 'System';
@@ -210,6 +224,18 @@ const AdminReports = () => {
     return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
   };
 
+  const calculateFilteredSummary = (transactions) => {
+    return {
+      totalTransactions: transactions.length,
+      totalQuantity: transactions.reduce((s, t) => s + (t.quantityKg || 0), 0),
+      totalSales: transactions.reduce((s, t) => s + (t.amountPaid || 0), 0),
+      averageOrderValue: transactions.length > 0 ? transactions.reduce((s, t) => s + (t.amountPaid || 0), 0) / transactions.length : 0
+    };
+  };
+
+  // ============================================
+  // FIXED GENERATE REPORT FUNCTION
+  // ============================================
   const generateReport = async () => {
     setLoading(true);
     try {
@@ -237,19 +263,18 @@ const AdminReports = () => {
           break;
       }
       
-      if (transactionSource !== 'all') {
-        params.source = transactionSource;
-      }
-      
       const response = await axios.get(url, { params });
       
       let data = response.data.data;
       if (data && data.transactions) {
+        // FIX: Filter based on transaction source correctly using helper functions
         if (transactionSource === 'manual') {
-          data.transactions = data.transactions.filter(t => t.recordedBy !== null && t.recordedBy !== undefined);
+          data.transactions = data.transactions.filter(t => isManualTransaction(t));
           data.summary = calculateFilteredSummary(data.transactions);
         } else if (transactionSource === 'machine') {
-          data.transactions = data.transactions.filter(t => t.source === 'machine' || (!t.recordedBy && t.user === null));
+          data.transactions = data.transactions.filter(t => isMachineTransaction(t));
+          data.summary = calculateFilteredSummary(data.transactions);
+        } else {
           data.summary = calculateFilteredSummary(data.transactions);
         }
         
@@ -270,15 +295,7 @@ const AdminReports = () => {
       setLoading(false);
     }
   };
-
-  const calculateFilteredSummary = (transactions) => {
-    return {
-      totalTransactions: transactions.length,
-      totalQuantity: transactions.reduce((s, t) => s + (t.quantityKg || 0), 0),
-      totalSales: transactions.reduce((s, t) => s + (t.amountPaid || 0), 0),
-      averageOrderValue: transactions.length > 0 ? transactions.reduce((s, t) => s + (t.amountPaid || 0), 0) / transactions.length : 0
-    };
-  };
+  // ============================================
 
   const handleChartTabChange = (tab) => {
     setActiveChartTab(tab);
@@ -405,9 +422,9 @@ const AdminReports = () => {
               <table class="product-ranking-table">
                 <thead><tr><th>Rank</th><th>Product Name</th><th>Quantity Sold (kg)</th><th>Revenue</th><th>Transactions</th></tr></thead>
                 <tbody>
-                  ${productRanking.map((product, idx) => `<tr><td class="rank-number">${idx + 1}</td><td><strong>${product.name}</strong></td><td>${product.quantity.toFixed(1)} kg</td><td>${formatCurrency(product.revenue)}</td><td>${product.count}</td></tr>`).join('')}
+                  ${productRanking.map((product, idx) => `<tr><td class="rank-number">${idx + 1}</td><td><strong>${product.name}</strong></td><td>${product.quantity.toFixed(1)} kg</td><td>${formatCurrency(product.revenue)}</td><td>${product.count}</td>`).join('')}
                 </tbody>
-              </table>
+              70
             </div>
             ` : ''}
             

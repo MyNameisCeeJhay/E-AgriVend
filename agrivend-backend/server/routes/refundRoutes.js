@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import Return from '../models/Return.js';  // Change this to Return model
+import Return from '../models/Return.js';
 import Transaction from '../models/Transaction.js';
 import { protect, admin } from '../middleware/auth.js';
 
@@ -15,7 +15,7 @@ const router = express.Router();
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads/returns/');  // Changed to returns folder
+    const uploadDir = path.join(__dirname, '../uploads/returns/');
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -69,7 +69,6 @@ router.get('/validate/:transactionId', async (req, res) => {
       });
     }
     
-    // Check if return already requested for this transaction
     const existingReturn = await Return.findOne({ 
       transactionId: transactionId 
     });
@@ -106,8 +105,6 @@ router.get('/validate/:transactionId', async (req, res) => {
 router.post('/request', upload.single('receiptImage'), async (req, res) => {
   try {
     console.log('📝 Processing refund request...');
-    console.log('Request body:', req.body);
-    console.log('File:', req.file);
     
     const {
       fullName,
@@ -163,7 +160,7 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       });
     }
     
-    // Check if return already exists for this transaction
+    // Check if return already exists
     const existingReturn = await Return.findOne({ 
       transactionId: transactionNumber 
     });
@@ -175,11 +172,11 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       });
     }
     
-    // Create return request in RETURNS collection
+    // Create return request
     const returnRequest = new Return({
       returnId: generateReturnId(),
       transactionId: transactionNumber,
-      user: null, // Will be set if user is logged in, otherwise null for guest
+      user: null,
       fullName: fullName,
       email: email,
       riceType: grainType || transaction.productName,
@@ -197,11 +194,8 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     await returnRequest.save();
     
     console.log('✅ Refund request saved to RETURNS collection!');
-    console.log('Return ID:', returnRequest.returnId);
-    console.log('Transaction Number:', returnRequest.transactionId);
-    console.log('Status:', returnRequest.status);
     
-    // Emit socket event for real-time updates to admin
+    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('new_return_notification', {
@@ -215,7 +209,6 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
         status: returnRequest.status,
         createdAt: returnRequest.createdAt
       });
-      console.log('📡 Socket event emitted: new_return_notification');
     }
     
     res.json({
@@ -242,7 +235,7 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
   }
 });
 
-// Get refund status (from RETURNS collection)
+// Get refund status
 router.get('/status/:transactionId', async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -287,7 +280,7 @@ router.get('/status/:transactionId', async (req, res) => {
   }
 });
 
-// ==================== ADMIN ROUTES - Using RETURNS collection ====================
+// ==================== ADMIN ROUTES ====================
 
 // Get all return requests (admin)
 router.get('/admin/all', protect, admin, async (req, res) => {
@@ -308,8 +301,6 @@ router.get('/admin/all', protect, admin, async (req, res) => {
     
     const total = await Return.countDocuments(query);
     
-    console.log(`📋 Found ${returns.length} return requests (Total: ${total})`);
-    
     res.json({
       success: true,
       data: returns,
@@ -329,7 +320,7 @@ router.get('/admin/all', protect, admin, async (req, res) => {
   }
 });
 
-// Get single return request by ID (admin)
+// Get single return request by ID
 router.get('/admin/:returnId', protect, admin, async (req, res) => {
   try {
     const { returnId } = req.params;
@@ -356,11 +347,10 @@ router.get('/admin/:returnId', protect, admin, async (req, res) => {
   }
 });
 
-// Get pending count (admin)
+// Get pending count
 router.get('/admin/pending/count', protect, admin, async (req, res) => {
   try {
     const count = await Return.countDocuments({ status: 'PENDING' });
-    console.log(`📊 Pending returns count: ${count}`);
     res.json({ success: true, data: { pending: count } });
   } catch (error) {
     console.error('Error fetching pending count:', error);
@@ -368,7 +358,7 @@ router.get('/admin/pending/count', protect, admin, async (req, res) => {
   }
 });
 
-// Get return statistics (admin)
+// Get return statistics
 router.get('/admin/stats/summary', protect, admin, async (req, res) => {
   try {
     const total = await Return.countDocuments();
@@ -427,7 +417,6 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
     
     await returnRequest.save();
     
-    // Update transaction status if approved
     if (status === 'APPROVED') {
       await Transaction.findOneAndUpdate(
         { transactionId: returnRequest.transactionId },
@@ -489,35 +478,54 @@ router.get('/admin/:returnId/receipt', protect, admin, async (req, res) => {
   }
 });
 
-// Serve receipt image directly
+// ==================== RECEIPT IMAGE ENDPOINT (FIXED) ====================
+// Serve receipt image directly - FIXED VERSION
 router.get('/receipt-image/:filename', protect, admin, async (req, res) => {
   try {
     const { filename } = req.params;
-    const filePath = path.join(__dirname, '../uploads/returns/', filename);
     
-    if (!fs.existsSync(filePath)) {
+    // Try multiple possible locations
+    const possiblePaths = [
+      path.join(__dirname, '../uploads/returns/', filename),
+      path.join(__dirname, '../uploads/refund-receipts/', filename),
+      path.join(__dirname, '../uploads/', filename)
+    ];
+    
+    let filePath = null;
+    for (const testPath of possiblePaths) {
+      if (fs.existsSync(testPath)) {
+        filePath = testPath;
+        break;
+      }
+    }
+    
+    if (!filePath) {
+      console.error('Receipt file not found:', filename);
       return res.status(404).json({ 
         success: false, 
         error: 'Receipt not found' 
       });
     }
     
-    // Set proper content type based on file extension
+    // Get file extension to set correct content type
     const ext = path.extname(filename).toLowerCase();
-    const contentType = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.pdf': 'application/pdf'
-    }[ext] || 'application/octet-stream';
+    let contentType = 'image/jpeg';
+    if (ext === '.png') contentType = 'image/png';
+    else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+    else if (ext === '.pdf') contentType = 'application/pdf';
     
+    // Set headers and send file
     res.setHeader('Content-Type', contentType);
-    res.sendFile(filePath);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+    
   } catch (error) {
     console.error('Error serving receipt:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to serve receipt' 
+      error: 'Failed to load receipt' 
     });
   }
 });
