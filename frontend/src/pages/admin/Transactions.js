@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
@@ -47,79 +47,44 @@ const AdminTransactions = () => {
     'Organic Rice'
   ]);
 
-  // Helper function to check if transaction is from machine
-  const isMachineTransaction = (transaction) => {
-    return transaction.source === 'machine' || 
-           transaction.transactionType === 'machine' ||
-           (transaction.recordedBy === null && transaction.user === null && !transaction.recordedBy);
-  };
+  // Helper functions
+  const isMachineTransaction = useCallback((transaction) => {
+    if (!transaction) return false;
+    if (transaction.source === 'machine') return true;
+    if (transaction.transactionType === 'machine') return true;
+    if (transaction.recordedBy === null && !transaction.user) return true;
+    if (transaction.isMachineTransaction === true) return true;
+    return false;
+  }, []);
 
-  // Helper function to check if transaction is manual
-  const isManualTransaction = (transaction) => {
-    return transaction.recordedBy !== null && transaction.recordedBy !== undefined;
-  };
+  const isManualTransaction = useCallback((transaction) => {
+    if (!transaction) return false;
+    if (transaction.recordedBy && transaction.recordedBy !== null) return true;
+    if (transaction.user && transaction.user !== null) return true;
+    return false;
+  }, []);
 
-  useEffect(() => {
-    fetchTransactions();
-    fetchSummary();
-    fetchUniqueProductNames();
-
-    if (socket) {
-      socket.on('new_transaction', () => {
-        fetchTransactions();
-        fetchSummary();
-        fetchUniqueProductNames();
-        showNotification('success', 'New transaction added');
-      });
-
-      return () => {
-        socket.off('new_transaction');
-      };
-    }
-  }, [socket, pagination.page]);
-
-  useEffect(() => {
-    if (pagination.page === 1) {
-      fetchTransactions();
-    } else {
-      setPagination(prev => ({ ...prev, page: 1 }));
-    }
-  }, [filters]);
-
-  const fetchUniqueProductNames = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/transactions/products/list`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        const mergedProducts = [...allProductNames];
-        response.data.data.forEach(product => {
-          if (!mergedProducts.includes(product)) {
-            mergedProducts.push(product);
-          }
-        });
-        setAllProductNames(mergedProducts);
-      }
-    } catch (error) {
-      console.error('Error fetching product names:', error);
-    }
-  };
-
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
       
+      if (!token) {
+        console.error('No token found');
+        setLoading(false);
+        return;
+      }
+      
       const params = {
         page: pagination.page,
         limit: pagination.limit,
-        startDate: filters.startDate,
-        endDate: filters.endDate,
-        productName: filters.productName === 'all' ? null : filters.productName,
-        search: filters.search
+        startDate: filters.startDate || undefined,
+        endDate: filters.endDate || undefined,
+        productName: filters.productName === 'all' ? undefined : filters.productName,
+        search: filters.search || undefined
       };
+      
+      Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
       
       const response = await axios.get(`${API_URL}/transactions/all`, {
         params,
@@ -129,15 +94,13 @@ const AdminTransactions = () => {
       if (response.data.success) {
         let data = response.data.data || [];
         
-        // Additional client-side filtering for transaction type
         if (filters.transactionType === 'manual') {
           data = data.filter(t => isManualTransaction(t));
         } else if (filters.transactionType === 'machine') {
           data = data.filter(t => isMachineTransaction(t));
         }
         
-        // Sort data
-        data.sort((a, b) => {
+        const sortedData = [...data].sort((a, b) => {
           let aVal = a[sortBy];
           let bVal = b[sortBy];
           if (sortBy === 'createdAt') {
@@ -145,40 +108,34 @@ const AdminTransactions = () => {
             bVal = new Date(bVal);
           }
           if (sortBy === 'productName') {
-            aVal = a.productName || a.riceType;
-            bVal = b.productName || b.riceType;
+            aVal = a.productName || a.riceType || '';
+            bVal = b.productName || b.riceType || '';
           }
           if (sortBy === 'recordedBy') {
             aVal = a.recordedBy?.firstName || a.user?.firstName || (isMachineTransaction(a) ? 'Machine' : 'System');
             bVal = b.recordedBy?.firstName || b.user?.firstName || (isMachineTransaction(b) ? 'Machine' : 'System');
           }
-          if (sortOrder === 'desc') {
-            return aVal > bVal ? -1 : 1;
-          } else {
-            return aVal < bVal ? -1 : 1;
-          }
+          return sortOrder === 'desc' ? (aVal > bVal ? -1 : 1) : (aVal < bVal ? -1 : 1);
         });
         
-        setTransactions(data);
-        setPagination({
-          ...pagination,
+        setTransactions(sortedData);
+        setPagination(prev => ({
+          ...prev,
           total: data.length,
-          pages: Math.ceil(data.length / pagination.limit)
-        });
+          pages: Math.ceil(data.length / prev.limit)
+        }));
         
-        // Calculate summary based on filtered data
         const manualTransactions = data.filter(t => isManualTransaction(t));
         const machineTransactions = data.filter(t => isMachineTransaction(t));
         
-        const filteredSummary = {
+        setSummary({
           totalTransactions: data.length,
           totalQuantity: data.reduce((s, t) => s + (t.quantityKg || 0), 0),
           manualTransactions: manualTransactions.length,
           machineTransactions: machineTransactions.length,
           manualRevenue: manualTransactions.reduce((s, t) => s + (t.amountPaid || 0), 0),
           machineRevenue: machineTransactions.reduce((s, t) => s + (t.amountPaid || 0), 0)
-        };
-        setSummary(filteredSummary);
+        });
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -186,22 +143,77 @@ const AdminTransactions = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.page, pagination.limit, filters, sortBy, sortOrder, isManualTransaction, isMachineTransaction]);
 
-  const fetchSummary = async () => {
+  const fetchSummary = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
+      if (!token) return;
+      
       const response = await axios.get(`${API_URL}/transactions/admin/stats`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.data.success) {
-        setSummary(response.data.data);
+        setSummary(prev => ({ ...prev, ...response.data.data }));
       }
     } catch (error) {
       console.error('Error fetching summary:', error);
-      // Fallback to calculate from transactions
     }
-  };
+  }, []);
+
+  const fetchUniqueProductNames = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      
+      const response = await axios.get(`${API_URL}/transactions/products/list`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success && response.data.data) {
+        const apiProducts = response.data.data;
+        const mergedProducts = [...allProductNames];
+        apiProducts.forEach(product => {
+          if (!mergedProducts.includes(product)) {
+            mergedProducts.push(product);
+          }
+        });
+        setAllProductNames(mergedProducts);
+      }
+    } catch (error) {
+      console.error('Error fetching product names:', error);
+    }
+  }, [allProductNames]);
+
+  useEffect(() => {
+    fetchTransactions();
+    fetchSummary();
+    fetchUniqueProductNames();
+  }, [fetchTransactions, fetchSummary, fetchUniqueProductNames]);
+
+  useEffect(() => {
+    if (socket) {
+      const handleNewTransaction = () => {
+        fetchTransactions();
+        fetchSummary();
+        fetchUniqueProductNames();
+        showNotification('success', 'New transaction added');
+      };
+      
+      socket.on('new_transaction', handleNewTransaction);
+      return () => {
+        socket.off('new_transaction', handleNewTransaction);
+      };
+    }
+  }, [socket, fetchTransactions, fetchSummary, fetchUniqueProductNames]);
+
+  useEffect(() => {
+    if (pagination.page === 1) {
+      fetchTransactions();
+    } else {
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }
+  }, [filters, fetchTransactions]);
 
   const showNotification = (type, message) => {
     setNotification({ type, message });
@@ -209,13 +221,13 @@ const AdminTransactions = () => {
   };
 
   const handleFilterChange = (key, value) => {
-    setFilters({ ...filters, [key]: value });
-    setPagination({ ...pagination, page: 1 });
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const handleSort = (column) => {
     if (sortBy === column) {
-      setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
+      setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
     } else {
       setSortBy(column);
       setSortOrder('desc');
@@ -231,7 +243,7 @@ const AdminTransactions = () => {
       search: '',
       transactionType: 'all'
     });
-    setPagination({ ...pagination, page: 1 });
+    setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const formatCurrency = (amount) => {
@@ -244,15 +256,19 @@ const AdminTransactions = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (e) {
+      return 'Invalid Date';
+    }
   };
 
   const getTransactionType = (transaction) => {
@@ -274,6 +290,17 @@ const AdminTransactions = () => {
   const getDisplayProductName = (transaction) => {
     return transaction.productName || transaction.riceType || 'Unknown';
   };
+
+  if (loading && transactions.length === 0) {
+    return (
+      <div className="transactions-container">
+        <div className="loading-overlay">
+          <div className="loading-spinner"></div>
+          <p>Loading transactions...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="transactions-container">
@@ -401,12 +428,7 @@ const AdminTransactions = () => {
       )}
 
       <div className="transactions-table-container">
-        {loading ? (
-          <div className="loading-overlay">
-            <div className="loading-spinner"></div>
-            <p>Loading transactions...</p>
-          </div>
-        ) : transactions.length === 0 ? (
+        {transactions.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📭</div>
             <h3>No Transactions Found</h3>
@@ -446,7 +468,7 @@ const AdminTransactions = () => {
                     const displayName = txType.type === 'manual' ? txType.label : (txType.type === 'machine' ? 'Machine' : 'System');
                     return (
                       <tr key={transaction._id} className={`transaction-row ${txType.type}`}>
-                        <td className="tx-id">{transaction.transactionId}</td>
+                        <td className="tx-id">{transaction.transactionId || 'N/A'}</td>
                         <td className="date-cell">{formatDate(transaction.createdAt)}</td>
                         <td className="product-cell">{getDisplayProductName(transaction)}</td>
                         <td className="quantity-cell">{transaction.quantityKg} kg</td>

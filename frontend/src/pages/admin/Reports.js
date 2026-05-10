@@ -27,16 +27,21 @@ const AdminReports = () => {
   const [bestSellingProduct, setBestSellingProduct] = useState(null);
 
   // ============================================
-  // HELPER FUNCTIONS FOR TRANSACTION TYPE DETECTION
+  // IMPROVED HELPER FUNCTIONS FOR REPORTS
   // ============================================
   const isMachineTransaction = (transaction) => {
-    return transaction.source === 'machine' || 
-           transaction.transactionType === 'machine' ||
-           (transaction.recordedBy === null && transaction.user === null);
+    if (transaction.source === 'machine') return true;
+    if (transaction.transactionType === 'machine') return true;
+    if (!transaction.recordedBy && !transaction.user && transaction.recordedBy !== undefined) return true;
+    if (transaction.isMachineTransaction === true) return true;
+    return false;
   };
 
   const isManualTransaction = (transaction) => {
-    return transaction.recordedBy !== null && transaction.recordedBy !== undefined;
+    if (transaction.recordedBy && transaction.recordedBy !== null) return true;
+    if (transaction.recordedBy !== undefined && transaction.recordedBy !== null) return true;
+    if (transaction.user && transaction.user !== null) return true;
+    return false;
   };
   // ============================================
 
