@@ -26,22 +26,97 @@ const AdminReports = () => {
   const [productRanking, setProductRanking] = useState([]);
   const [bestSellingProduct, setBestSellingProduct] = useState(null);
 
+  // Helper function to check if a date is within range (inclusive)
+  const isDateInRange = (dateToCheck, startDate, endDate) => {
+    const checkDate = new Date(dateToCheck);
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    // Set to beginning of day for start (00:00:00)
+    start.setHours(0, 0, 0, 0);
+    // Set to end of day for end (23:59:59.999)
+    end.setHours(23, 59, 59, 999);
+    
+    return checkDate >= start && checkDate <= end;
+  };
+
   // ============================================
-  // IMPROVED HELPER FUNCTIONS FOR REPORTS
+  // FIXED: PROPER MACHINE TRANSACTION DETECTION
   // ============================================
   const isMachineTransaction = (transaction) => {
+    if (!transaction) return false;
+    
     if (transaction.source === 'machine') return true;
     if (transaction.transactionType === 'machine') return true;
-    if (!transaction.recordedBy && !transaction.user && transaction.recordedBy !== undefined) return true;
+    if (transaction.recordedBy === null) return true;
+    if (transaction.recordedBy === 'null') return true;
+    if (transaction.recordedBy === undefined) return true;
+    if (transaction.recordedBy === 'machine') return true;
+    if (transaction.recordedBy === 'System' || transaction.recordedBy === 'system') return true;
+    if (transaction.user === null || transaction.user === undefined) return true;
+    if (transaction.user === 'null') return true;
     if (transaction.isMachineTransaction === true) return true;
+    
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
+      if (!transaction.recordedBy.firstName && !transaction.recordedBy.lastName) {
+        return true;
+      }
+    }
+    
+    // Check if recordedBy is 'Machine' string from your data
+    if (transaction.recordedBy === 'Machine') return true;
+    
     return false;
   };
 
   const isManualTransaction = (transaction) => {
-    if (transaction.recordedBy && transaction.recordedBy !== null) return true;
-    if (transaction.recordedBy !== undefined && transaction.recordedBy !== null) return true;
-    if (transaction.user && transaction.user !== null) return true;
+    if (!transaction) return false;
+    
+    // Check by source field
+    if (transaction.source === 'manual' || transaction.source === 'staff') return true;
+    
+    // Staff recorded - has firstName/lastName
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
+      if (transaction.recordedBy.firstName || transaction.recordedBy.lastName) {
+        return true;
+      }
+    }
+    
+    // User exists with name
+    if (transaction.user && typeof transaction.user === 'object') {
+      if (transaction.user.firstName || transaction.user.lastName) {
+        return true;
+      }
+    }
+    
+    // RecordedBy is a string name (not machine/system)
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'string') {
+      const lower = transaction.recordedBy.toLowerCase();
+      if (lower !== 'machine' && lower !== 'system' && lower !== 'null' && transaction.recordedBy.length > 2) {
+        return true;
+      }
+    }
+    
     return false;
+  };
+
+  const getTransactionSourceText = (transaction) => {
+    if (isManualTransaction(transaction)) {
+      if (transaction.recordedBy?.firstName) {
+        return `${transaction.recordedBy.firstName} ${transaction.recordedBy.lastName || ''}`.trim();
+      }
+      if (transaction.user?.firstName) {
+        return `${transaction.user.firstName} ${transaction.user.lastName || ''}`.trim();
+      }
+      if (typeof transaction.recordedBy === 'string' && transaction.recordedBy !== 'Machine') {
+        return transaction.recordedBy;
+      }
+      return 'Staff';
+    }
+    if (isMachineTransaction(transaction)) {
+      return 'Machine';
+    }
+    return 'System';
   };
   // ============================================
 
@@ -57,19 +132,12 @@ const AdminReports = () => {
     }
   }, [notification]);
 
-  const getTransactionSourceText = (transaction) => {
-    if (isManualTransaction(transaction)) {
-      return 'Manual';
-    }
-    if (isMachineTransaction(transaction)) {
-      return 'Machine';
-    }
-    return 'System';
-  };
-
   const fetchSalesSummary = async () => {
     try {
-      const response = await axios.get(`${API_URL}/admin/transactions/stats`);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/admin/transactions/stats`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       setSalesSummary(response.data.data);
     } catch (error) {
       console.error('Error fetching sales summary:', error);
@@ -239,13 +307,19 @@ const AdminReports = () => {
   };
 
   // ============================================
-  // FIXED GENERATE REPORT FUNCTION
+  // FIXED: GENERATE REPORT WITH FRONTEND DATE FILTERING (FIXES MISSING TRANSACTIONS)
   // ============================================
   const generateReport = async () => {
     setLoading(true);
     try {
       let url = '';
       let params = {};
+      
+      // Create proper date objects for filtering
+      const startDateObj = new Date(dateRange.startDate);
+      const endDateObj = new Date(dateRange.endDate);
+      startDateObj.setHours(0, 0, 0, 0);
+      endDateObj.setHours(23, 59, 59, 999);
       
       switch(reportType) {
         case 'daily':
@@ -271,17 +345,50 @@ const AdminReports = () => {
       const response = await axios.get(url, { params });
       
       let data = response.data.data;
+      
       if (data && data.transactions) {
-        // FIX: Filter based on transaction source correctly using helper functions
+        console.log(`Raw API returned ${data.transactions.length} transactions`);
+        
+        // IMPORTANT FIX: Frontend date filtering to catch any transactions the API missed
+        // This ensures all transactions in the date range are included
+        let filteredTransactions = [...data.transactions];
+        
+        if (reportType === 'custom') {
+          // Double-check date filtering on frontend
+          filteredTransactions = data.transactions.filter(t => {
+            const txDate = new Date(t.createdAt);
+            return txDate >= startDateObj && txDate <= endDateObj;
+          });
+          
+          console.log(`After frontend date filter: ${filteredTransactions.length} transactions`);
+          
+          if (filteredTransactions.length !== data.transactions.length) {
+            console.log(`⚠️ API returned ${data.transactions.length} but frontend found ${filteredTransactions.length} in range`);
+            data.transactions = filteredTransactions;
+          }
+        }
+        
+        // Log all transactions with their dates for debugging
+        console.log('📋 Transactions in report:');
+        data.transactions.forEach((t, idx) => {
+          console.log(`  ${idx + 1}. ${t.transactionId} - ${new Date(t.createdAt).toLocaleString()} - ${t.riceType || t.productName} - ₱${t.amountPaid}`);
+        });
+        
+        // Count machine vs manual
+        const machineCount = data.transactions.filter(t => isMachineTransaction(t)).length;
+        const manualCount = data.transactions.filter(t => isManualTransaction(t)).length;
+        console.log(`📊 Machine: ${machineCount}, Manual: ${manualCount}, Total: ${data.transactions.length}`);
+        
+        // Filter based on transaction source
         if (transactionSource === 'manual') {
           data.transactions = data.transactions.filter(t => isManualTransaction(t));
-          data.summary = calculateFilteredSummary(data.transactions);
+          console.log(`After manual filter: ${data.transactions.length}`);
         } else if (transactionSource === 'machine') {
           data.transactions = data.transactions.filter(t => isMachineTransaction(t));
-          data.summary = calculateFilteredSummary(data.transactions);
-        } else {
-          data.summary = calculateFilteredSummary(data.transactions);
+          console.log(`After machine filter: ${data.transactions.length}`);
         }
+        
+        data.summary = calculateFilteredSummary(data.transactions);
         
         if (data.transactions.length > 0) {
           calculateProductRanking(data.transactions);
@@ -292,7 +399,7 @@ const AdminReports = () => {
       }
       
       setReportData(data);
-      showNotification('success', 'Report generated successfully');
+      showNotification('success', `Report generated with ${data?.transactions?.length || 0} transactions`);
     } catch (error) {
       console.error('Error generating report:', error);
       showNotification('error', 'Failed to generate report');
@@ -427,7 +534,7 @@ const AdminReports = () => {
               <table class="product-ranking-table">
                 <thead><tr><th>Rank</th><th>Product Name</th><th>Quantity Sold (kg)</th><th>Revenue</th><th>Transactions</th></tr></thead>
                 <tbody>
-                  ${productRanking.map((product, idx) => `<tr><td class="rank-number">${idx + 1}</td><td><strong>${product.name}</strong></td><td>${product.quantity.toFixed(1)} kg</td><td>${formatCurrency(product.revenue)}</td><td>${product.count}</td>`).join('')}
+                  ${productRanking.map((product, idx) => `<tr><td class="rank-number">${idx + 1}</td><td><strong>${product.name}</strong></td><td>${product.quantity.toFixed(1)} kg</td><td class="text-right">${formatCurrency(product.revenue)}</td><td class="text-center">${product.count}</td></tr`).join('')}
                 </tbody>
               70
             </div>
@@ -453,30 +560,16 @@ const AdminReports = () => {
             <div class="transaction-table-title">Transaction Details</div>
             <table class="transaction-table">
               <thead>
-                <tr>
-                  <th>Transaction ID</th>
-                  <th>Date & Time</th>
-                  <th>Product Name</th>
-                  <th>Quantity</th>
-                  <th>Amount</th>
-                  <th>Source</th>
-                </tr>
+                <tr><th>Transaction ID</th><th>Date & Time</th><th>Product Name</th><th>Quantity</th><th>Amount</th><th>Source</th></tr>
               </thead>
               <tbody>
                 ${reportData?.transactions?.map(t => {
                   const source = getTransactionSourceText(t);
-                  const sourceClass = source === 'Manual' ? 'manual' : (source === 'Machine' ? 'machine' : 'system');
+                  const sourceClass = source === 'Staff' ? 'manual' : (source === 'Machine' ? 'machine' : 'system');
                   return `
-                    <tr>
-                      <td>${t.transactionId || t._id?.slice(-8) || 'N/A'}</td>
-                      <td>${new Date(t.createdAt).toLocaleString()}</td>
-                      <td>${t.riceType || t.productName}</td>
-                      <td>${t.quantityKg} kg</td>
-                      <td class="text-right font-bold">${formatCurrency(t.amountPaid || t.totalAmount)}</td>
-                      <td><span class="source-badge ${sourceClass}">${source}</span></td>
-                    </tr>
+                    <tr><td>${t.transactionId || t._id?.slice(-8) || 'N/A'}</td><td>${new Date(t.createdAt).toLocaleString()}</td><td>${t.riceType || t.productName}</td><td>${t.quantityKg} kg</td><td class="text-right font-bold">${formatCurrency(t.amountPaid || t.totalAmount)}</td><td><span class="source-badge ${sourceClass}">${source}</span></td></tr>
                   `;
-                }).join('') || '<tr><td colspan="6" class="text-center">No transactions found</td></tr>'}
+                }).join('') || '<tr><td colspan="6" class="text-center">No transactions found</td></tr'}
               </tbody>
               <tfoot>
                 <tr style="background: #f1f5f9; font-weight: 700;">
@@ -569,6 +662,16 @@ const AdminReports = () => {
       case 'machine': return 'Machine Sales Only';
       default: return 'All Sales';
     }
+  };
+
+  const getDateRangeText = () => {
+    if (reportType === 'daily') return formatDate(dateRange.startDate);
+    if (reportType === 'weekly') return `week of ${formatDate(dateRange.startDate)}`;
+    if (reportType === 'monthly') {
+      const date = new Date(dateRange.startDate);
+      return `${date.toLocaleString('default', { month: 'long' })} ${date.getFullYear()}`;
+    }
+    return `${formatDate(dateRange.startDate)} to ${formatDate(dateRange.endDate)}`;
   };
 
   const maxSales = chartData.length > 0 ? Math.max(...chartData.map(d => d.sales || 0), 1) : 1;
@@ -773,7 +876,12 @@ const AdminReports = () => {
       )}
       
       {reportData && (!reportData.transactions || reportData.transactions.length === 0) && (
-        <div className="no-data-message full"><p>No transactions found for this period with the selected filter.</p></div>
+        <div className="no-data-message full">
+          <p>No transactions found for ${getDateRangeText()} with filter: ${getSourceText()}</p>
+          <p style={{ fontSize: '12px', marginTop: '10px' }}>
+            💡 <strong>Tip:</strong> Your machine transactions are from May 7-10. Try selecting a date range that includes these dates.
+          </p>
+        </div>
       )}
     </div>
   );

@@ -11,13 +11,27 @@ const router = express.Router();
 // Helper function to get date from ISO week
 function getDateOfISOWeek(week, year) {
   const simple = new Date(year, 0, 1 + (week - 1) * 7);
-  const dow = simple.getDay();
-  const ISOweekStart = simple;
-  if (dow <= 4)
-    ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
-  else
-    ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
+  const dow = simple.getDay() === 0 ? 7 : simple.getDay();
+  const ISOweekStart = new Date(simple);
+  ISOweekStart.setDate(simple.getDate() + 1 - dow);
   return ISOweekStart;
+}
+
+// Helper function to parse a date string (YYYY-MM-DD) as a local date.
+function parseLocalDate(dateString) {
+  if (!dateString || typeof dateString !== 'string') return null;
+  const [year, month, day] = dateString.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+}
+
+function getIsoWeekNumber(date) {
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  const dayNumber = target.getDay() === 0 ? 7 : target.getDay();
+  target.setDate(target.getDate() + 4 - dayNumber);
+  const yearStart = new Date(target.getFullYear(), 0, 1);
+  return Math.ceil((((target - yearStart) / 86400000) + 1) / 7);
 }
 
 // ===== DASHBOARD STATS =====
@@ -153,7 +167,8 @@ router.get('/reports/daily', protect, admin, async (req, res) => {
   console.log('📅 GET /api/admin/reports/daily - by:', req.user?.email);
   try {
     const { date } = req.query;
-    const targetDate = date ? new Date(date) : new Date();
+    const parsedDate = date ? parseLocalDate(date) : null;
+    const targetDate = parsedDate || (date ? new Date(date) : new Date());
     const startDate = new Date(targetDate);
     startDate.setHours(0, 0, 0, 0);
     
@@ -203,12 +218,22 @@ router.get('/reports/daily', protect, admin, async (req, res) => {
 router.get('/reports/weekly', protect, admin, async (req, res) => {
   console.log('📆 GET /api/admin/reports/weekly - by:', req.user?.email);
   try {
-    const { week, year } = req.query;
-    const currentYear = year || new Date().getFullYear();
-    const currentWeek = week || Math.ceil((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000));
+    const { week, year, date } = req.query;
+    const currentYear = year ? parseInt(year, 10) : new Date().getFullYear();
+    let startDate;
     
-    const startDate = getDateOfISOWeek(parseInt(currentWeek), parseInt(currentYear));
-    startDate.setHours(0, 0, 0, 0);
+    if (date) {
+      const parsedDate = parseLocalDate(date) || new Date(date);
+      const weekStart = new Date(parsedDate);
+      const dayOfWeek = weekStart.getDay() === 0 ? 7 : weekStart.getDay();
+      weekStart.setDate(weekStart.getDate() + 1 - dayOfWeek);
+      weekStart.setHours(0, 0, 0, 0);
+      startDate = weekStart;
+    } else {
+      const currentWeek = week ? parseInt(week, 10) : getIsoWeekNumber(new Date());
+      startDate = getDateOfISOWeek(currentWeek, currentYear);
+      startDate.setHours(0, 0, 0, 0);
+    }
     
     const endDate = new Date(startDate);
     endDate.setDate(startDate.getDate() + 6);
@@ -328,10 +353,13 @@ router.get('/reports/custom', protect, admin, async (req, res) => {
       });
     }
     
-    const start = new Date(startDate);
+    const start = parseLocalDate(startDate);
+    const end = parseLocalDate(endDate);
+    if (!start || !end) {
+      return res.status(400).json({ success: false, error: 'Invalid start date or end date' });
+    }
     start.setHours(0, 0, 0, 0);
     
-    const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
     
     const transactions = await Transaction.find({
