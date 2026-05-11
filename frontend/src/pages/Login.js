@@ -337,7 +337,7 @@ const Login = () => {
           <div className="form-wrapper">
             <div className="form-header">
               <h2 className="form-title">Welcome Back</h2>
-              <p className="form-subtitle">Sign in to your administrator account</p>
+              <p className="form-subtitle">Sign in to your administrator / staff account</p>
             </div>
             
             {displayError && !showForgotPassword && (
