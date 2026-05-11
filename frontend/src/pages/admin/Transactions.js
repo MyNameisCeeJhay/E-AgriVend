@@ -47,20 +47,65 @@ const AdminTransactions = () => {
     'Organic Rice'
   ]);
 
-  // Helper functions
+  // Helper functions - IMPROVED detection for machine transactions
   const isMachineTransaction = useCallback((transaction) => {
     if (!transaction) return false;
+    
+    // Check by source field
     if (transaction.source === 'machine') return true;
+    
+    // Check by transactionType field
     if (transaction.transactionType === 'machine') return true;
-    if (transaction.recordedBy === null && !transaction.user) return true;
+    
+    // Check if recordedBy is null or 'machine'
+    if (transaction.recordedBy === null || transaction.recordedBy === 'machine') return true;
+    
+    // Check if user is null or undefined
+    if (!transaction.user || transaction.user === null) return true;
+    
+    // Check if there's no recordedBy object with firstName/lastName
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
+      if (!transaction.recordedBy.firstName && !transaction.recordedBy.lastName) {
+        return true;
+      }
+    }
+    
+    // Check for explicit flag
     if (transaction.isMachineTransaction === true) return true;
+    
+    // Check payment method indicator for machine
+    if (transaction.paymentMethod === 'CASH' && !transaction.recordedBy) return true;
+    
     return false;
   }, []);
 
   const isManualTransaction = useCallback((transaction) => {
     if (!transaction) return false;
-    if (transaction.recordedBy && transaction.recordedBy !== null) return true;
-    if (transaction.user && transaction.user !== null) return true;
+    
+    // Check if recordedBy exists and has name
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
+      if (transaction.recordedBy.firstName || transaction.recordedBy.lastName) {
+        return true;
+      }
+    }
+    
+    // Check if user exists
+    if (transaction.user && transaction.user !== null) {
+      if (typeof transaction.user === 'object' && (transaction.user.firstName || transaction.user.lastName)) {
+        return true;
+      }
+      if (typeof transaction.user === 'string') {
+        return true;
+      }
+    }
+    
+    // Check if recordedBy is a string (staff name)
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'string') {
+      if (transaction.recordedBy !== 'machine' && transaction.recordedBy !== 'system') {
+        return true;
+      }
+    }
+    
     return false;
   }, []);
 
@@ -86,20 +131,30 @@ const AdminTransactions = () => {
       
       Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
       
+      console.log('Fetching transactions with params:', params);
+      
       const response = await axios.get(`${API_URL}/transactions/all`, {
         params,
         headers: { Authorization: `Bearer ${token}` }
       });
       
+      console.log('Transactions response:', response.data);
+      
       if (response.data.success) {
         let data = response.data.data || [];
         
+        // Apply transaction type filter
         if (filters.transactionType === 'manual') {
           data = data.filter(t => isManualTransaction(t));
         } else if (filters.transactionType === 'machine') {
           data = data.filter(t => isMachineTransaction(t));
         }
         
+        console.log('Filtered data count:', data.length);
+        console.log('Machine transactions in data:', data.filter(t => isMachineTransaction(t)).length);
+        console.log('Manual transactions in data:', data.filter(t => isManualTransaction(t)).length);
+        
+        // Sort data
         const sortedData = [...data].sort((a, b) => {
           let aVal = a[sortBy];
           let bVal = b[sortBy];
@@ -125,17 +180,21 @@ const AdminTransactions = () => {
           pages: Math.ceil(data.length / prev.limit)
         }));
         
+        // Calculate summary from the data
         const manualTransactions = data.filter(t => isManualTransaction(t));
         const machineTransactions = data.filter(t => isMachineTransaction(t));
         
-        setSummary({
+        const newSummary = {
           totalTransactions: data.length,
           totalQuantity: data.reduce((s, t) => s + (t.quantityKg || 0), 0),
           manualTransactions: manualTransactions.length,
           machineTransactions: machineTransactions.length,
           manualRevenue: manualTransactions.reduce((s, t) => s + (t.amountPaid || 0), 0),
           machineRevenue: machineTransactions.reduce((s, t) => s + (t.amountPaid || 0), 0)
-        });
+        };
+        
+        console.log('Calculated summary:', newSummary);
+        setSummary(newSummary);
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -150,11 +209,23 @@ const AdminTransactions = () => {
       const token = localStorage.getItem('token');
       if (!token) return;
       
+      console.log('Fetching summary stats...');
       const response = await axios.get(`${API_URL}/transactions/admin/stats`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      
+      console.log('Summary response:', response.data);
+      
       if (response.data.success) {
-        setSummary(prev => ({ ...prev, ...response.data.data }));
+        const summaryData = response.data.data;
+        // Update summary with API data but ensure machine values are correct
+        setSummary(prev => ({ 
+          ...prev, 
+          ...summaryData,
+          // Make sure machine values are included
+          machineTransactions: summaryData.machineTransactions || 0,
+          machineRevenue: summaryData.machineRevenue || 0
+        }));
       }
     } catch (error) {
       console.error('Error fetching summary:', error);
@@ -170,6 +241,8 @@ const AdminTransactions = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       
+      console.log('Products response:', response.data);
+      
       if (response.data.success && response.data.data) {
         const apiProducts = response.data.data;
         const mergedProducts = [...allProductNames];
@@ -183,17 +256,20 @@ const AdminTransactions = () => {
     } catch (error) {
       console.error('Error fetching product names:', error);
     }
-  }, [allProductNames]);
+  }, []);
 
+  // Fetch all data on mount and when dependencies change
   useEffect(() => {
     fetchTransactions();
     fetchSummary();
     fetchUniqueProductNames();
   }, [fetchTransactions, fetchSummary, fetchUniqueProductNames]);
 
+  // Socket listener for real-time updates
   useEffect(() => {
     if (socket) {
-      const handleNewTransaction = () => {
+      const handleNewTransaction = (newTransaction) => {
+        console.log('New transaction received via socket:', newTransaction);
         fetchTransactions();
         fetchSummary();
         fetchUniqueProductNames();
@@ -207,6 +283,7 @@ const AdminTransactions = () => {
     }
   }, [socket, fetchTransactions, fetchSummary, fetchUniqueProductNames]);
 
+  // Reset to page 1 when filters change
   useEffect(() => {
     if (pagination.page === 1) {
       fetchTransactions();
@@ -276,8 +353,12 @@ const AdminTransactions = () => {
       return { type: 'machine', label: 'Machine', badgeClass: 'badge-machine' };
     }
     if (isManualTransaction(transaction)) {
-      const name = `${transaction.recordedBy?.firstName || ''} ${transaction.recordedBy?.lastName || ''}`.trim();
-      return { type: 'manual', label: name || 'Staff', badgeClass: 'badge-manual' };
+      const name = transaction.recordedBy?.firstName || 
+                   transaction.user?.firstName || 
+                   transaction.recordedBy || 
+                   'Staff';
+      const lastName = transaction.recordedBy?.lastName || transaction.user?.lastName || '';
+      return { type: 'manual', label: `${name} ${lastName}`.trim(), badgeClass: 'badge-manual' };
     }
     return { type: 'system', label: 'System', badgeClass: 'badge-system' };
   };
@@ -333,7 +414,7 @@ const AdminTransactions = () => {
       <div className="summary-cards">
         <div className="summary-card total-card">
           <div className="card-content">
-            <div className="card-label">Total Transactions</div>
+            <div className="card-label">TOTAL TRANSACTIONS</div>
             <div className="card-value">{summary.totalTransactions}</div>
             <div className="card-trend">
               {summary.manualTransactions} Manual | {summary.machineTransactions} Machine
@@ -342,7 +423,7 @@ const AdminTransactions = () => {
         </div>
         <div className="summary-card manual-card">
           <div className="card-content">
-            <div className="card-label">Manual Transactions</div>
+            <div className="card-label">MANUAL TRANSACTIONS</div>
             <div className="card-value">{summary.manualTransactions}</div>
             <div className="card-trend">{formatCurrency(summary.manualRevenue)}</div>
             <div className="card-sub">Recorded by Staff</div>
@@ -350,7 +431,7 @@ const AdminTransactions = () => {
         </div>
         <div className="summary-card machine-card">
           <div className="card-content">
-            <div className="card-label">Machine Transactions</div>
+            <div className="card-label">MACHINE TRANSACTIONS</div>
             <div className="card-value">{summary.machineTransactions}</div>
             <div className="card-trend">{formatCurrency(summary.machineRevenue)}</div>
             <div className="card-sub">Auto-recorded by Vending Machine</div>
@@ -358,6 +439,7 @@ const AdminTransactions = () => {
         </div>
       </div>
 
+      {/* Filters Panel */}
       {showFilters && (
         <div className="filters-panel">
           <div className="filters-grid">
@@ -427,6 +509,7 @@ const AdminTransactions = () => {
         </div>
       )}
 
+      {/* Transactions Table */}
       <div className="transactions-table-container">
         {transactions.length === 0 ? (
           <div className="empty-state">
@@ -465,7 +548,6 @@ const AdminTransactions = () => {
                 <tbody>
                   {transactions.map((transaction) => {
                     const txType = getTransactionType(transaction);
-                    const displayName = txType.type === 'manual' ? txType.label : (txType.type === 'machine' ? 'Machine' : 'System');
                     return (
                       <tr key={transaction._id} className={`transaction-row ${txType.type}`}>
                         <td className="tx-id">{transaction.transactionId || 'N/A'}</td>
@@ -475,11 +557,11 @@ const AdminTransactions = () => {
                         <td className="amount-cell">{formatCurrency(transaction.amountPaid)}</td>
                         <td className="payment-cell">{transaction.paymentMethod || 'CASH'}</td>
                         <td className="recorded-by-cell">
-                          <span className="staff-name">{displayName}</span>
+                          <span className="staff-name">{txType.label}</span>
                         </td>
                         <td className="type-cell">
                           <div className={`type-badge ${txType.type}`}>
-                            {txType.type === 'manual' ? 'Manual' : 'Machine'}
+                            {txType.type === 'manual' ? 'MANUAL' : 'MACHINE'}
                           </div>
                         </td>
                       </tr>
@@ -489,6 +571,7 @@ const AdminTransactions = () => {
               </table>
             </div>
 
+            {/* Pagination */}
             {pagination.pages > 1 && (
               <div className="pagination-container">
                 <button
