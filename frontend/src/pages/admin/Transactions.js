@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
@@ -11,7 +11,6 @@ const AdminTransactions = () => {
   const { socket } = useSocket();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [summary, setSummary] = useState({
     totalTransactions: 0,
     totalQuantity: 0,
@@ -48,70 +47,76 @@ const AdminTransactions = () => {
     'Organic Rice'
   ]);
 
-  // Refs to prevent infinite loops
-  const isMounted = useRef(true);
-  const abortControllerRef = useRef(null);
-  const initialLoadDone = useRef(false);
-
-  // Helper functions
+  // Helper functions - IMPROVED detection for machine transactions
   const isMachineTransaction = useCallback((transaction) => {
     if (!transaction) return false;
+    
+    // Check by source field
     if (transaction.source === 'machine') return true;
+    
+    // Check by transactionType field
     if (transaction.transactionType === 'machine') return true;
+    
+    // Check if recordedBy is null or 'machine'
     if (transaction.recordedBy === null || transaction.recordedBy === 'machine') return true;
+    
+    // Check if user is null or undefined
     if (!transaction.user || transaction.user === null) return true;
+    
+    // Check if there's no recordedBy object with firstName/lastName
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
+      if (!transaction.recordedBy.firstName && !transaction.recordedBy.lastName) {
+        return true;
+      }
+    }
+    
+    // Check for explicit flag
     if (transaction.isMachineTransaction === true) return true;
-    if (typeof transaction.recordedBy === 'string' && transaction.recordedBy.toLowerCase() === 'machine') return true;
+    
+    // Check payment method indicator for machine
+    if (transaction.paymentMethod === 'CASH' && !transaction.recordedBy) return true;
+    
     return false;
   }, []);
 
   const isManualTransaction = useCallback((transaction) => {
     if (!transaction) return false;
+    
+    // Check if recordedBy exists and has name
     if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
       if (transaction.recordedBy.firstName || transaction.recordedBy.lastName) {
         return true;
       }
     }
+    
+    // Check if user exists
     if (transaction.user && transaction.user !== null) {
       if (typeof transaction.user === 'object' && (transaction.user.firstName || transaction.user.lastName)) {
         return true;
       }
+      if (typeof transaction.user === 'string') {
+        return true;
+      }
     }
-    if (typeof transaction.recordedBy === 'string' && 
-        transaction.recordedBy !== 'machine' && 
-        transaction.recordedBy !== 'system') {
-      return true;
+    
+    // Check if recordedBy is a string (staff name)
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'string') {
+      if (transaction.recordedBy !== 'machine' && transaction.recordedBy !== 'system') {
+        return true;
+      }
     }
+    
     return false;
   }, []);
 
-  const showNotification = useCallback((type, message) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 5000);
-  }, []);
-
-  // Main fetch function - stable reference
   const fetchTransactions = useCallback(async () => {
-    // Cancel previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    
     try {
-      if (isMounted.current) {
-        setLoading(true);
-        setError(null);
-      }
-      
+      setLoading(true);
       const token = localStorage.getItem('token');
+      
       if (!token) {
-        if (isMounted.current) {
-          setError('Authentication required. Please login again.');
-          setLoading(false);
-        }
+        console.error('No token found');
+        setLoading(false);
         return;
       }
       
@@ -130,12 +135,8 @@ const AdminTransactions = () => {
       
       const response = await axios.get(`${API_URL}/transactions/all`, {
         params,
-        timeout: 30000,
-        signal: abortController.signal,
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      if (!isMounted.current) return;
       
       console.log('Transactions response:', response.data);
       
@@ -148,6 +149,10 @@ const AdminTransactions = () => {
         } else if (filters.transactionType === 'machine') {
           data = data.filter(t => isMachineTransaction(t));
         }
+        
+        console.log('Filtered data count:', data.length);
+        console.log('Machine transactions in data:', data.filter(t => isMachineTransaction(t)).length);
+        console.log('Manual transactions in data:', data.filter(t => isManualTransaction(t)).length);
         
         // Sort data
         const sortedData = [...data].sort((a, b) => {
@@ -192,31 +197,12 @@ const AdminTransactions = () => {
         setSummary(newSummary);
       }
     } catch (error) {
-      if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
-        console.log('Request was aborted');
-        return;
-      }
-      
       console.error('Error fetching transactions:', error);
-      
-      if (isMounted.current) {
-        if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-          setError('Connection timeout. The server might be slow or offline.');
-          showNotification('error', 'Connection timeout. Please try again.');
-        } else if (error.response?.status === 401) {
-          setError('Session expired. Please login again.');
-          showNotification('error', 'Session expired. Please login again.');
-        } else {
-          setError(error.response?.data?.error || 'Failed to load transactions');
-          showNotification('error', error.response?.data?.error || 'Failed to load transactions');
-        }
-      }
+      showNotification('error', error.response?.data?.error || 'Failed to load transactions');
     } finally {
-      if (isMounted.current) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
-  }, [pagination.page, pagination.limit, filters, sortBy, sortOrder, isManualTransaction, isMachineTransaction, showNotification]);
+  }, [pagination.page, pagination.limit, filters, sortBy, sortOrder, isManualTransaction, isMachineTransaction]);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -225,19 +211,18 @@ const AdminTransactions = () => {
       
       console.log('Fetching summary stats...');
       const response = await axios.get(`${API_URL}/transactions/admin/stats`, {
-        timeout: 30000,
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      if (!isMounted.current) return;
       
       console.log('Summary response:', response.data);
       
       if (response.data.success) {
         const summaryData = response.data.data;
+        // Update summary with API data but ensure machine values are correct
         setSummary(prev => ({ 
           ...prev, 
           ...summaryData,
+          // Make sure machine values are included
           machineTransactions: summaryData.machineTransactions || 0,
           machineRevenue: summaryData.machineRevenue || 0
         }));
@@ -253,46 +238,31 @@ const AdminTransactions = () => {
       if (!token) return;
       
       const response = await axios.get(`${API_URL}/transactions/products/list`, {
-        timeout: 30000,
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      if (!isMounted.current) return;
       
       console.log('Products response:', response.data);
       
       if (response.data.success && response.data.data) {
         const apiProducts = response.data.data;
-        setAllProductNames(prev => {
-          const merged = [...prev];
-          apiProducts.forEach(product => {
-            if (!merged.includes(product)) {
-              merged.push(product);
-            }
-          });
-          return merged;
+        const mergedProducts = [...allProductNames];
+        apiProducts.forEach(product => {
+          if (!mergedProducts.includes(product)) {
+            mergedProducts.push(product);
+          }
         });
+        setAllProductNames(mergedProducts);
       }
     } catch (error) {
       console.error('Error fetching product names:', error);
     }
   }, []);
 
-  // Initial data load - only once
+  // Fetch all data on mount and when dependencies change
   useEffect(() => {
-    if (!initialLoadDone.current) {
-      initialLoadDone.current = true;
-      fetchTransactions();
-      fetchSummary();
-      fetchUniqueProductNames();
-    }
-    
-    return () => {
-      isMounted.current = false;
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
+    fetchTransactions();
+    fetchSummary();
+    fetchUniqueProductNames();
   }, [fetchTransactions, fetchSummary, fetchUniqueProductNames]);
 
   // Socket listener for real-time updates
@@ -311,7 +281,21 @@ const AdminTransactions = () => {
         socket.off('new_transaction', handleNewTransaction);
       };
     }
-  }, [socket, fetchTransactions, fetchSummary, fetchUniqueProductNames, showNotification]);
+  }, [socket, fetchTransactions, fetchSummary, fetchUniqueProductNames]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    if (pagination.page === 1) {
+      fetchTransactions();
+    } else {
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }
+  }, [filters, fetchTransactions]);
+
+  const showNotification = (type, message) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 5000);
+  };
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -325,6 +309,7 @@ const AdminTransactions = () => {
       setSortBy(column);
       setSortOrder('desc');
     }
+    fetchTransactions();
   };
 
   const clearFilters = () => {
@@ -336,11 +321,6 @@ const AdminTransactions = () => {
       transactionType: 'all'
     });
     setPagination(prev => ({ ...prev, page: 1 }));
-  };
-
-  const handleRetry = () => {
-    fetchTransactions();
-    fetchSummary();
   };
 
   const formatCurrency = (amount) => {
@@ -375,7 +355,8 @@ const AdminTransactions = () => {
     if (isManualTransaction(transaction)) {
       const name = transaction.recordedBy?.firstName || 
                    transaction.user?.firstName || 
-                   (typeof transaction.recordedBy === 'string' ? transaction.recordedBy : 'Staff');
+                   transaction.recordedBy || 
+                   'Staff';
       const lastName = transaction.recordedBy?.lastName || transaction.user?.lastName || '';
       return { type: 'manual', label: `${name} ${lastName}`.trim(), badgeClass: 'badge-manual' };
     }
@@ -390,22 +371,6 @@ const AdminTransactions = () => {
   const getDisplayProductName = (transaction) => {
     return transaction.productName || transaction.riceType || 'Unknown';
   };
-
-  // Show error state
-  if (error) {
-    return (
-      <div className="transactions-container">
-        <div className="error-state">
-          <div className="error-icon">⚠️</div>
-          <h3>Connection Error</h3>
-          <p>{error}</p>
-          <button className="retry-btn" onClick={handleRetry}>
-            🔄 Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   if (loading && transactions.length === 0) {
     return (
@@ -441,9 +406,6 @@ const AdminTransactions = () => {
             onClick={() => setShowFilters(!showFilters)}
           >
             {showFilters ? 'Hide Filters' : 'Show Filters'}
-          </button>
-          <button className="btn-refresh" onClick={fetchTransactions}>
-            🔄 Refresh
           </button>
         </div>
       </div>
