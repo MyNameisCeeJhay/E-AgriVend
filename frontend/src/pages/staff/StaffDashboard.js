@@ -1,6 +1,6 @@
 const API_URL = 'https://e-agrivend.onrender.com/api';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
@@ -54,85 +54,143 @@ const StaffDashboard = () => {
     doorStatus: 'Closed',
     securityStatus: 'Safe'
   });
-  
-  // Edit Product Modal
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingStorage, setEditingStorage] = useState(null);
-  const [editFormData, setEditFormData] = useState({
-    name: '',
-    pricePerKg: ''
-  });
 
-  const fetchMachineData = async () => {
+  const isMounted = useRef(true);
+  const intervalRef = useRef(null);
+
+  // Fetch machine data from backend (includes product names and prices)
+  const fetchMachineData = useCallback(async () => {
+    if (!isMounted.current) return;
+    
     try {
-      setLoading(true);
+      const token = localStorage.getItem('token');
       
-      const response = await axios.get(`${API_URL}/esp32/latest`);
+      // Fetch complete machine data including product settings
+      const response = await axios.get(`${API_URL}/machine/data`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       
-      console.log('API Response:', response.data);
+      if (!isMounted.current) return;
       
       if (response.data.success) {
-        const data = response.data;
+        const data = response.data.data;
         
-        // Update Storage 1 (Sinandomeng)
-        const storage1Weight = data.storage1?.currentWeight || 0;
-        const storage1Percentage = (storage1Weight / 20) * 100;
-        setStorage1(prev => ({
-          ...prev,
-          currentWeight: storage1Weight,
-          percentage: storage1Percentage,
-          status: storage1Weight <= 0.1 ? 'Empty' : storage1Weight <= 5 ? 'Low' : 'Normal',
-          isLow: storage1Weight <= 10,
-          pricePerKg: 52
-        }));
+        // Update Storage 1 (Sinandomeng) - includes name and price from admin
+        if (data.storage1) {
+          const weight = data.storage1.currentWeight || 0;
+          const percentage = (weight / 20) * 100;
+          setStorage1(prev => ({
+            ...prev,
+            name: data.storage1.name || prev.name,
+            pricePerKg: data.storage1.pricePerKg || prev.pricePerKg,
+            currentWeight: weight,
+            percentage: percentage,
+            status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
+            isLow: weight < 10
+          }));
+        }
         
-        // Update Storage 2 (Dinorado)
-        const storage2Weight = data.storage2?.currentWeight || 0;
-        const storage2Percentage = (storage2Weight / 20) * 100;
-        setStorage2(prev => ({
-          ...prev,
-          currentWeight: storage2Weight,
-          percentage: storage2Percentage,
-          status: storage2Weight <= 0.1 ? 'Empty' : storage2Weight <= 5 ? 'Low' : 'Normal',
-          isLow: storage2Weight <= 10,
-          pricePerKg: 65
-        }));
+        // Update Storage 2 (Dinorado) - includes name and price from admin
+        if (data.storage2) {
+          const weight = data.storage2.currentWeight || 0;
+          const percentage = (weight / 20) * 100;
+          setStorage2(prev => ({
+            ...prev,
+            name: data.storage2.name || prev.name,
+            pricePerKg: data.storage2.pricePerKg || prev.pricePerKg,
+            currentWeight: weight,
+            percentage: percentage,
+            status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
+            isLow: weight < 10
+          }));
+        }
         
         // Update Battery
-        setBattery(prev => ({
-          ...prev,
-          percentage: data.batteryPercentage || 100
-        }));
+        if (data.battery) {
+          setBattery(prev => ({
+            ...prev,
+            percentage: data.battery.percentage || 100,
+            voltage: data.battery.voltage || 12.6,
+            status: data.battery.status || 'Good',
+            isCharging: data.battery.isCharging !== undefined ? data.battery.isCharging : true,
+            health: data.battery.health || 'Good'
+          }));
+        }
         
         // Update Machine Status
-        setMachineStatus(prev => ({
-          ...prev,
-          isOnline: true,
-          doorStatus: data.doorStatus || 'Closed',
-          securityStatus: data.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe',
-          lastUpdate: new Date()
-        }));
+        if (data.machineStatus) {
+          setMachineStatus(prev => ({
+            ...prev,
+            isOnline: data.machineStatus.isOnline !== undefined ? data.machineStatus.isOnline : true,
+            doorStatus: data.machineStatus.doorStatus || 'Closed',
+            securityStatus: data.machineStatus.securityStatus || 'Safe',
+            lastUpdate: new Date()
+          }));
+        }
         
-        console.log('✅ Storage1 weight:', storage1Weight);
-        console.log('✅ Storage2 weight:', storage2Weight);
+        console.log('✅ Machine data loaded with product settings');
       }
     } catch (error) {
       console.error('Error fetching machine data:', error);
-      showNotification('error', 'Failed to load machine data');
+      // Fallback to ESP32 endpoint if machine/data fails
+      try {
+        const espResponse = await axios.get(`${API_URL}/esp32/latest`);
+        if (espResponse.data.success && isMounted.current) {
+          const data = espResponse.data;
+          
+          // Update storage weights from ESP32 data
+          const storage1Weight = data.storage1?.currentWeight || 0;
+          const storage1Percentage = (storage1Weight / 20) * 100;
+          setStorage1(prev => ({
+            ...prev,
+            currentWeight: storage1Weight,
+            percentage: storage1Percentage,
+            status: storage1Weight <= 0.1 ? 'Empty' : storage1Weight < 5 ? 'Low' : 'Normal',
+            isLow: storage1Weight < 10
+          }));
+          
+          const storage2Weight = data.storage2?.currentWeight || 0;
+          const storage2Percentage = (storage2Weight / 20) * 100;
+          setStorage2(prev => ({
+            ...prev,
+            currentWeight: storage2Weight,
+            percentage: storage2Percentage,
+            status: storage2Weight <= 0.1 ? 'Empty' : storage2Weight < 5 ? 'Low' : 'Normal',
+            isLow: storage2Weight < 10
+          }));
+          
+          setBattery(prev => ({
+            ...prev,
+            percentage: data.batteryPercentage || 100
+          }));
+          
+          setMachineStatus(prev => ({
+            ...prev,
+            isOnline: true,
+            doorStatus: data.doorStatus || 'Closed',
+            securityStatus: data.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe',
+            lastUpdate: new Date()
+          }));
+        }
+      } catch (fallbackError) {
+        console.error('Fallback fetch also failed:', fallbackError);
+      }
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
-  // Also fetch product names and prices from database
-  const fetchProductSettings = async () => {
+  // Fetch product settings specifically (for initial load)
+  const fetchProductSettings = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`${API_URL}/machine/products`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      if (response.data.success) {
+      if (response.data.success && isMounted.current) {
         const products = response.data.data;
         setStorage1(prev => ({
           ...prev,
@@ -148,142 +206,139 @@ const StaffDashboard = () => {
     } catch (error) {
       console.error('Error fetching product settings:', error);
     }
+  }, []);
+
+  const showNotification = (type, message) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 5000);
   };
 
   // Socket listeners for real-time updates
   useEffect(() => {
+    isMounted.current = true;
+    
+    // Initial data fetch
     fetchMachineData();
     fetchProductSettings();
     
-    const interval = setInterval(() => {
-      fetchMachineData();
+    // Auto-refresh every 30 seconds
+    intervalRef.current = setInterval(() => {
+      if (isMounted.current) {
+        fetchMachineData();
+      }
     }, 30000);
     
     if (socket) {
+      // Listen for machine data updates (weights, battery, door status)
       socket.on('machine_data_updated', (data) => {
-        if (data.storage1?.currentWeight !== undefined) {
-          const storage1CurrentWeight = data.storage1.currentWeight;
-          const storage1Percentage = (storage1CurrentWeight / 20) * 100;
+        if (!isMounted.current) return;
+        
+        if (data.storage1) {
+          const weight = data.storage1.currentWeight !== undefined ? data.storage1.currentWeight : storage1.currentWeight;
+          const percentage = (weight / 20) * 100;
           setStorage1(prev => ({
             ...prev,
-            currentWeight: storage1CurrentWeight,
-            percentage: storage1Percentage,
-            status: storage1CurrentWeight <= 5 ? 'Critical' : storage1CurrentWeight <= 10 ? 'Low' : 'Normal',
-            isLow: storage1CurrentWeight <= 10
+            ...data.storage1,
+            currentWeight: weight,
+            percentage: percentage,
+            status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
+            isLow: weight < 10
           }));
         }
         
-        if (data.storage2?.currentWeight !== undefined) {
-          const storage2CurrentWeight = data.storage2.currentWeight;
-          const storage2Percentage = (storage2CurrentWeight / 20) * 100;
+        if (data.storage2) {
+          const weight = data.storage2.currentWeight !== undefined ? data.storage2.currentWeight : storage2.currentWeight;
+          const percentage = (weight / 20) * 100;
           setStorage2(prev => ({
             ...prev,
-            currentWeight: storage2CurrentWeight,
-            percentage: storage2Percentage,
-            status: storage2CurrentWeight <= 5 ? 'Critical' : storage2CurrentWeight <= 10 ? 'Low' : 'Normal',
-            isLow: storage2CurrentWeight <= 10
+            ...data.storage2,
+            currentWeight: weight,
+            percentage: percentage,
+            status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
+            isLow: weight < 10
           }));
         }
         
-        if (data.battery?.percentage !== undefined) {
-          setBattery(prev => ({
-            ...prev,
-            percentage: data.battery.percentage,
-            status: data.battery.percentage >= 70 ? 'Good' : data.battery.percentage >= 30 ? 'Warning' : 'Critical'
+        if (data.battery) {
+          setBattery(prev => ({ 
+            ...prev, 
+            ...data.battery
           }));
         }
         
-        if (data.machineStatus?.doorStatus !== undefined) {
-          setMachineStatus(prev => ({
-            ...prev,
-            doorStatus: data.machineStatus.doorStatus,
-            securityStatus: data.machineStatus.doorStatus === 'Open' ? 'Alert - Door Open' : 'Safe'
+        if (data.machineStatus) {
+          setMachineStatus(prev => ({ 
+            ...prev, 
+            ...data.machineStatus,
+            lastUpdate: new Date()
           }));
         }
         
         showNotification('info', 'Machine data updated');
       });
       
+      // Listen specifically for product updates (when admin changes name/price)
+      socket.on('product_settings_updated', (data) => {
+        if (!isMounted.current) return;
+        
+        console.log('Product settings updated:', data);
+        
+        if (data.storageId === 1 || data.storage1) {
+          const productData = data.storage1 || data;
+          setStorage1(prev => ({
+            ...prev,
+            name: productData.name || prev.name,
+            pricePerKg: productData.pricePerKg !== undefined ? productData.pricePerKg : prev.pricePerKg
+          }));
+          showNotification('info', `Product updated: ${productData.name} - ₱${productData.pricePerKg}/kg`);
+        }
+        
+        if (data.storageId === 2 || data.storage2) {
+          const productData = data.storage2 || data;
+          setStorage2(prev => ({
+            ...prev,
+            name: productData.name || prev.name,
+            pricePerKg: productData.pricePerKg !== undefined ? productData.pricePerKg : prev.pricePerKg
+          }));
+          showNotification('info', `Product updated: ${productData.name} - ₱${productData.pricePerKg}/kg`);
+        }
+        
+        // Refresh full data to ensure consistency
+        fetchMachineData();
+      });
+      
+      // Listen for low stock alerts
       socket.on('low_stock_alert', (data) => {
+        if (!isMounted.current) return;
         showNotification('warning', `Low stock alert: ${data.storageName} has only ${data.remainingKg}kg remaining`);
         if (data.storageId === 1) {
           setStorage1(prev => ({ ...prev, isLow: true, status: 'Low' }));
-        } else {
+        } else if (data.storageId === 2) {
           setStorage2(prev => ({ ...prev, isLow: true, status: 'Low' }));
         }
       });
       
+      // Listen for low battery alerts
       socket.on('low_battery_alert', (data) => {
+        if (!isMounted.current) return;
         showNotification('warning', `Low battery alert: Battery at ${data.percentage}%`);
         setBattery(prev => ({ ...prev, status: 'Critical' }));
       });
     }
     
     return () => {
-      clearInterval(interval);
+      isMounted.current = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
       if (socket) {
         socket.off('machine_data_updated');
+        socket.off('product_settings_updated');
         socket.off('low_stock_alert');
         socket.off('low_battery_alert');
       }
     };
-  }, [socket]);
-
-  useEffect(() => {
-    if (notification) {
-      const timer = setTimeout(() => setNotification(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [notification]);
-
-  const showNotification = (type, message) => {
-    setNotification({ type, message });
-  };
-
-  const handleEditProduct = (storage) => {
-    setEditingStorage(storage);
-    setEditFormData({
-      name: storage.name,
-      pricePerKg: storage.pricePerKg
-    });
-    setShowEditModal(true);
-  };
-
-  const handleSaveProduct = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const storageId = editingStorage.id;
-      
-      await axios.put(`${API_URL}/machine/product/${storageId}`, {
-        name: editFormData.name,
-        pricePerKg: parseFloat(editFormData.pricePerKg)
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (editingStorage.id === 1) {
-        setStorage1(prev => ({
-          ...prev,
-          name: editFormData.name,
-          pricePerKg: parseFloat(editFormData.pricePerKg)
-        }));
-      } else {
-        setStorage2(prev => ({
-          ...prev,
-          name: editFormData.name,
-          pricePerKg: parseFloat(editFormData.pricePerKg)
-        }));
-      }
-      
-      showNotification('success', 'Product updated successfully');
-      setShowEditModal(false);
-      setEditingStorage(null);
-      
-    } catch (error) {
-      console.error('Error saving product:', error);
-      showNotification('error', 'Failed to save product');
-    }
-  };
+  }, [socket, fetchMachineData, fetchProductSettings]);
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-PH', {
@@ -308,7 +363,7 @@ const StaffDashboard = () => {
     switch(status) {
       case 'Critical': return '#ef4444';
       case 'Low': return '#f59e0b';
-      case 'Low Stock': return '#f59e0b';
+      case 'Empty': return '#ef4444';
       case 'Normal': return '#10b981';
       default: return '#6b7280';
     }
@@ -336,7 +391,7 @@ const StaffDashboard = () => {
       <div className="machine-header">
         <div>
           <h1>Machine Monitoring</h1>
-          <p>Monitor storage levels, battery status, and manage products</p>
+          <p>Monitor storage levels, battery status, and product information</p>
         </div>
         <div className={`machine-status ${machineStatus.isOnline ? 'online' : 'offline'}`}>
           <span className="status-dot"></span>
@@ -378,9 +433,6 @@ const StaffDashboard = () => {
         <div className="storage-card">
           <div className="storage-header">
             <h2>Storage 1</h2>
-            <button className="btn-edit" onClick={() => handleEditProduct(storage1)}>
-              Edit Product
-            </button>
           </div>
           
           <div className="product-info">
@@ -425,9 +477,6 @@ const StaffDashboard = () => {
         <div className="storage-card">
           <div className="storage-header">
             <h2>Storage 2</h2>
-            <button className="btn-edit" onClick={() => handleEditProduct(storage2)}>
-              Edit Product
-            </button>
           </div>
           
           <div className="product-info">
@@ -531,52 +580,6 @@ const StaffDashboard = () => {
           </div>
         </div>
       </div>
-
-      {/* Edit Product Modal */}
-      {showEditModal && (
-        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Edit Product</h2>
-              <button className="modal-close" onClick={() => setShowEditModal(false)}>×</button>
-            </div>
-            
-            <div className="modal-body">
-              <div className="form-group">
-                <label>Product Name</label>
-                <input
-                  type="text"
-                  value={editFormData.name}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Enter product name"
-                />
-              </div>
-              
-              <div className="form-group">
-                <label>Price per Kilogram (₱)</label>
-                <input
-                  type="number"
-                  value={editFormData.pricePerKg}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, pricePerKg: e.target.value }))}
-                  placeholder="0.00"
-                  step="0.01"
-                  min="0"
-                />
-              </div>
-              
-              <div className="info-text">
-                <small>Formula: Amount Inserted ÷ Price per kg = Quantity to dispense</small>
-                <small>Example: ₱100 ÷ {formatCurrency(parseFloat(editFormData.pricePerKg) || 0)} = {(100 / (parseFloat(editFormData.pricePerKg) || 1)).toFixed(3)} kg</small>
-              </div>
-            </div>
-            
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setShowEditModal(false)}>Cancel</button>
-              <button className="btn-save" onClick={handleSaveProduct}>Save Changes</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
