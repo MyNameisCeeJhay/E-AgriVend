@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
@@ -11,6 +11,7 @@ const AdminTransactions = () => {
   const { socket } = useSocket();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [summary, setSummary] = useState({
     totalTransactions: 0,
     totalQuantity: 0,
@@ -36,6 +37,9 @@ const AdminTransactions = () => {
   const [notification, setNotification] = useState(null);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
+  const [retryCount, setRetryCount] = useState(0);
+  
+  const abortControllerRef = useRef(null);
   
   const [allProductNames, setAllProductNames] = useState([
     'Sinandomeng Rice',
@@ -47,75 +51,59 @@ const AdminTransactions = () => {
     'Organic Rice'
   ]);
 
-  // Helper functions - IMPROVED detection for machine transactions
+  // Create axios instance with longer timeout
+  const apiClient = useCallback(() => {
+    const token = localStorage.getItem('token');
+    return axios.create({
+      baseURL: API_URL,
+      timeout: 30000, // Increased to 30 seconds
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+  }, []);
+
+  // Helper functions - Improved detection for machine transactions
   const isMachineTransaction = useCallback((transaction) => {
     if (!transaction) return false;
-    
-    // Check by source field
     if (transaction.source === 'machine') return true;
-    
-    // Check by transactionType field
     if (transaction.transactionType === 'machine') return true;
-    
-    // Check if recordedBy is null or 'machine'
     if (transaction.recordedBy === null || transaction.recordedBy === 'machine') return true;
-    
-    // Check if user is null or undefined
     if (!transaction.user || transaction.user === null) return true;
-    
-    // Check if there's no recordedBy object with firstName/lastName
-    if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
-      if (!transaction.recordedBy.firstName && !transaction.recordedBy.lastName) {
-        return true;
-      }
-    }
-    
-    // Check for explicit flag
     if (transaction.isMachineTransaction === true) return true;
-    
-    // Check payment method indicator for machine
-    if (transaction.paymentMethod === 'CASH' && !transaction.recordedBy) return true;
-    
     return false;
   }, []);
 
   const isManualTransaction = useCallback((transaction) => {
     if (!transaction) return false;
-    
-    // Check if recordedBy exists and has name
     if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
       if (transaction.recordedBy.firstName || transaction.recordedBy.lastName) {
         return true;
       }
     }
-    
-    // Check if user exists
     if (transaction.user && transaction.user !== null) {
       if (typeof transaction.user === 'object' && (transaction.user.firstName || transaction.user.lastName)) {
         return true;
       }
-      if (typeof transaction.user === 'string') {
-        return true;
-      }
     }
-    
-    // Check if recordedBy is a string (staff name)
-    if (transaction.recordedBy && typeof transaction.recordedBy === 'string') {
-      if (transaction.recordedBy !== 'machine' && transaction.recordedBy !== 'system') {
-        return true;
-      }
-    }
-    
     return false;
   }, []);
 
   const fetchTransactions = useCallback(async () => {
+    // Cancel previous request if exists
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
+      setError(null);
       
+      const token = localStorage.getItem('token');
       if (!token) {
         console.error('No token found');
+        setError('Authentication required. Please login again.');
         setLoading(false);
         return;
       }
@@ -135,6 +123,8 @@ const AdminTransactions = () => {
       
       const response = await axios.get(`${API_URL}/transactions/all`, {
         params,
+        timeout: 30000,
+        signal: abortController.signal,
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -149,10 +139,6 @@ const AdminTransactions = () => {
         } else if (filters.transactionType === 'machine') {
           data = data.filter(t => isMachineTransaction(t));
         }
-        
-        console.log('Filtered data count:', data.length);
-        console.log('Machine transactions in data:', data.filter(t => isMachineTransaction(t)).length);
-        console.log('Manual transactions in data:', data.filter(t => isManualTransaction(t)).length);
         
         // Sort data
         const sortedData = [...data].sort((a, b) => {
@@ -195,14 +181,38 @@ const AdminTransactions = () => {
         
         console.log('Calculated summary:', newSummary);
         setSummary(newSummary);
+        setRetryCount(0); // Reset retry count on success
       }
     } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('Request was aborted');
+        return;
+      }
+      
       console.error('Error fetching transactions:', error);
-      showNotification('error', error.response?.data?.error || 'Failed to load transactions');
+      
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        setError('Connection timeout. The server might be slow or offline.');
+        showNotification('error', 'Connection timeout. Please try again.');
+        
+        // Retry logic
+        if (retryCount < 3) {
+          setTimeout(() => {
+            setRetryCount(prev => prev + 1);
+            fetchTransactions();
+          }, 2000);
+        }
+      } else if (error.response?.status === 401) {
+        setError('Session expired. Please login again.');
+        showNotification('error', 'Session expired. Please login again.');
+      } else {
+        setError(error.response?.data?.error || 'Failed to load transactions');
+        showNotification('error', error.response?.data?.error || 'Failed to load transactions');
+      }
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, pagination.limit, filters, sortBy, sortOrder, isManualTransaction, isMachineTransaction]);
+  }, [pagination.page, pagination.limit, filters, sortBy, sortOrder, isManualTransaction, isMachineTransaction, retryCount]);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -211,6 +221,7 @@ const AdminTransactions = () => {
       
       console.log('Fetching summary stats...');
       const response = await axios.get(`${API_URL}/transactions/admin/stats`, {
+        timeout: 30000,
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -218,17 +229,16 @@ const AdminTransactions = () => {
       
       if (response.data.success) {
         const summaryData = response.data.data;
-        // Update summary with API data but ensure machine values are correct
         setSummary(prev => ({ 
           ...prev, 
           ...summaryData,
-          // Make sure machine values are included
           machineTransactions: summaryData.machineTransactions || 0,
           machineRevenue: summaryData.machineRevenue || 0
         }));
       }
     } catch (error) {
       console.error('Error fetching summary:', error);
+      // Don't show error for summary - it will be calculated from transactions
     }
   }, []);
 
@@ -238,6 +248,7 @@ const AdminTransactions = () => {
       if (!token) return;
       
       const response = await axios.get(`${API_URL}/transactions/products/list`, {
+        timeout: 30000,
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -255,15 +266,23 @@ const AdminTransactions = () => {
       }
     } catch (error) {
       console.error('Error fetching product names:', error);
+      // Use default products
     }
   }, []);
 
-  // Fetch all data on mount and when dependencies change
+  // Fetch data on mount
   useEffect(() => {
     fetchTransactions();
     fetchSummary();
     fetchUniqueProductNames();
-  }, [fetchTransactions, fetchSummary, fetchUniqueProductNames]);
+    
+    // Cleanup function
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   // Socket listener for real-time updates
   useEffect(() => {
@@ -290,7 +309,7 @@ const AdminTransactions = () => {
     } else {
       setPagination(prev => ({ ...prev, page: 1 }));
     }
-  }, [filters, fetchTransactions]);
+  }, [filters]);
 
   const showNotification = (type, message) => {
     setNotification({ type, message });
@@ -321,6 +340,12 @@ const AdminTransactions = () => {
       transactionType: 'all'
     });
     setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  const handleRetry = () => {
+    setRetryCount(0);
+    fetchTransactions();
+    fetchSummary();
   };
 
   const formatCurrency = (amount) => {
@@ -355,7 +380,6 @@ const AdminTransactions = () => {
     if (isManualTransaction(transaction)) {
       const name = transaction.recordedBy?.firstName || 
                    transaction.user?.firstName || 
-                   transaction.recordedBy || 
                    'Staff';
       const lastName = transaction.recordedBy?.lastName || transaction.user?.lastName || '';
       return { type: 'manual', label: `${name} ${lastName}`.trim(), badgeClass: 'badge-manual' };
@@ -371,6 +395,22 @@ const AdminTransactions = () => {
   const getDisplayProductName = (transaction) => {
     return transaction.productName || transaction.riceType || 'Unknown';
   };
+
+  // Show error state with retry button
+  if (error) {
+    return (
+      <div className="transactions-container">
+        <div className="error-state">
+          <div className="error-icon">⚠️</div>
+          <h3>Connection Error</h3>
+          <p>{error}</p>
+          <button className="retry-btn" onClick={handleRetry}>
+            🔄 Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading && transactions.length === 0) {
     return (
@@ -406,6 +446,9 @@ const AdminTransactions = () => {
             onClick={() => setShowFilters(!showFilters)}
           >
             {showFilters ? 'Hide Filters' : 'Show Filters'}
+          </button>
+          <button className="btn-refresh" onClick={fetchTransactions}>
+            🔄 Refresh
           </button>
         </div>
       </div>
