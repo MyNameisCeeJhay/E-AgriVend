@@ -4,7 +4,7 @@ import axios from 'axios';
 import './Login.css';
 
 // ADD THIS LINE - Missing API_URL constant
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_URL = 'https://e-agrivend.onrender.com/api';
 
 const Login = () => {
   const [email, setEmail] = useState('');
