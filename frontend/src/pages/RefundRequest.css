@@ -626,3 +626,165 @@ textarea::placeholder {
     font-size: 32px;
   }
 }
+
+/* Add to your existing RefundRequest.css */
+
+.transaction-input-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.transaction-input {
+  flex: 1;
+}
+
+.validate-btn {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.validate-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.validate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.validate-btn.validating {
+  opacity: 0.8;
+  cursor: wait;
+}
+
+.validation-success {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background-color: #d4edda;
+  color: #155724;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.transaction-summary {
+  margin-top: 16px;
+  padding: 16px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #28a745;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.summary-label {
+  font-weight: 600;
+  color: #495057;
+}
+
+.summary-value {
+  color: #212529;
+}
+
+.transaction-id {
+  font-family: monospace;
+  font-size: 12px;
+  background-color: #e9ecef;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.auto-badge, .manual-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  margin-left: 8px;
+  font-weight: normal;
+}
+
+.auto-badge {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.manual-badge {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.readonly-field {
+  background-color: #e9ecef;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.readonly-field:focus {
+  outline: none;
+  border-color: #ced4da;
+}
+
+.auto-filled-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #28a745;
+}
+
+.info-message {
+  margin-top: 12px;
+  padding: 10px;
+  background-color: #d1ecf1;
+  color: #0c5460;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.image-preview {
+  margin-top: 16px;
+  position: relative;
+  display: inline-block;
+}
+
+.image-preview img {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 8px;
+  border: 2px solid #e9ecef;
+}
+
+.remove-btn {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.remove-btn:hover {
+  background-color: #c82333;
+  transform: scale(1.1);
+}

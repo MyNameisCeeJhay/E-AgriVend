@@ -28,6 +28,7 @@ const AdminReturns = () => {
   });
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
   const abortControllerRef = useRef(null);
 
   useEffect(() => {
@@ -287,123 +288,362 @@ const AdminReturns = () => {
     return refund?.description || '';
   };
 
-  const viewReceipt = async (filename) => {
-  if (!filename) {
-    showNotification('error', 'No receipt file attached');
-    return;
-  }
-  
-  try {
-    const authToken = localStorage.getItem('token');
-    
-    if (!authToken) {
-      showNotification('error', 'Please log in to view receipt');
+  const viewReceipt = async (receiptFilename) => {
+    if (!receiptFilename) {
+      showNotification('error', 'No receipt file attached');
       return;
     }
     
-    // Open a new window with loading message
-    const receiptWindow = window.open('', '_blank');
-    receiptWindow.document.write('<div style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial;">Loading receipt...</div>');
+    setReceiptLoading(true);
     
-    // Fetch the receipt image with authentication
-    const response = await fetch(`${API_URL}/refund/receipt-image/${filename}`, {
-      headers: {
-        'Authorization': `Bearer ${authToken}`
+    try {
+      const authToken = localStorage.getItem('token');
+      
+      if (!authToken) {
+        showNotification('error', 'Please log in to view receipt');
+        setReceiptLoading(false);
+        return;
       }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      
+      // Log the filename for debugging
+      console.log('Attempting to load receipt:', receiptFilename);
+      
+      // Try to open a new window for the receipt
+      let receiptWindow = null;
+      try {
+        receiptWindow = window.open('', '_blank');
+        if (!receiptWindow) {
+          throw new Error('Popup blocked');
+        }
+        
+        // Show loading message
+        receiptWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Loading Receipt...</title>
+              <style>
+                body {
+                  margin: 0;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                  height: 100vh;
+                  font-family: Arial, sans-serif;
+                  background: #f5f5f5;
+                }
+                .loader {
+                  text-align: center;
+                }
+                .spinner {
+                  border: 4px solid #f3f3f3;
+                  border-top: 4px solid #3498db;
+                  border-radius: 50%;
+                  width: 40px;
+                  height: 40px;
+                  animation: spin 1s linear infinite;
+                  margin: 0 auto 20px;
+                }
+                @keyframes spin {
+                  0% { transform: rotate(0deg); }
+                  100% { transform: rotate(360deg); }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="loader">
+                <div class="spinner"></div>
+                <p>Loading receipt image...</p>
+                <p style="font-size: 12px; color: #666;">Filename: ${receiptFilename}</p>
+              </div>
+            </body>
+          </html>
+        `);
+        receiptWindow.document.close();
+      } catch (popupError) {
+        console.error('Popup error:', popupError);
+        showNotification('warning', 'Please allow popups to view receipts. Click the View Receipt button again.');
+        setReceiptLoading(false);
+        return;
+      }
+      
+      // Try direct URL approach first (most reliable)
+      const directUrl = `${API_URL}/uploads/returns/${encodeURIComponent(receiptFilename)}`;
+      console.log('Trying direct URL:', directUrl);
+      
+      // Try to fetch the image with authentication
+      let imageUrl = null;
+      let blob = null;
+      
+      // List of endpoints to try in order
+      const endpoints = [
+        `${API_URL}/refund/receipt-image/${encodeURIComponent(receiptFilename)}`,
+        `${API_URL}/refund/receipt/${encodeURIComponent(receiptFilename)}`,
+        `${API_URL}/uploads/returns/${encodeURIComponent(receiptFilename)}`,
+        `${API_URL}/receipts/${encodeURIComponent(receiptFilename)}`
+      ];
+      
+      for (const endpoint of endpoints) {
+        try {
+          console.log('Trying endpoint:', endpoint);
+          const response = await axios.get(endpoint, {
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            responseType: 'blob',
+            timeout: 10000
+          });
+          
+          if (response.status === 200 && response.data && response.data.size > 0) {
+            blob = response.data;
+            imageUrl = URL.createObjectURL(blob);
+            console.log('Successfully loaded from:', endpoint);
+            break;
+          }
+        } catch (error) {
+          console.log(`Endpoint failed: ${endpoint}`, error.message);
+        }
+      }
+      
+      if (!imageUrl || !blob) {
+        // Check if window is still open
+        if (receiptWindow && !receiptWindow.closed) {
+          receiptWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <title>Receipt Error</title>
+                <style>
+                  body {
+                    margin: 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    font-family: Arial, sans-serif;
+                    background: #f5f5f5;
+                  }
+                  .error-container {
+                    text-align: center;
+                    background: white;
+                    padding: 40px;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                    max-width: 500px;
+                    margin: 20px;
+                  }
+                  .error-icon {
+                    font-size: 64px;
+                    margin-bottom: 20px;
+                  }
+                  h3 {
+                    color: #dc3545;
+                    margin-bottom: 10px;
+                  }
+                  p {
+                    color: #666;
+                    margin-bottom: 10px;
+                  }
+                  .filename {
+                    background: #f8f9fa;
+                    padding: 10px;
+                    border-radius: 6px;
+                    font-family: monospace;
+                    font-size: 12px;
+                    word-break: break-all;
+                    margin: 15px 0;
+                  }
+                  button {
+                    padding: 10px 24px;
+                    background: #6c757d;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    margin-top: 10px;
+                  }
+                  button:hover {
+                    background: #5a6268;
+                  }
+                </style>
+              </head>
+              <body>
+                <div class="error-container">
+                  <div class="error-icon">❌</div>
+                  <h3>Failed to Load Receipt</h3>
+                  <p>The receipt file could not be found or loaded.</p>
+                  <div class="filename">
+                    <strong>Filename:</strong> ${receiptFilename}
+                  </div>
+                  <p><small>Please check if the file exists on the server.</small></p>
+                  <button onclick="window.close()">Close Window</button>
+                </div>
+              </body>
+            </html>
+          `);
+          receiptWindow.document.close();
+        }
+        throw new Error('Could not load receipt from any endpoint');
+      }
+      
+      // Check if window is still open
+      if (!receiptWindow || receiptWindow.closed) {
+        receiptWindow = window.open('', '_blank');
+        if (!receiptWindow) {
+          throw new Error('Cannot open new window');
+        }
+      }
+      
+      // Display the image in the window
+      receiptWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Receipt - ${receiptFilename}</title>
+            <meta charset="UTF-8">
+            <style>
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+              body {
+                background: #f5f5f5;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                padding: 20px;
+              }
+              .container {
+                max-width: 90%;
+                margin: 0 auto;
+                text-align: center;
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                padding: 20px;
+              }
+              h2 {
+                color: #333;
+                margin-bottom: 20px;
+                font-size: 24px;
+              }
+              .receipt-info {
+                background: #f8f9fa;
+                padding: 12px;
+                border-radius: 8px;
+                margin-bottom: 20px;
+                font-size: 14px;
+                color: #666;
+              }
+              .receipt-info strong {
+                color: #333;
+              }
+              .image-container {
+                margin: 20px 0;
+                text-align: center;
+                min-height: 200px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+              }
+              img {
+                max-width: 100%;
+                max-height: 70vh;
+                object-fit: contain;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+              }
+              .button-group {
+                margin-top: 20px;
+                display: flex;
+                gap: 12px;
+                justify-content: center;
+                flex-wrap: wrap;
+              }
+              button {
+                padding: 10px 24px;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 500;
+                transition: all 0.3s ease;
+              }
+              .btn-download {
+                background: #2d6a4f;
+                color: white;
+              }
+              .btn-download:hover {
+                background: #1b4d3e;
+                transform: translateY(-1px);
+              }
+              .btn-close {
+                background: #6c757d;
+                color: white;
+              }
+              .btn-close:hover {
+                background: #5a6268;
+                transform: translateY(-1px);
+              }
+              .error-message {
+                text-align: center;
+                color: #dc3545;
+                padding: 40px;
+              }
+              @media (max-width: 768px) {
+                .container {
+                  padding: 12px;
+                }
+                h2 {
+                  font-size: 18px;
+                }
+                button {
+                  padding: 8px 16px;
+                  font-size: 12px;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h2>📄 Receipt Attachment</h2>
+              <div class="receipt-info">
+                <strong>Filename:</strong> ${receiptFilename}
+              </div>
+              <div class="image-container">
+                <img src="${imageUrl}" alt="Receipt Image" onerror="this.parentElement.innerHTML='<div class=\\'error-message\\'>❌ Failed to display receipt image. The file may be corrupted.</div>'" />
+              </div>
+              <div class="button-group">
+                <button class="btn-download" onclick="downloadImage()">📥 Download Receipt</button>
+                <button class="btn-close" onclick="window.close()">✖ Close Window</button>
+              </div>
+            </div>
+            <script>
+              function downloadImage() {
+                const link = document.createElement('a');
+                link.href = "${imageUrl}";
+                link.download = "${receiptFilename}";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }
+              
+              // Clean up when window closes
+              window.addEventListener('beforeunload', function() {
+                URL.revokeObjectURL("${imageUrl}");
+              });
+            </script>
+          </body>
+        </html>
+      `);
+      receiptWindow.document.close();
+      
+      showNotification('success', 'Receipt loaded successfully');
+      
+    } catch (error) {
+      console.error('Error viewing receipt:', error);
+      showNotification('error', 'Failed to load receipt. The file may be missing or corrupted.');
+    } finally {
+      setReceiptLoading(false);
     }
-    
-    const blob = await response.blob();
-    const imageUrl = URL.createObjectURL(blob);
-    
-    // Display the image in the new window
-    receiptWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Receipt - ${filename}</title>
-          <style>
-            body {
-              margin: 0;
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              min-height: 100vh;
-              background: #f5f5f5;
-              font-family: Arial, sans-serif;
-            }
-            .container {
-              max-width: 90%;
-              max-height: 90vh;
-              text-align: center;
-            }
-            img {
-              max-width: 100%;
-              max-height: 85vh;
-              object-fit: contain;
-              box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-              border-radius: 8px;
-            }
-            .button-group {
-              margin-top: 20px;
-            }
-            button {
-              padding: 10px 20px;
-              margin: 0 10px;
-              border: none;
-              border-radius: 5px;
-              cursor: pointer;
-              font-size: 14px;
-            }
-            .btn-download {
-              background: #2d6a4f;
-              color: white;
-            }
-            .btn-close {
-              background: #6c757d;
-              color: white;
-            }
-            .error-message {
-              text-align: center;
-              color: red;
-              font-family: Arial, sans-serif;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <img src="${imageUrl}" alt="Receipt Image" onerror="this.style.display='none'; document.getElementById('errorMsg').style.display='block';" />
-            <div id="errorMsg" style="display:none; color:red; margin-top:20px;">
-              Failed to load receipt image.
-            </div>
-            <div class="button-group">
-              <button class="btn-download" onclick="downloadImage()">📥 Download Receipt</button>
-              <button class="btn-close" onclick="window.close()">✖ Close</button>
-            </div>
-          </div>
-          <script>
-            function downloadImage() {
-              const link = document.createElement('a');
-              link.href = "${imageUrl}";
-              link.download = "${filename}";
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            }
-          </script>
-        </body>
-      </html>
-    `);
-    receiptWindow.document.close();
-    
-  } catch (error) {
-    console.error('Error viewing receipt:', error);
-    showNotification('error', 'Failed to load receipt. Please try again.');
-  }
-};
+  };
 
   // Loading state
   if (loading && refunds.length === 0) {
@@ -644,15 +884,19 @@ const AdminReturns = () => {
               </div>
 
               {/* Receipt Attachment */}
-              {selectedRefund?.receiptFilename && (
+              {(selectedRefund?.receiptFilename || selectedRefund?.receiptImage) && (
                 <div className="details-section">
                   <h3>Receipt Attachment</h3>
                   <button 
                     className="btn-view-receipt"
-                    onClick={() => viewReceipt(selectedRefund.receiptFilename)}
+                    onClick={() => viewReceipt(selectedRefund.receiptFilename || selectedRefund.receiptImage)}
+                    disabled={receiptLoading}
                   >
-                    📄 View Receipt
+                    {receiptLoading ? '⏳ Loading Receipt...' : '📄 View Receipt'}
                   </button>
+                  <small className="receipt-hint">
+                    Note: If receipt doesn't load, please check that the file exists on the server
+                  </small>
                 </div>
               )}
 

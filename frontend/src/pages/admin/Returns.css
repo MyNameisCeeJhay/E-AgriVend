@@ -608,3 +608,10 @@ button:disabled {
     flex: 1;
   }
 }
+
+.receipt-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6c757d;
+}

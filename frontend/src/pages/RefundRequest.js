@@ -30,6 +30,7 @@ const RefundRequest = () => {
   const [isWithinTimeLimit, setIsWithinTimeLimit] = useState(true);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [validating, setValidating] = useState(false);
+  const [transactionData, setTransactionData] = useState(null);
 
   const handleValidateTransaction = async () => {
     const transactionNumber = formData.transactionNumber.trim().toUpperCase();
@@ -50,9 +51,10 @@ const RefundRequest = () => {
       
       if (response.data.success) {
         const transaction = response.data.data;
+        setTransactionData(transaction);
         
         console.log('✅ Transaction data:', {
-          productName: transaction.productName,
+          productName: transaction.riceType || transaction.productName,
           quantity: transaction.quantityKg,
           amount: transaction.amountPaid
         });
@@ -72,7 +74,7 @@ const RefundRequest = () => {
           transactionNumber: transactionNumber,
           transactionDate: formattedDate,
           transactionTime: formattedTime,
-          grainType: transaction.productName || '',
+          grainType: transaction.riceType || transaction.productName || '',
           selectedQuantity: transaction.quantityKg?.toString() || '',
           amountInserted: transaction.amountPaid?.toString() || ''
         }));
@@ -101,6 +103,7 @@ const RefundRequest = () => {
         setError('Unable to validate transaction. Please try again.');
       }
       setTransactionValid(false);
+      setTransactionData(null);
     } finally {
       setValidating(false);
     }
@@ -136,6 +139,7 @@ const RefundRequest = () => {
     if (name === 'transactionNumber') {
       setTransactionValid(false);
       setError('');
+      setTransactionData(null);
     }
   };
 
@@ -187,12 +191,10 @@ const RefundRequest = () => {
     submitData.append('fullName', formData.fullName);
     submitData.append('email', formData.email);
     submitData.append('transactionNumber', formData.transactionNumber);
-    submitData.append('transactionDate', formData.transactionDate);
-    submitData.append('transactionTime', formData.transactionTime);
-    submitData.append('grainType', formData.grainType);
-    submitData.append('selectedQuantity', formData.selectedQuantity);
-    submitData.append('amountInserted', formData.amountInserted);
-    submitData.append('refundReason', formData.refundReason);
+    submitData.append('riceType', formData.grainType);
+    submitData.append('quantityKg', formData.selectedQuantity);
+    submitData.append('amountPaid', formData.amountInserted);
+    submitData.append('returnReason', formData.refundReason);
     submitData.append('description', formData.description);
     submitData.append('receiptImage', formData.receiptImage);
 
@@ -203,7 +205,9 @@ const RefundRequest = () => {
       
       if (response.data.success) {
         setSuccess('✅ Your refund request has been submitted successfully!');
+        // Reset form after successful submission
         setTimeout(() => {
+          handleReset();
           navigate('/refund/success');
         }, 3000);
       }
@@ -235,6 +239,7 @@ const RefundRequest = () => {
     setTransactionValid(false);
     setIsWithinTimeLimit(true);
     setTimeRemaining(null);
+    setTransactionData(null);
   };
 
   const refundReasons = [
@@ -294,6 +299,7 @@ const RefundRequest = () => {
                   onChange={handleChange}
                   placeholder="Enter your full name"
                   required
+                  disabled={!transactionValid || !isWithinTimeLimit}
                 />
               </div>
               <div className="form-group">
@@ -305,6 +311,7 @@ const RefundRequest = () => {
                   onChange={handleChange}
                   placeholder="Enter your email address"
                   required
+                  disabled={!transactionValid || !isWithinTimeLimit}
                 />
               </div>
             </div>
@@ -325,15 +332,18 @@ const RefundRequest = () => {
                     placeholder="Example: TXN-260430-MOL5YQ21-2FBD0Q"
                     required
                     className="transaction-input"
+                    disabled={transactionValid}
                   />
-                  <button 
-                    type="button" 
-                    onClick={handleValidateTransaction}
-                    className={`validate-btn ${validating ? 'validating' : ''}`}
-                    disabled={!formData.transactionNumber || validating}
-                  >
-                    {validating ? 'Validating...' : 'Validate'}
-                  </button>
+                  {!transactionValid && (
+                    <button 
+                      type="button" 
+                      onClick={handleValidateTransaction}
+                      className={`validate-btn ${validating ? 'validating' : ''}`}
+                      disabled={!formData.transactionNumber || validating}
+                    >
+                      {validating ? 'Validating...' : 'Validate'}
+                    </button>
+                  )}
                 </div>
                 {transactionValid && (
                   <div className="validation-success">
@@ -366,7 +376,7 @@ const RefundRequest = () => {
             <h3>Product Details <span className="auto-badge">(Auto-filled from transaction)</span></h3>
             <div className="form-row">
               <div className="form-group">
-                <label>Grain Type *</label>
+                <label>Rice Type *</label>
                 <input
                   type="text"
                   value={formData.grainType}
@@ -448,11 +458,11 @@ const RefundRequest = () => {
           <div className="form-section">
             <h3>Proof of Transaction</h3>
             <div className="form-group">
-              <label>Upload Receipt *</label>
+              <label>Upload Receipt Image *</label>
               <div className="file-upload-area">
                 <input
                   type="file"
-                  accept="image/jpeg,image/jpg,image/png,application/pdf"
+                  accept="image/jpeg,image/jpg,image/png"
                   onChange={handleFileChange}
                   required
                   disabled={!transactionValid || !isWithinTimeLimit}
@@ -461,17 +471,23 @@ const RefundRequest = () => {
                 />
                 <label htmlFor="receipt-upload" className="upload-label">
                   <div className="upload-icon">📁</div>
-                  <p className="upload-text">Click or drag to upload receipt</p>
-                  <p className="upload-hint">JPG, JPEG, PNG, PDF (Max 5MB)</p>
+                  <p className="upload-text">Click or drag to upload receipt image</p>
+                  <p className="upload-hint">JPG, JPEG, PNG (Max 5MB)</p>
                 </label>
               </div>
               {previewUrl && (
                 <div className="image-preview">
                   <img src={previewUrl} alt="Receipt preview" />
-                  <button type="button" onClick={() => {
-                    setPreviewUrl(null);
-                    setFormData(prev => ({ ...prev, receiptImage: null }));
-                  }}>Remove</button>
+                  <button 
+                    type="button" 
+                    className="remove-btn"
+                    onClick={() => {
+                      setPreviewUrl(null);
+                      setFormData(prev => ({ ...prev, receiptImage: null }));
+                    }}
+                  >
+                    Remove
+                  </button>
                 </div>
               )}
             </div>
@@ -485,6 +501,7 @@ const RefundRequest = () => {
               <li>Requests submitted within 4 hours of transaction will be processed.</li>
               <li>Administrator will review using recorded transaction data.</li>
               <li>Refunds approved only if product is proven defective.</li>
+              <li>Approved refunds will be processed within 3-5 business days.</li>
             </ul>
           </div>
 

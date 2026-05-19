@@ -1,6 +1,7 @@
 /**
  * ESP32 CODE - WiFi Bridge for Rice Vending Machine
  * WITH LOAD CELL DATA INTEGRATION & PRICE MANAGEMENT
+ * FIXED: Removed deviceId to properly update MACHINES table
  */
 
 #include <Arduino.h>
@@ -63,14 +64,12 @@ const char* DEVICE_ID = "AGRIVEND_001";
 float dinoradoPrice = 65.0;
 float sinandomengPrice = 52.0;
 unsigned long lastPriceFetch = 0;
-const unsigned long PRICE_FETCH_INTERVAL = 3600000; // Fetch every hour
+const unsigned long PRICE_FETCH_INTERVAL = 30000; // Check every 30 seconds
 
 // Load cell data (from Arduino Mega)
-float container1Level = 20.0;
-float container2Level = 20.0;
-float loadCellLeft = 20.0;
-float loadCellRight = 20.0;
-float loadCellTotal = 40.0;
+float storage1Weight = 0.0;      // Sinandomeng (LEFT load cell)
+float storage2Weight = 0.0;      // Dinorado (RIGHT load cell)
+float loadCellTotal = 0.0;
 bool loadCellLeftError = false;
 bool loadCellRightError = false;
 unsigned long lastLoadCellRead = 0;
@@ -103,23 +102,28 @@ const unsigned long WIFI_CHECK_INTERVAL = 30000;
 unsigned long lastStatusPrint = 0;
 const unsigned long STATUS_PRINT_INTERVAL = 30000;
 
+// Rate limiting for backend to prevent overload
+unsigned long lastSuccessfulSend = 0;
+const unsigned long MIN_SEND_INTERVAL = 2000;
+
 // ============================================
 // Helper Functions
 // ============================================
-String getContainer1StockStatus() {
-  if (container1Level <= 0) return "EMPTY";
-  if (container1Level < 5) return "LOW";
+String getStorage1Status() {
+  if (storage1Weight <= 0) return "EMPTY";
+  if (storage1Weight < 5) return "LOW";
   return "OK";
 }
 
-String getContainer2StockStatus() {
-  if (container2Level <= 0) return "EMPTY";
-  if (container2Level < 5) return "LOW";
+String getStorage2Status() {
+  if (storage2Weight <= 0) return "EMPTY";
+  if (storage2Weight < 5) return "LOW";
   return "OK";
 }
 
 String getLoadCellStatus() {
   if (loadCellLeftError || loadCellRightError) return "ERROR";
+  if (storage1Weight <= 0.05 && storage2Weight <= 0.05) return "LOW";
   return "OK";
 }
 
@@ -130,7 +134,7 @@ void fetchPricesFromBackend() {
   if (WiFi.status() != WL_CONNECTED) return;
   
   HTTPClient http;
-  String url = String(BACKEND_URL) + "/api/esp32/prices";
+  String url = String(BACKEND_URL) + "/api/esp32/prices/current"; // Use current endpoint
   http.begin(url);
   http.setTimeout(5000);
   
@@ -150,6 +154,8 @@ void fetchPricesFromBackend() {
         Serial.println("✅ Prices updated from server!");
         Serial.printf("  DINORADO: PHP %.2f\n", dinoradoPrice);
         Serial.printf("  SINANDOMENG: PHP %.2f\n", sinandomengPrice);
+        
+        // THIS MUST BE CALLED
         sendPriceToMega();
       }
     }
@@ -254,11 +260,16 @@ void checkWiFi() {
 }
 
 // ============================================
-// SEND DATA TO BACKEND
+// SEND DATA TO BACKEND - FIXED (NO deviceId)
 // ============================================
 void sendSensorDataToBackend() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("⚠️ No WiFi - Sensor data not sent");
+    return;
+  }
+  
+  // Rate limiting - don't send too frequently
+  if (millis() - lastSuccessfulSend < MIN_SEND_INTERVAL) {
     return;
   }
   
@@ -268,49 +279,104 @@ void sendSensorDataToBackend() {
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(5000);
   
+  // SANITIZE transactionCount - prevent overflow
+  uint32_t safeTransactionCount = transactionCount;
+  if (safeTransactionCount > 10000 || safeTransactionCount == 0xFFFFFFFF || safeTransactionCount == 0) {
+    safeTransactionCount = 0;
+    Serial.println("⚠️ Transaction count was invalid, reset to 0");
+  }
+  
+  // SANITIZE other values
+  float safeLoadCellLeft = (storage1Weight < 0 || isnan(storage1Weight)) ? 0 : storage1Weight;
+  float safeLoadCellRight = (storage2Weight < 0 || isnan(storage2Weight)) ? 0 : storage2Weight;
+  float safeLoadCellTotal = (loadCellTotal < 0 || isnan(loadCellTotal)) ? 0 : loadCellTotal;
+  int safeBattery = (batteryPercentage < 0 || batteryPercentage > 100) ? 100 : batteryPercentage;
+  float safeTemp = (temperature < -10 || temperature > 100) ? 25 : temperature;
+  
+  // SANITIZE machineStatus - only allow valid values
+  String safeMachineStatus = "ACTIVE";
+  if (machineStatus == "MAINTENANCE") safeMachineStatus = "MAINTENANCE";
+  else if (machineStatus == "ERROR") safeMachineStatus = "ERROR";
+  else if (machineStatus == "ACTIVE") safeMachineStatus = "ACTIVE";
+  else safeMachineStatus = "ACTIVE";
+  
+  // Create JSON payload
   JsonDocument doc;
-  doc["deviceId"] = DEVICE_ID;
-  doc["container1Level"] = container1Level;
-  doc["container2Level"] = container2Level;
-  doc["loadCellLeft"] = loadCellLeft;
-  doc["loadCellRight"] = loadCellRight;
-  doc["loadCellTotal"] = loadCellTotal;
+  // ===== IMPORTANT: DO NOT SEND deviceId =====
+  // Your MACHINES table does not have a deviceId field
+  // REMOVED: doc["deviceId"] = DEVICE_ID;
+  
+  doc["loadCellLeft"] = safeLoadCellLeft;
+  doc["loadCellRight"] = safeLoadCellRight;
+  doc["loadCellTotal"] = safeLoadCellTotal;
   doc["loadCellStatus"] = getLoadCellStatus();
-  doc["lastLoadCellUpdate"] = lastLoadCellRead;
-  doc["collectionBinWeight"] = collectionBinWeight;
-  doc["batteryVoltage"] = batteryVoltage;
-  doc["batteryPercentage"] = batteryPercentage;
-  doc["temperature"] = temperature;
-  doc["humidity"] = humidity;
+  doc["batteryPercentage"] = safeBattery;
   doc["doorStatus"] = doorStatus;
-  doc["vibrationDetected"] = vibrationDetected;
-  doc["machineStatus"] = machineStatus;
-  doc["container1Stock"] = getContainer1StockStatus();
-  doc["container2Stock"] = getContainer2StockStatus();
+  doc["temperature"] = safeTemp;
   doc["machineState"] = machineState;
-  doc["transactionCount"] = transactionCount;
+  doc["transactionCount"] = safeTransactionCount;
+  doc["machineStatus"] = safeMachineStatus;
   
   String jsonString;
   serializeJson(doc, jsonString);
   
+  Serial.print("📤 Sending to backend: ");
+  Serial.println(jsonString);
+  
   int httpResponseCode = http.POST(jsonString);
   
-  if (httpResponseCode > 0) {
-    if (httpResponseCode == 200 || httpResponseCode == 201) {
-      Serial.println("✅ Sensor data sent successfully!");
-      Serial.print("   Load Cell Data - Left: ");
-      Serial.print(loadCellLeft);
-      Serial.print("kg, Right: ");
-      Serial.print(loadCellRight);
-      Serial.print("kg, Total: ");
-      Serial.print(loadCellTotal);
-      Serial.println("kg");
-    }
+  if (httpResponseCode == 200 || httpResponseCode == 201) {
+    Serial.println("✅ Sensor data sent successfully!");
+    Serial.print("   Storage - Sinandomeng: ");
+    Serial.print(safeLoadCellLeft);
+    Serial.print("kg, Dinorado: ");
+    Serial.print(safeLoadCellRight);
+    Serial.print("kg, Total: ");
+    Serial.print(safeLoadCellTotal);
+    Serial.println("kg");
+    lastSuccessfulSend = millis();
   } else {
     Serial.printf("❌ Error sending sensor data: %d\n", httpResponseCode);
+    if (httpResponseCode == -1) {
+      Serial.println("   → Connection failed. Check BACKEND_URL");
+    } else if (httpResponseCode == -11) {
+      Serial.println("   → Connection refused");
+    } else if (httpResponseCode == 500) {
+      Serial.println("   → Backend error. Check server logs.");
+      // Try again without transactionCount
+      Serial.println("   → Retrying without transactionCount...");
+      
+      JsonDocument doc2;
+      doc2["loadCellLeft"] = safeLoadCellLeft;
+      doc2["loadCellRight"] = safeLoadCellRight;
+      doc2["loadCellTotal"] = safeLoadCellTotal;
+      doc2["loadCellStatus"] = getLoadCellStatus();
+      doc2["batteryPercentage"] = safeBattery;
+      doc2["doorStatus"] = doorStatus;
+      doc2["temperature"] = safeTemp;
+      doc2["machineState"] = machineState;
+      doc2["machineStatus"] = safeMachineStatus;
+      
+      String jsonString2;
+      serializeJson(doc2, jsonString2);
+      
+      http.begin(url);
+      http.addHeader("Content-Type", "application/json");
+      int retryCode = http.POST(jsonString2);
+      
+      if (retryCode == 200 || retryCode == 201) {
+        Serial.println("✅ Sensor data sent successfully (without transactionCount)!");
+        lastSuccessfulSend = millis();
+      } else {
+        Serial.printf("❌ Still failing: %d\n", retryCode);
+      }
+    }
   }
   
   http.end();
+  
+  // Small delay to prevent overwhelming the server
+  delay(100);
 }
 
 void sendTransactionToBackend(float kg, float amount, String riceType, String status, String transactionID) {
@@ -345,8 +411,8 @@ void sendTransactionToBackend(float kg, float amount, String riceType, String st
   doc["quantityKg"] = kg;
   doc["amountPaid"] = amount;
   doc["status"] = "COMPLETED";
-  doc["remainingStockPremium"] = container1Level;
-  doc["remainingStockRegular"] = container2Level;
+  doc["remainingStockPremium"] = storage2Weight;
+  doc["remainingStockRegular"] = storage1Weight;
   
   String jsonString;
   serializeJson(doc, jsonString);
@@ -363,9 +429,9 @@ void sendTransactionToBackend(float kg, float amount, String riceType, String st
   Serial.print("  Amount: PHP ");
   Serial.println(amount);
   Serial.print("  Remaining Stock: ");
-  Serial.print(container1Level);
+  Serial.print(storage2Weight);
   Serial.print("kg / ");
-  Serial.print(container2Level);
+  Serial.print(storage1Weight);
   Serial.println("kg");
   Serial.println("========================================");
   
@@ -408,7 +474,6 @@ void sendSecurityAlertToBackend(String alertType, String doorStatus) {
   http.setTimeout(5000);
   
   JsonDocument doc;
-  doc["deviceId"] = DEVICE_ID;
   doc["alertType"] = alertType;
   doc["doorStatus"] = doorStatus;
   doc["timestamp"] = millis();
@@ -416,8 +481,8 @@ void sendSecurityAlertToBackend(String alertType, String doorStatus) {
   if (alertType == "LOAD_CELL_ERROR") {
     doc["loadCellLeftError"] = loadCellLeftError;
     doc["loadCellRightError"] = loadCellRightError;
-    doc["loadCellLeftValue"] = loadCellLeft;
-    doc["loadCellRightValue"] = loadCellRight;
+    doc["loadCellLeftValue"] = storage1Weight;
+    doc["loadCellRightValue"] = storage2Weight;
   }
   
   String jsonString;
@@ -467,6 +532,7 @@ void processMegaData() {
       }
       else if (data.startsWith("LOADCELL|")) {
         parseLoadCellData(data);
+        sendSensorDataToBackend();
       }
       else if (data.startsWith("PRICE|")) {
         parsePriceData(data);
@@ -485,7 +551,6 @@ void processMegaData() {
 }
 
 void parsePriceData(String data) {
-  // Format: PRICE|dinoradoPrice|sinandomengPrice
   data = data.substring(6);
   
   int separator = data.indexOf('|');
@@ -502,6 +567,8 @@ void parsePriceData(String data) {
 }
 
 void parseLoadCellData(String data) {
+  // Format: LOADCELL|leftKg|rightKg|totalKg|leftError|rightError
+  // LEFT = Sinandomeng, RIGHT = Dinorado
   data = data.substring(9);
   
   int firstBar = data.indexOf('|');
@@ -510,24 +577,21 @@ void parseLoadCellData(String data) {
   int fourthBar = data.indexOf('|', thirdBar + 1);
   
   if (firstBar > 0 && secondBar > 0 && thirdBar > 0 && fourthBar > 0) {
-    loadCellLeft = data.substring(0, firstBar).toFloat();
-    loadCellRight = data.substring(firstBar + 1, secondBar).toFloat();
+    storage1Weight = data.substring(0, firstBar).toFloat();     // Sinandomeng
+    storage2Weight = data.substring(firstBar + 1, secondBar).toFloat();  // Dinorado
     loadCellTotal = data.substring(secondBar + 1, thirdBar).toFloat();
     loadCellLeftError = data.substring(thirdBar + 1, fourthBar).toInt() == 1;
     loadCellRightError = data.substring(fourthBar + 1).toInt() == 1;
-    
-    container1Level = loadCellLeft;
-    container2Level = loadCellRight;
     
     lastLoadCellRead = millis();
     
     Serial.println("========================================");
     Serial.println("📊 LOAD CELL DATA RECEIVED:");
-    Serial.print("  Left (Premium): ");
-    Serial.print(loadCellLeft);
+    Serial.print("  Sinandomeng (Storage1): ");
+    Serial.print(storage1Weight);
     Serial.println(" kg");
-    Serial.print("  Right (Regular): ");
-    Serial.print(loadCellRight);
+    Serial.print("  Dinorado (Storage2): ");
+    Serial.print(storage2Weight);
     Serial.println(" kg");
     Serial.print("  Total Weight: ");
     Serial.print(loadCellTotal);
@@ -564,16 +628,25 @@ void parseStatusData(String data) {
     selectedGrain = data.substring(parts[4] + 1, parts[5]).toInt();
     targetQuantity = data.substring(parts[5] + 1, parts[6]).toInt();
     errorCode = data.substring(parts[6] + 1, parts[7]).toInt();
-    transactionCount = data.substring(parts[7] + 1, parts[8]).toInt();
+    uint32_t rawTransactionCount = data.substring(parts[7] + 1, parts[8]).toInt();
     
+    // SANITIZE transactionCount - prevent overflow
+    if (rawTransactionCount > 10000 || rawTransactionCount == 0xFFFFFFFF) {
+      transactionCount = 0;
+      Serial.println("⚠️ Invalid transaction count received, reset to 0");
+    } else {
+      transactionCount = rawTransactionCount;
+    }
+    
+    // Only use Mega stock if load cells haven't sent data recently
     if (millis() - lastLoadCellRead > 5000) {
-      container1Level = megaStock1;
-      container2Level = megaStock2;
+      storage1Weight = megaStock1;
+      storage2Weight = megaStock2;
     }
     
     if (errorCode != 0) {
       machineStatus = "ERROR";
-    } else if (container1Level < 2 && container2Level < 2) {
+    } else if (storage1Weight < 2 && storage2Weight < 2) {
       machineStatus = "MAINTENANCE";
     } else {
       machineStatus = "ACTIVE";
@@ -582,10 +655,10 @@ void parseStatusData(String data) {
     const char* stateNames[] = {"IDLE", "GRAIN_SELECTED", "QUANTITY_SELECTED", "PAYMENT", "DISPENSING", "COMPLETE"};
     Serial.print("📊 Status: State=");
     Serial.print(stateNames[machineState]);
-    Serial.print(", Stock(P/R)=");
-    Serial.print(container1Level);
+    Serial.print(", Stock(S1/S2)=");
+    Serial.print(storage1Weight);
     Serial.print("/");
-    Serial.print(container2Level);
+    Serial.print(storage2Weight);
     Serial.println(" kg");
     
     if (doorStatus == "OPEN" && machineState != 0) {
@@ -632,8 +705,8 @@ void parseStockData(String data) {
   int barPos = data.indexOf('|');
   if (barPos > 0) {
     if (millis() - lastLoadCellRead > 5000) {
-      container1Level = data.substring(0, barPos).toFloat();
-      container2Level = data.substring(barPos + 1).toFloat();
+      storage1Weight = data.substring(0, barPos).toFloat();
+      storage2Weight = data.substring(barPos + 1).toFloat();
     }
   }
 }
@@ -676,15 +749,15 @@ void printStatus() {
   Serial.printf("║ 🔗 Mega: %-25s ║\n", megaConnected ? "Connected ✅" : "Disconnected ❌");
   Serial.printf("║ 📡 WiFi: %-25s ║\n", WiFi.status() == WL_CONNECTED ? "Connected ✅" : "Disconnected ❌");
   Serial.printf("║ 📊 State: %-25s ║\n", stateNames[machineState]);
-  Serial.println("╠────────────── LOAD CELLS ──────────────╣");
-  Serial.printf("║ 🍚 Dinorado: %.1f kg (%-5s)     ║\n", container1Level, getContainer1StockStatus().c_str());
-  Serial.printf("║ 🍚 Sinandomeng: %.1f kg (%-5s)  ║\n", container2Level, getContainer2StockStatus().c_str());
+  Serial.println("╠────────────── STORAGE ────────────────╣");
+  Serial.printf("║ 🍚 Storage1 (Sinandomeng): %.1f kg (%s)    ║\n", storage1Weight, getStorage1Status().c_str());
+  Serial.printf("║ 🍚 Storage2 (Dinorado): %.1f kg (%s)      ║\n", storage2Weight, getStorage2Status().c_str());
   Serial.printf("║ 💰 Dinorado Price: PHP %.2f               ║\n", dinoradoPrice);
   Serial.printf("║ 💰 Sinandomeng Price: PHP %.2f            ║\n", sinandomengPrice);
-  Serial.printf("║ 📐 Load Cell L: %.1f kg                 ║\n", loadCellLeft);
-  Serial.printf("║ 📐 Load Cell R: %.1f kg                 ║\n", loadCellRight);
+  Serial.printf("║ 📐 Load Cell L: %.1f kg                 ║\n", storage1Weight);
+  Serial.printf("║ 📐 Load Cell R: %.1f kg                 ║\n", storage2Weight);
   Serial.printf("║ ⚖️ Total: %.1f kg                       ║\n", loadCellTotal);
-  Serial.printf("║ 🔧 Status: %-24s ║\n", getLoadCellStatus().c_str());
+  Serial.printf("║ 🔧 Load Cell Status: %-17s ║\n", getLoadCellStatus().c_str());
   Serial.println("╠───────────────────────────────────────╣");
   Serial.printf("║ 🔋 Battery: %d%%                 ║\n", batteryPercentage);
   Serial.printf("║ 🚪 Door: %-25s ║\n", doorStatus.c_str());
@@ -706,12 +779,8 @@ void loop() {
     lastPriceFetch = millis();
   }
   
-  if (millis() - lastSendToBackend >= BACKEND_INTERVAL) {
-    if (megaConnected && WiFi.status() == WL_CONNECTED) {
-      sendSensorDataToBackend();
-    }
-    lastSendToBackend = millis();
-  }
+  // Note: sendSensorDataToBackend is already called from parseLoadCellData and parseStatusData
+  // The periodic backup is now handled by the rate limiter
   
   if (millis() - lastStatusPrint >= STATUS_PRINT_INTERVAL) {
     printStatus();
