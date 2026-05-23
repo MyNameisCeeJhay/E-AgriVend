@@ -3,43 +3,59 @@ import mongoose from 'mongoose';
 const returnSchema = new mongoose.Schema({
   returnId: {
     type: String,
-    required: true,
-    unique: true
+    required: [true, 'Return ID is required'],
+    unique: true,
+    trim: true
   },
   transactionId: {
     type: String,
-    required: true
+    required: [true, 'Transaction ID is required'],
+    index: true,
+    trim: true
   },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: false
+  fullName: {
+    type: String,
+    required: [true, 'Full name is required'],
+    trim: true
+  },
+  email: {
+    type: String,
+    required: [true, 'Email is required'],
+    lowercase: true,
+    trim: true
   },
   riceType: {
     type: String,
-    enum: ['Sinandomeng', 'Dinorado'],
-    required: true
+    required: [true, 'Rice type is required'],
+    trim: true
   },
   quantityKg: {
     type: Number,
-    required: true,
-    min: 0.1
+    required: [true, 'Quantity is required'],
+    min: [0.1, 'Quantity must be at least 0.1 kg']
   },
   amountPaid: {
     type: Number,
-    required: true,
-    min: 0
+    required: [true, 'Amount is required'],
+    min: [0, 'Amount cannot be negative']
   },
   returnReason: {
     type: String,
-    required: true,
-    maxlength: 500
+    required: [true, 'Return reason is required'],
+    trim: true
+  },
+  description: {
+    type: String,
+    required: [true, 'Description is required'],
+    trim: true
   },
   receiptFilename: {
-    type: String
+    type: String,
+    trim: true
   },
   receiptPath: {
-    type: String
+    type: String,
+    trim: true
   },
   status: {
     type: String,
@@ -50,20 +66,32 @@ const returnSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-  processedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+  processedByName: {
+    type: String,
+    default: ''
   },
   processedAt: {
     type: Date
+  },
+  isRead: {
+    type: Boolean,
+    default: false
+  },
+  seenByCustomer: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
 });
 
-// Create indexes
+// Indexes for efficient queries
 returnSchema.index({ transactionId: 1 });
 returnSchema.index({ status: 1 });
 returnSchema.index({ createdAt: -1 });
+returnSchema.index({ email: 1 });
+returnSchema.index({ returnId: 1 });
+returnSchema.index({ fullName: 1 });
 
-export default mongoose.model('Return', returnSchema);
+const Return = mongoose.model('Return', returnSchema);
+export default Return;
