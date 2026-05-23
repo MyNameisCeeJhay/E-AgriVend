@@ -1,6 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,6 +12,11 @@ const __dirname = path.dirname(__filename);
 // Load environment variables
 const envPath = path.resolve(__dirname, '../../.env');
 dotenv.config({ path: envPath });
+
+console.log('\n📧 Email Configuration:');
+console.log('EMAIL_USER:', process.env.EMAIL_USER ? '✓ Set to: ' + process.env.EMAIL_USER : '✗ Not set');
+console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? '✓ Set (length: ' + process.env.EMAIL_PASS.length + ')' : '✗ Not set');
+console.log('');
 
 const router = express.Router();
 
@@ -41,6 +47,59 @@ const checkPasswordStrength = (password) => {
   if (!requirements.hasSpecialChar) requirementsList.push('At least one special character (!@#$%^&*)');
   
   return { isStrong, requirements, requirementsList };
+};
+
+// Send email function
+const sendEmailOTP = async (email, otp, userName) => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
+  });
+
+  const mailOptions = {
+    from: `"AgriVend Support" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: 'Password Reset OTP - AgriVend',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 500px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; }
+          .logo { font-size: 24px; font-weight: bold; color: #2d6a4f; text-align: center; margin-bottom: 20px; }
+          .otp-code { font-size: 36px; font-weight: bold; color: #2d6a4f; background: #ffffff; padding: 15px; border-radius: 8px; text-align: center; letter-spacing: 5px; margin: 20px 0; border: 1px solid #e2e8f0; }
+          .footer { text-align: center; font-size: 12px; color: #64748b; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="logo">🌾 AgriVend</div>
+          <h2>Password Reset Request</h2>
+          <p>Hello <strong>${userName}</strong>,</p>
+          <p>You requested to reset your password. Use the OTP below to proceed:</p>
+          <div class="otp-code">${otp}</div>
+          <p>This OTP will expire in <strong>10 minutes</strong>.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+          <div class="footer">
+            <p>AgriVend - Solar Powered Grain Vending Machine</p>
+            <p>Loma De Gato, Marilao, Bulacan</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+  };
+
+  const info = await transporter.sendMail(mailOptions);
+  return info;
 };
 
 // ===== REGISTER ROUTE =====
@@ -185,8 +244,10 @@ router.post('/create-staff', async (req, res) => {
   }
 });
 
-// SEND OTP - Simplified version
+// ===== SEND OTP VIA EMAIL =====
 router.post('/send-otp', async (req, res) => {
+  console.log('📧 Sending OTP to:', req.body.email);
+  
   try {
     const { email } = req.body;
     
@@ -194,33 +255,48 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
     
+    // Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ success: false, error: 'Email not found' });
+      return res.status(404).json({ success: false, error: 'Email not found in our system' });
     }
     
+    // Generate OTP
     const otp = generateOTP();
-    const expiresAt = Date.now() + 10 * 60 * 1000;
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
     
+    // Store OTP
     otpStore.set(email, { otp, expiresAt, attempts: 0 });
     
-    console.log(`✅ OTP for ${email}: ${otp}`);
+    console.log(`✅ OTP generated for ${email}: ${otp}`);
     
-    // Return OTP directly
+    // Send email with OTP
+    await sendEmailOTP(email, otp, `${user.firstName} ${user.lastName}`);
+    console.log(`✅ Email sent to ${email}`);
+    
+    // Return success WITHOUT OTP in response
     res.json({ 
       success: true, 
-      message: 'OTP generated',
-      otp: otp
+      message: 'OTP sent to your email address'
     });
     
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to generate OTP' });
+    console.error('❌ Error sending OTP:', error.message);
+    
+    if (error.message.includes('Invalid login') || error.message.includes('Username and Password not accepted')) {
+      res.status(503).json({ 
+        success: false, 
+        error: 'Email authentication failed. Please contact support.' 
+      });
+    } else {
+      res.status(500).json({ success: false, error: 'Failed to send OTP. Please try again.' });
+    }
   }
 });
 
-// ===== RESEND OTP =====
+// ===== RESEND OTP VIA EMAIL (NO OTP IN RESPONSE) =====
 router.post('/resend-otp', async (req, res) => {
-  console.log('🔄 Resend OTP request for:', req.body.email);
+  console.log('🔄 Resending OTP to:', req.body.email);
   
   try {
     const { email } = req.body;
@@ -239,13 +315,21 @@ router.post('/resend-otp', async (req, res) => {
     
     otpStore.set(email, { otp, expiresAt, attempts: 0 });
     
-    console.log(`✅ New OTP for ${email}: ${otp}`);
+    console.log(`✅ New OTP generated for ${email}: ${otp}`);
     
-    res.json({ success: true, message: 'New OTP generated', otp: otp });
+    // Send email with new OTP
+    await sendEmailOTP(email, otp, `${user.firstName} ${user.lastName}`);
+    console.log(`✅ New OTP email sent to ${email}`);
+    
+    // Return success WITHOUT OTP in response
+    res.json({ 
+      success: true, 
+      message: 'New OTP sent to your email address'
+    });
     
   } catch (error) {
-    console.error('Error resending OTP:', error);
-    res.status(500).json({ success: false, error: 'Failed to resend OTP' });
+    console.error('❌ Error resending OTP:', error);
+    res.status(500).json({ success: false, error: 'Failed to resend OTP. Please try again.' });
   }
 });
 
