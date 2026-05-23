@@ -15,6 +15,17 @@ router.get('/', protect, async (req, res) => {
   }
 });
 
+// Get active products only (for dropdown)
+router.get('/active', protect, async (req, res) => {
+  try {
+    const products = await Product.find({ isArchived: false }).sort({ name: 1 });
+    res.json({ success: true, data: products });
+  } catch (error) {
+    console.error('Error fetching active products:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Bulk save products
 router.post('/bulk', protect, async (req, res) => {
   try {
@@ -52,8 +63,12 @@ router.post('/', protect, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Name and price are required' });
     }
     
+    // Get the highest id to generate new unique id
+    const lastProduct = await Product.findOne().sort({ id: -1 });
+    const newId = lastProduct ? lastProduct.id + 1 : 1;
+    
     const product = new Product({
-      id: Date.now(),
+      id: newId,
       name,
       price: parseFloat(price),
       isArchived: false

@@ -1,5 +1,6 @@
 import express from 'express';
 import Transaction from '../models/Transaction.js';
+import Product from '../models/Product.js';
 import { protect, admin } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -14,6 +15,25 @@ const generateTransactionId = () => {
   const day = date.getDate().toString().padStart(2, '0');
   return `TXN-${year}${month}${day}-${timestamp}-${random}`;
 };
+
+// ===== GET ALL PRODUCTS (For dropdown) =====
+router.get('/products', protect, async (req, res) => {
+  try {
+    const products = await Product.find({ isArchived: false }).sort({ createdAt: -1 });
+    res.json({
+      success: true,
+      data: products.map(p => ({
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        isArchived: p.isArchived
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ===== GET ALL TRANSACTIONS (Admin only - for admin panel) =====
 router.get('/all', protect, admin, async (req, res) => {
@@ -146,13 +166,22 @@ router.get('/', protect, async (req, res) => {
 // ===== CREATE NEW TRANSACTION (Walk-in customer - NO QUANTITY LIMITS) =====
 router.post('/', protect, async (req, res) => {
   try {
-    const { riceType, productName, quantityKg, amountPaid, paymentMethod } = req.body;
+    const { productName, productId, quantityKg, amountPaid, paymentMethod } = req.body;
     
     console.log('📝 Creating transaction - Request body:', req.body);
     console.log('👤 User:', req.user?.email, 'Role:', req.user?.role);
     
-    // Support both field names (backward compatible)
-    const finalProductName = productName || riceType;
+    // Get product details if productId is provided
+    let finalProductName = productName;
+    let finalPricePerKg = null;
+    
+    if (productId) {
+      const product = await Product.findOne({ id: parseInt(productId) });
+      if (product) {
+        finalProductName = product.name;
+        finalPricePerKg = product.price;
+      }
+    }
     
     // Validate required fields
     if (!finalProductName) {
@@ -187,9 +216,6 @@ router.post('/', protect, async (req, res) => {
       });
     }
     
-    // NO MAXIMUM QUANTITY LIMIT FOR MANUAL RECORDING
-    // Staff can enter any quantity for bulk sales
-    
     const amountNum = parseFloat(amountPaid);
     if (isNaN(amountNum) || amountNum <= 0) {
       return res.status(400).json({ 
@@ -198,8 +224,13 @@ router.post('/', protect, async (req, res) => {
       });
     }
     
-    // Calculate price per kg
-    const pricePerKg = amountNum / quantityNum;
+    // Calculate price per kg (use product price if available, otherwise calculate from amount)
+    let pricePerKg;
+    if (finalPricePerKg) {
+      pricePerKg = finalPricePerKg;
+    } else {
+      pricePerKg = amountNum / quantityNum;
+    }
     
     const newTransaction = new Transaction({
       transactionId: generateTransactionId(),
@@ -339,7 +370,6 @@ router.get('/recent', protect, async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(limit);
     
-    // Format the response with better null handling
     const formattedTransactions = transactions.map(t => {
       let recordedByName = null;
       let isManual = false;
@@ -389,7 +419,6 @@ router.get('/recent', protect, async (req, res) => {
 router.get('/products/list', protect, admin, async (req, res) => {
   try {
     const products = await Transaction.distinct('productName');
-    // Filter out null/undefined values
     const validProducts = products.filter(p => p && p.trim());
     
     res.json({
