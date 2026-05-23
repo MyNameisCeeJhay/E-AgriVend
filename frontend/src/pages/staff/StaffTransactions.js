@@ -43,7 +43,8 @@ const StaffTransactions = () => {
       setLoadingProducts(true);
       const token = localStorage.getItem('token');
       
-      const response = await axios.get(`${API_URL}/products`, {
+      // Fetch active products from the correct endpoint
+      const response = await axios.get(`${API_URL}/products/active`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -61,6 +62,22 @@ const StaffTransactions = () => {
     }
   };
 
+  const fetchAllProductsForManagement = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/products`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setProducts(response.data.data);
+        console.log('All products loaded for management:', response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching all products:', error);
+    }
+  };
+
   const saveProductsToDatabase = async (updatedProducts) => {
     try {
       const token = localStorage.getItem('token');
@@ -70,7 +87,11 @@ const StaffTransactions = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      // Broadcast product update to all connected clients (including refund form)
+      // Refresh products after save
+      await fetchProducts();
+      await fetchAllProductsForManagement();
+      
+      // Broadcast product update to all connected clients
       if (socket) {
         socket.emit('products_updated');
         console.log('Product update broadcasted to all clients');
@@ -90,6 +111,7 @@ const StaffTransactions = () => {
       
       socket.on('products_updated', () => {
         fetchProducts();
+        fetchAllProductsForManagement();
         showNotification('info', 'Product list has been updated');
       });
       
@@ -146,21 +168,39 @@ const StaffTransactions = () => {
   };
 
   const handleArchiveProduct = async (id) => {
-    const updatedProducts = products.map(p => 
-      p.id === id ? { ...p, isArchived: true } : p
-    );
-    setProducts(updatedProducts);
-    await saveProductsToDatabase(updatedProducts);
-    showNotification('success', 'Product archived successfully');
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API_URL}/products/${id}`, {
+        isArchived: true
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      await fetchProducts();
+      await fetchAllProductsForManagement();
+      showNotification('success', 'Product archived successfully');
+    } catch (error) {
+      console.error('Error archiving product:', error);
+      showNotification('error', 'Failed to archive product');
+    }
   };
 
   const handleRestoreProduct = async (id) => {
-    const updatedProducts = products.map(p => 
-      p.id === id ? { ...p, isArchived: false } : p
-    );
-    setProducts(updatedProducts);
-    await saveProductsToDatabase(updatedProducts);
-    showNotification('success', 'Product restored successfully');
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API_URL}/products/${id}`, {
+        isArchived: false
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      await fetchProducts();
+      await fetchAllProductsForManagement();
+      showNotification('success', 'Product restored successfully');
+    } catch (error) {
+      console.error('Error restoring product:', error);
+      showNotification('error', 'Failed to restore product');
+    }
   };
 
   const handleAddProduct = async () => {
@@ -169,20 +209,26 @@ const StaffTransactions = () => {
       return;
     }
     
-    const newId = Math.max(...products.map(p => p.id), 0) + 1;
-    const updatedProducts = [...products, {
-      id: newId,
-      name: newProduct.name,
-      price: parseFloat(newProduct.price),
-      isArchived: false
-    }];
-    
-    setProducts(updatedProducts);
-    await saveProductsToDatabase(updatedProducts);
-    
-    setNewProduct({ name: '', price: '' });
-    setShowProductModal(false);
-    showNotification('success', `Product "${newProduct.name}" added successfully`);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(`${API_URL}/products`, {
+        name: newProduct.name,
+        price: parseFloat(newProduct.price)
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        await fetchProducts();
+        await fetchAllProductsForManagement();
+        setNewProduct({ name: '', price: '' });
+        setShowProductModal(false);
+        showNotification('success', `Product "${newProduct.name}" added successfully`);
+      }
+    } catch (error) {
+      console.error('Error adding product:', error);
+      showNotification('error', 'Failed to add product');
+    }
   };
 
   const handleEditProduct = async () => {
@@ -191,18 +237,26 @@ const StaffTransactions = () => {
       return;
     }
     
-    const updatedProducts = products.map(p => 
-      p.id === editingProduct.id 
-        ? { ...p, name: editingProduct.name, price: parseFloat(editingProduct.price) }
-        : p
-    );
-    
-    setProducts(updatedProducts);
-    await saveProductsToDatabase(updatedProducts);
-    
-    setEditingProduct(null);
-    setShowProductModal(false);
-    showNotification('success', `Product updated successfully`);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(`${API_URL}/products/${editingProduct.id}`, {
+        name: editingProduct.name,
+        price: parseFloat(editingProduct.price)
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        await fetchProducts();
+        await fetchAllProductsForManagement();
+        setEditingProduct(null);
+        setShowProductModal(false);
+        showNotification('success', `Product updated successfully`);
+      }
+    } catch (error) {
+      console.error('Error updating product:', error);
+      showNotification('error', 'Failed to update product');
+    }
   };
 
   const handleDeleteProduct = async (id) => {
@@ -211,10 +265,19 @@ const StaffTransactions = () => {
       return;
     }
     
-    const updatedProducts = products.filter(p => p.id !== id);
-    setProducts(updatedProducts);
-    await saveProductsToDatabase(updatedProducts);
-    showNotification('success', 'Product deleted permanently');
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_URL}/products/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      await fetchProducts();
+      await fetchAllProductsForManagement();
+      showNotification('success', 'Product deleted permanently');
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      showNotification('error', 'Failed to delete product');
+    }
   };
 
   const openEditModal = (product) => {
@@ -350,6 +413,14 @@ const StaffTransactions = () => {
     return transaction.productName || transaction.riceType || 'Unknown';
   };
 
+  // Open manage products modal
+  const openManageProducts = async () => {
+    setEditingProduct(null);
+    setNewProduct({ name: '', price: '' });
+    await fetchAllProductsForManagement();
+    setShowProductModal(true);
+  };
+
   return (
     <div className="staff-transactions-container">
       {notification && (
@@ -369,11 +440,7 @@ const StaffTransactions = () => {
         </div>
         <div className="header-buttons">
           <button className="btn-add" onClick={() => setShowAddModal(true)}>+ Walk-in Customer</button>
-          <button className="btn-manage-products" onClick={() => {
-            setEditingProduct(null);
-            setNewProduct({ name: '', price: '' });
-            setShowProductModal(true);
-          }}>Manage Products</button>
+          <button className="btn-manage-products" onClick={openManageProducts}>Manage Products</button>
           <button className={`btn-filter ${showFilters ? 'active' : ''}`} onClick={() => setShowFilters(!showFilters)}>
             {showFilters ? 'Hide Filters' : 'Show Filters'}
           </button>
@@ -398,11 +465,34 @@ const StaffTransactions = () => {
       {showFilters && (
         <div className="filters-panel">
           <div className="filters-grid">
-            <input type="date" value={filters.startDate} onChange={(e) => setFilters({...filters, startDate: e.target.value})} placeholder="Start Date" />
-            <input type="date" value={filters.endDate} onChange={(e) => setFilters({...filters, endDate: e.target.value})} placeholder="End Date" />
-            <input type="text" placeholder="Search by Transaction ID or Product..." value={filters.search} onChange={(e) => setFilters({...filters, search: e.target.value})} />
+            <input 
+              type="date" 
+              value={filters.startDate} 
+              onChange={(e) => setFilters({...filters, startDate: e.target.value})} 
+              placeholder="Start Date" 
+            />
+            <input 
+              type="date" 
+              value={filters.endDate} 
+              onChange={(e) => setFilters({...filters, endDate: e.target.value})} 
+              placeholder="End Date" 
+            />
+            <input 
+              type="text" 
+              placeholder="Search by Transaction ID or Product..." 
+              value={filters.search} 
+              onChange={(e) => setFilters({...filters, search: e.target.value})} 
+            />
             <button className="btn-apply" onClick={fetchTransactions}>Apply</button>
-            <button className="btn-clear" onClick={() => { setFilters({ startDate: '', endDate: '', search: '' }); fetchTransactions(); }}>Clear</button>
+            <button 
+              className="btn-clear" 
+              onClick={() => { 
+                setFilters({ startDate: '', endDate: '', search: '' }); 
+                fetchTransactions(); 
+              }}
+            >
+              Clear
+            </button>
           </div>
         </div>
       )}
@@ -412,7 +502,7 @@ const StaffTransactions = () => {
           <div className="loading-state">Loading transactions...</div>
         ) : transactions.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">No data</div>
+            <div className="empty-icon">📭</div>
             <h3>No Transactions Found</h3>
             <p>No transactions match your search criteria.</p>
           </div>
@@ -449,9 +539,19 @@ const StaffTransactions = () => {
             
             {pagination.pages > 1 && (
               <div className="pagination-container">
-                <button disabled={pagination.page === 1} onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}>Previous</button>
+                <button 
+                  disabled={pagination.page === 1} 
+                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                >
+                  Previous
+                </button>
                 <span>Page {pagination.page} of {pagination.pages}</span>
-                <button disabled={pagination.page === pagination.pages} onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}>Next</button>
+                <button 
+                  disabled={pagination.page === pagination.pages} 
+                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                >
+                  Next
+                </button>
               </div>
             )}
           </>
@@ -471,31 +571,66 @@ const StaffTransactions = () => {
               <form onSubmit={handleAddTransaction}>
                 <div className="form-group">
                   <label>Select Product *</label>
-                  <select value={newTransaction.productId} onChange={handleProductChange} required>
+                  <select 
+                    value={newTransaction.productId} 
+                    onChange={handleProductChange} 
+                    required
+                  >
                     <option value="">-- Select a Product --</option>
                     {activeProducts.map((product) => (
-                      <option key={product.id} value={product.id}>{product.name} - {formatCurrency(product.price)}/kg</option>
+                      <option key={product.id} value={product.id}>
+                        {product.name} - {formatCurrency(product.price)}/kg
+                      </option>
                     ))}
                   </select>
-                  {activeProducts.length === 0 && <small className="help-text error">No products available. Please add products in "Manage Products".</small>}
+                  {activeProducts.length === 0 && (
+                    <small className="help-text error">
+                      No products available. Please add products in "Manage Products".
+                    </small>
+                  )}
                 </div>
 
                 <div className="form-row">
                   <div className="form-group">
                     <label>Quantity (kg) *</label>
-                    <input type="number" step="0.1" min="0.1" max="5" value={newTransaction.quantity} onChange={handleQuantityChange} placeholder="Enter quantity" required disabled={!newTransaction.productId} />
-                    <small className="help-text">Maximum 5kg per transaction</small>
+                    <input 
+                      type="number" 
+                      step="0.1" 
+                      min="0.1" 
+                      value={newTransaction.quantity} 
+                      onChange={handleQuantityChange} 
+                      placeholder="Enter quantity" 
+                      required 
+                      disabled={!newTransaction.productId} 
+                    />
+                    <small className="help-text">No maximum limit for bulk sales</small>
                   </div>
 
                   <div className="form-group">
                     <label>Price per kg (₱) *</label>
-                    <input type="number" step="0.01" min="0.01" value={newTransaction.pricePerKg} onChange={handlePriceChange} placeholder="Enter price" required disabled={!newTransaction.productId} />
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      min="0.01" 
+                      value={newTransaction.pricePerKg} 
+                      onChange={handlePriceChange} 
+                      placeholder="Enter price" 
+                      required 
+                      disabled={!newTransaction.productId} 
+                    />
                   </div>
                 </div>
 
                 <div className="form-group">
                   <label>Total Amount (₱)</label>
-                  <input type="number" step="0.01" value={newTransaction.totalAmount} disabled className="readonly-field" placeholder="Auto-calculated" />
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    value={newTransaction.totalAmount} 
+                    disabled 
+                    className="readonly-field" 
+                    placeholder="Auto-calculated" 
+                  />
                   <small className="help-text">
                     {newTransaction.quantity && newTransaction.pricePerKg ? 
                       `Calculation: ${newTransaction.quantity}kg × ₱${newTransaction.pricePerKg} = ${formatCurrency(parseFloat(newTransaction.totalAmount) || 0)}` : 
@@ -512,7 +647,11 @@ const StaffTransactions = () => {
 
                 <div className="modal-footer">
                   <button type="button" className="btn-cancel" onClick={() => setShowAddModal(false)}>Cancel</button>
-                  <button type="submit" className="btn-submit" disabled={isSubmitting || !newTransaction.productId || !newTransaction.quantity || !newTransaction.pricePerKg || parseFloat(newTransaction.quantity) <= 0}>
+                  <button 
+                    type="submit" 
+                    className="btn-submit" 
+                    disabled={isSubmitting || !newTransaction.productId || !newTransaction.quantity || !newTransaction.pricePerKg || parseFloat(newTransaction.quantity) <= 0}
+                  >
                     {isSubmitting ? 'Adding...' : 'Add Transaction'}
                   </button>
                 </div>
@@ -542,11 +681,22 @@ const StaffTransactions = () => {
                       <div className="form-row">
                         <div className="form-group">
                           <label>Product Name</label>
-                          <input type="text" value={newProduct.name} onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })} placeholder="Enter product name" />
+                          <input 
+                            type="text" 
+                            value={newProduct.name} 
+                            onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })} 
+                            placeholder="Enter product name" 
+                          />
                         </div>
                         <div className="form-group">
                           <label>Price per kg (₱)</label>
-                          <input type="number" step="0.01" value={newProduct.price} onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })} placeholder="Enter price per kg" />
+                          <input 
+                            type="number" 
+                            step="0.01" 
+                            value={newProduct.price} 
+                            onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })} 
+                            placeholder="Enter price per kg" 
+                          />
                         </div>
                         <div className="form-group add-btn-group">
                           <button className="btn-add-product" onClick={handleAddProduct}>+ Add Product</button>
@@ -561,19 +711,38 @@ const StaffTransactions = () => {
                       <div className="form-row">
                         <div className="form-group">
                           <label>Product Name</label>
-                          <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} />
+                          <input 
+                            type="text" 
+                            value={editingProduct.name} 
+                            onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} 
+                          />
                         </div>
                         <div className="form-group">
                           <label>Price per kg (₱)</label>
-                          <input type="number" step="0.01" value={editingProduct.price} onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} />
+                          <input 
+                            type="number" 
+                            step="0.01" 
+                            value={editingProduct.price} 
+                            onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })} 
+                          />
                         </div>
                       </div>
                     </div>
                   )}
 
                   <div className="archive-toggle">
-                    <button className={`toggle-btn ${!showArchived ? 'active' : ''}`} onClick={() => setShowArchived(false)}>Active Products</button>
-                    <button className={`toggle-btn ${showArchived ? 'active' : ''}`} onClick={() => setShowArchived(true)}>Archived Products</button>
+                    <button 
+                      className={`toggle-btn ${!showArchived ? 'active' : ''}`} 
+                      onClick={() => setShowArchived(false)}
+                    >
+                      Active Products
+                    </button>
+                    <button 
+                      className={`toggle-btn ${showArchived ? 'active' : ''}`} 
+                      onClick={() => setShowArchived(true)}
+                    >
+                      Archived Products
+                    </button>
                   </div>
 
                   <div className="products-list">
@@ -607,15 +776,22 @@ const StaffTransactions = () => {
                               </td>
                             </tr>
                           ))}
+                          {products.filter(p => showArchived ? p.isArchived : !p.isArchived).length === 0 && (
+                            <tr>
+                              <td colSpan="3" className="no-products">
+                                {showArchived ? 'No archived products' : 'No active products. Add a product above.'}
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
                   </div>
 
                   <div className="info-note">
-                    <p>Note: Products added here will be available in the transaction dropdown.</p>
-                    <p>Archive products to remove them from the dropdown without deleting them.</p>
-                    <p>Deleted products are permanently removed from the system.</p>
+                    <p>📌 <strong>Note:</strong> Products added here will be available in the transaction dropdown.</p>
+                    <p>📦 <strong>Archive:</strong> Archive products to remove them from the dropdown without deleting them.</p>
+                    <p>🗑️ <strong>Delete:</strong> Deleted products are permanently removed from the system.</p>
                   </div>
                 </>
               )}

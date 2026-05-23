@@ -53,12 +53,6 @@ const RefundRequest = () => {
         const transaction = response.data.data;
         setTransactionData(transaction);
         
-        console.log('✅ Transaction data:', {
-          productName: transaction.riceType || transaction.productName,
-          quantity: transaction.quantityKg,
-          amount: transaction.amountPaid
-        });
-        
         // Format date
         const transactionDate = new Date(transaction.createdAt);
         const formattedDate = transactionDate.toLocaleDateString('en-US');
@@ -74,7 +68,7 @@ const RefundRequest = () => {
           transactionNumber: transactionNumber,
           transactionDate: formattedDate,
           transactionTime: formattedTime,
-          grainType: transaction.riceType || transaction.productName || '',
+          grainType: transaction.productName || transaction.riceType || '',
           selectedQuantity: transaction.quantityKg?.toString() || '',
           amountInserted: transaction.amountPaid?.toString() || ''
         }));
@@ -194,18 +188,21 @@ const RefundRequest = () => {
     submitData.append('riceType', formData.grainType);
     submitData.append('quantityKg', formData.selectedQuantity);
     submitData.append('amountPaid', formData.amountInserted);
+    // Send BOTH field names to ensure backend receives it
+    submitData.append('refundReason', formData.refundReason);
     submitData.append('returnReason', formData.refundReason);
     submitData.append('description', formData.description);
     submitData.append('receiptImage', formData.receiptImage);
 
     try {
+      console.log('📤 Submitting refund request...');
+      
       const response = await axios.post(`${API_URL}/refund/request`, submitData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
       if (response.data.success) {
         setSuccess('✅ Your refund request has been submitted successfully!');
-        // Reset form after successful submission
         setTimeout(() => {
           handleReset();
           navigate('/refund/success');
@@ -384,9 +381,6 @@ const RefundRequest = () => {
                   className="readonly-field"
                   placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
-                {transactionValid && formData.grainType && (
-                  <small className="auto-filled-note">✓ {formData.grainType}</small>
-                )}
               </div>
               <div className="form-group">
                 <label>Quantity (kg) *</label>
@@ -397,9 +391,6 @@ const RefundRequest = () => {
                   className="readonly-field"
                   placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
-                {transactionValid && formData.selectedQuantity && (
-                  <small className="auto-filled-note">✓ {formData.selectedQuantity} kg</small>
-                )}
               </div>
               <div className="form-group">
                 <label>Amount Paid (₱) *</label>
@@ -410,9 +401,6 @@ const RefundRequest = () => {
                   className="readonly-field"
                   placeholder={transactionValid ? "Loading..." : "Validate transaction first"}
                 />
-                {transactionValid && formData.amountInserted && (
-                  <small className="auto-filled-note">✓ ₱{formData.amountInserted}</small>
-                )}
               </div>
             </div>
             {!transactionValid && (
@@ -462,7 +450,7 @@ const RefundRequest = () => {
               <div className="file-upload-area">
                 <input
                   type="file"
-                  accept="image/jpeg,image/jpg,image/png"
+                  accept="image/jpeg,image/jpg,image/png,application/pdf"
                   onChange={handleFileChange}
                   required
                   disabled={!transactionValid || !isWithinTimeLimit}
@@ -472,7 +460,7 @@ const RefundRequest = () => {
                 <label htmlFor="receipt-upload" className="upload-label">
                   <div className="upload-icon">📁</div>
                   <p className="upload-text">Click or drag to upload receipt image</p>
-                  <p className="upload-hint">JPG, JPEG, PNG (Max 5MB)</p>
+                  <p className="upload-hint">JPG, JPEG, PNG, PDF (Max 5MB)</p>
                 </label>
               </div>
               {previewUrl && (

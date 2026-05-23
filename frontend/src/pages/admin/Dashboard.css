@@ -1,8 +1,15 @@
 /* Dashboard.css - Professional Business Design */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 .admin-page-container {
   padding: 2rem;
   background: #f5f7fa;
   min-height: 100vh;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* Page Header */
@@ -11,15 +18,15 @@
 }
 
 .page-title {
-  font-size: 2rem;
-  font-weight: 600;
-  color: #0f172a;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
   margin: 0 0 0.5rem 0;
-  letter-spacing: -0.3px;
 }
 
 .page-description {
-  font-size: 1rem;
+  font-size: 0.875rem;
+  font-weight: 400;
   color: #64748b;
   margin: 0;
 }
@@ -28,23 +35,22 @@
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 1.5rem;
+  gap: 1.25rem;
   margin-bottom: 2rem;
 }
 
 .stat-card {
-  background: white;
-  border-radius: 1rem;
-  padding: 1.5rem;
+  background: #ffffff;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
   border: 1px solid #e2e8f0;
-  transition: all 0.2s;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s ease;
   cursor: pointer;
 }
 
 .stat-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   border-color: #cbd5e1;
 }
 
@@ -54,7 +60,7 @@
 }
 
 .stat-label {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
@@ -63,9 +69,9 @@
 }
 
 .stat-value {
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  color: #0f172a;
+  color: #1e293b;
   line-height: 1.2;
 }
 
@@ -79,24 +85,23 @@
 
 /* Table Card */
 .table-card {
-  background: white;
-  border-radius: 1rem;
+  background: #ffffff;
+  border-radius: 0.75rem;
   border: 1px solid #e2e8f0;
   overflow: hidden;
   margin-bottom: 1.5rem;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .card-header {
-  padding: 1.5rem;
+  padding: 1.25rem 1.5rem;
   border-bottom: 1px solid #e2e8f0;
   background: #fafbfc;
 }
 
 .card-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: #0f172a;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1e293b;
   margin: 0;
 }
 
@@ -112,20 +117,21 @@
 }
 
 .data-table th {
-  padding: 1rem 1.5rem;
+  padding: 0.875rem 1.25rem;
   text-align: left;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
   color: #475569;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   border-bottom: 1px solid #e2e8f0;
-  background: white;
+  background: #ffffff;
 }
 
 .data-table td {
-  padding: 1rem 1.5rem;
-  font-size: 0.9rem;
+  padding: 0.875rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 400;
   color: #334155;
   border-bottom: 1px solid #f1f5f9;
 }
@@ -135,9 +141,9 @@
 }
 
 .transaction-id {
-  font-family: monospace;
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-family: 'Inter', monospace;
+  font-size: 0.813rem;
+  font-weight: 600;
   color: #059669;
   background: #ecfdf5;
   padding: 0.25rem 0.5rem;
@@ -145,7 +151,7 @@
 }
 
 .amount-cell {
-  font-weight: 600;
+  font-weight: 700;
   color: #059669;
 }
 
@@ -157,35 +163,35 @@
 }
 
 .btn-primary, .btn-secondary {
-  padding: 0.75rem 1.5rem;
+  padding: 0.625rem 1.25rem;
   border-radius: 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   border: none;
+  font-family: inherit;
 }
 
 .btn-primary {
   background: #1a472a;
-  color: white;
+  color: #ffffff;
 }
 
 .btn-primary:hover {
   background: #0e2a1a;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(26, 71, 42, 0.2);
 }
 
 .btn-secondary {
-  background: white;
+  background: #ffffff;
   color: #1a472a;
-  border: 2px solid #1a472a;
+  border: 1px solid #1a472a;
 }
 
 .btn-secondary:hover {
   background: #1a472a;
-  color: white;
+  color: #ffffff;
   transform: translateY(-1px);
 }
 
@@ -195,17 +201,17 @@
   top: 1.5rem;
   right: 1.5rem;
   z-index: 1100;
-  background: white;
-  border-radius: 0.75rem;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  background: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   display: flex;
   align-items: center;
   justify-content: space-between;
   min-width: 280px;
-  max-width: 380px;
-  padding: 0.875rem 1.25rem;
-  border-left: 4px solid;
-  animation: slideInRight 0.3s ease;
+  max-width: 360px;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid;
+  font-family: inherit;
 }
 
 .notification-toast.new {
@@ -221,51 +227,55 @@
 }
 
 .notification-message {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 400;
   color: #1f2937;
 }
 
 .notification-close {
   background: none;
   border: none;
-  font-size: 1.25rem;
+  font-size: 1.125rem;
+  font-weight: 400;
   cursor: pointer;
   color: #94a3b8;
-}
-
-@keyframes slideInRight {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+  font-family: inherit;
 }
 
 /* Loading & Empty States */
 .loading-state, .empty-state {
   text-align: center;
-  padding: 4rem;
+  padding: 3rem;
   color: #64748b;
 }
 
+.loading-state {
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
 .empty-state h3 {
-  font-size: 1.125rem;
-  font-weight: 500;
+  font-size: 1rem;
+  font-weight: 600;
   margin-bottom: 0.5rem;
   color: #334155;
 }
 
 .empty-state p {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 400;
 }
 
 /* Responsive */
 @media (max-width: 1200px) {
   .stats-grid {
     grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 992px) {
+  .admin-page-container {
+    padding: 1.5rem;
   }
 }
 
@@ -291,6 +301,10 @@
     width: 100%;
     text-align: center;
   }
+  
+  .page-title {
+    font-size: 1.25rem;
+  }
 }
 
 @media (max-width: 480px) {
@@ -298,7 +312,7 @@
     grid-template-columns: 1fr;
   }
   
-  .page-title {
-    font-size: 1.5rem;
+  .admin-page-container {
+    padding: 0.75rem;
   }
 }

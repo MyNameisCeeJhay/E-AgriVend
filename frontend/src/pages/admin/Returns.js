@@ -39,7 +39,7 @@ const AdminReturns = () => {
       socket.on('new_return_notification', (data) => {
         setNotification({
           type: 'new',
-          message: `New refund request for Transaction: ${data.transactionId}`,
+          message: `New refund request from ${data.fullName || data.email || 'Customer'} for Transaction: ${data.transactionId}`,
           data
         });
         fetchRefunds();
@@ -103,6 +103,12 @@ const AdminReturns = () => {
       });
       
       const refundsData = response.data?.data || [];
+      console.log('📋 Refunds data:', refundsData.map(r => ({ 
+        id: r.returnId, 
+        name: r.fullName, 
+        email: r.email,
+        description: r.description 
+      })));
       setRefunds(Array.isArray(refundsData) ? refundsData : []);
       setPagination(response.data?.pagination || { page: 1, total: 0, pages: 1 });
     } catch (error) {
@@ -269,19 +275,19 @@ const AdminReturns = () => {
   };
 
   const getProductName = (refund) => {
-    return refund?.grainType || refund?.riceType || 'N/A';
+    return refund?.riceType || refund?.grainType || 'N/A';
   };
 
   const getQuantity = (refund) => {
-    return refund?.selectedQuantity || refund?.quantityKg || 0;
+    return refund?.quantityKg || refund?.selectedQuantity || 0;
   };
 
   const getAmount = (refund) => {
-    return refund?.amountInserted || refund?.amountPaid || 0;
+    return refund?.amountPaid || refund?.amountInserted || 0;
   };
 
   const getReason = (refund) => {
-    return refund?.refundReason || refund?.returnReason || 'N/A';
+    return refund?.returnReason || refund?.refundReason || 'N/A';
   };
 
   const getDescription = (refund) => {
@@ -305,341 +311,230 @@ const AdminReturns = () => {
         return;
       }
       
-      // Log the filename for debugging
-      console.log('Attempting to load receipt:', receiptFilename);
+      console.log('📎 Attempting to load receipt:', receiptFilename);
       
-      // Try to open a new window for the receipt
-      let receiptWindow = null;
-      try {
-        receiptWindow = window.open('', '_blank');
-        if (!receiptWindow) {
-          throw new Error('Popup blocked');
-        }
-        
-        // Show loading message
-        receiptWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Loading Receipt...</title>
-              <style>
-                body {
-                  margin: 0;
-                  display: flex;
-                  justify-content: center;
-                  align-items: center;
-                  height: 100vh;
-                  font-family: Arial, sans-serif;
-                  background: #f5f5f5;
-                }
-                .loader {
-                  text-align: center;
-                }
-                .spinner {
-                  border: 4px solid #f3f3f3;
-                  border-top: 4px solid #3498db;
-                  border-radius: 50%;
-                  width: 40px;
-                  height: 40px;
-                  animation: spin 1s linear infinite;
-                  margin: 0 auto 20px;
-                }
-                @keyframes spin {
-                  0% { transform: rotate(0deg); }
-                  100% { transform: rotate(360deg); }
-                }
-              </style>
-            </head>
-            <body>
-              <div class="loader">
-                <div class="spinner"></div>
-                <p>Loading receipt image...</p>
-                <p style="font-size: 12px; color: #666;">Filename: ${receiptFilename}</p>
-              </div>
-            </body>
-          </html>
-        `);
-        receiptWindow.document.close();
-      } catch (popupError) {
-        console.error('Popup error:', popupError);
-        showNotification('warning', 'Please allow popups to view receipts. Click the View Receipt button again.');
+      // Open a new window for the receipt
+      const receiptWindow = window.open('', '_blank');
+      if (!receiptWindow) {
+        showNotification('warning', 'Please allow popups to view receipts');
         setReceiptLoading(false);
         return;
       }
       
-      // Try direct URL approach first (most reliable)
-      const directUrl = `${API_URL}/uploads/returns/${encodeURIComponent(receiptFilename)}`;
-      console.log('Trying direct URL:', directUrl);
-      
-      // Try to fetch the image with authentication
-      let imageUrl = null;
-      let blob = null;
-      
-      // List of endpoints to try in order
-      const endpoints = [
-        `${API_URL}/refund/receipt-image/${encodeURIComponent(receiptFilename)}`,
-        `${API_URL}/refund/receipt/${encodeURIComponent(receiptFilename)}`,
-        `${API_URL}/uploads/returns/${encodeURIComponent(receiptFilename)}`,
-        `${API_URL}/receipts/${encodeURIComponent(receiptFilename)}`
-      ];
-      
-      for (const endpoint of endpoints) {
-        try {
-          console.log('Trying endpoint:', endpoint);
-          const response = await axios.get(endpoint, {
-            headers: { 'Authorization': `Bearer ${authToken}` },
-            responseType: 'blob',
-            timeout: 10000
-          });
-          
-          if (response.status === 200 && response.data && response.data.size > 0) {
-            blob = response.data;
-            imageUrl = URL.createObjectURL(blob);
-            console.log('Successfully loaded from:', endpoint);
-            break;
-          }
-        } catch (error) {
-          console.log(`Endpoint failed: ${endpoint}`, error.message);
-        }
-      }
-      
-      if (!imageUrl || !blob) {
-        // Check if window is still open
-        if (receiptWindow && !receiptWindow.closed) {
-          receiptWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-              <head>
-                <title>Receipt Error</title>
-                <style>
-                  body {
-                    margin: 0;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    height: 100vh;
-                    font-family: Arial, sans-serif;
-                    background: #f5f5f5;
-                  }
-                  .error-container {
-                    text-align: center;
-                    background: white;
-                    padding: 40px;
-                    border-radius: 12px;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-                    max-width: 500px;
-                    margin: 20px;
-                  }
-                  .error-icon {
-                    font-size: 64px;
-                    margin-bottom: 20px;
-                  }
-                  h3 {
-                    color: #dc3545;
-                    margin-bottom: 10px;
-                  }
-                  p {
-                    color: #666;
-                    margin-bottom: 10px;
-                  }
-                  .filename {
-                    background: #f8f9fa;
-                    padding: 10px;
-                    border-radius: 6px;
-                    font-family: monospace;
-                    font-size: 12px;
-                    word-break: break-all;
-                    margin: 15px 0;
-                  }
-                  button {
-                    padding: 10px 24px;
-                    background: #6c757d;
-                    color: white;
-                    border: none;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    margin-top: 10px;
-                  }
-                  button:hover {
-                    background: #5a6268;
-                  }
-                </style>
-              </head>
-              <body>
-                <div class="error-container">
-                  <div class="error-icon">❌</div>
-                  <h3>Failed to Load Receipt</h3>
-                  <p>The receipt file could not be found or loaded.</p>
-                  <div class="filename">
-                    <strong>Filename:</strong> ${receiptFilename}
-                  </div>
-                  <p><small>Please check if the file exists on the server.</small></p>
-                  <button onclick="window.close()">Close Window</button>
-                </div>
-              </body>
-            </html>
-          `);
-          receiptWindow.document.close();
-        }
-        throw new Error('Could not load receipt from any endpoint');
-      }
-      
-      // Check if window is still open
-      if (!receiptWindow || receiptWindow.closed) {
-        receiptWindow = window.open('', '_blank');
-        if (!receiptWindow) {
-          throw new Error('Cannot open new window');
-        }
-      }
-      
-      // Display the image in the window
+      // Show loading message
       receiptWindow.document.write(`
         <!DOCTYPE html>
         <html>
           <head>
-            <title>Receipt - ${receiptFilename}</title>
-            <meta charset="UTF-8">
+            <title>Loading Receipt...</title>
             <style>
-              * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-              }
               body {
-                background: #f5f5f5;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                padding: 20px;
-              }
-              .container {
-                max-width: 90%;
-                margin: 0 auto;
-                text-align: center;
-                background: white;
-                border-radius: 12px;
-                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-                padding: 20px;
-              }
-              h2 {
-                color: #333;
-                margin-bottom: 20px;
-                font-size: 24px;
-              }
-              .receipt-info {
-                background: #f8f9fa;
-                padding: 12px;
-                border-radius: 8px;
-                margin-bottom: 20px;
-                font-size: 14px;
-                color: #666;
-              }
-              .receipt-info strong {
-                color: #333;
-              }
-              .image-container {
-                margin: 20px 0;
-                text-align: center;
-                min-height: 200px;
+                margin: 0;
                 display: flex;
                 justify-content: center;
                 align-items: center;
+                height: 100vh;
+                font-family: Arial, sans-serif;
+                background: #f5f5f5;
               }
-              img {
-                max-width: 100%;
-                max-height: 70vh;
-                object-fit: contain;
-                border-radius: 8px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-              }
-              .button-group {
-                margin-top: 20px;
-                display: flex;
-                gap: 12px;
-                justify-content: center;
-                flex-wrap: wrap;
-              }
-              button {
-                padding: 10px 24px;
-                border: none;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 14px;
-                font-weight: 500;
-                transition: all 0.3s ease;
-              }
-              .btn-download {
-                background: #2d6a4f;
-                color: white;
-              }
-              .btn-download:hover {
-                background: #1b4d3e;
-                transform: translateY(-1px);
-              }
-              .btn-close {
-                background: #6c757d;
-                color: white;
-              }
-              .btn-close:hover {
-                background: #5a6268;
-                transform: translateY(-1px);
-              }
-              .error-message {
+              .loader {
                 text-align: center;
-                color: #dc3545;
-                padding: 40px;
               }
-              @media (max-width: 768px) {
-                .container {
-                  padding: 12px;
-                }
-                h2 {
-                  font-size: 18px;
-                }
-                button {
-                  padding: 8px 16px;
-                  font-size: 12px;
-                }
+              .spinner {
+                border: 4px solid #f3f3f3;
+                border-top: 4px solid #3498db;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 20px;
+              }
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
               }
             </style>
           </head>
           <body>
-            <div class="container">
-              <h2>📄 Receipt Attachment</h2>
-              <div class="receipt-info">
-                <strong>Filename:</strong> ${receiptFilename}
-              </div>
-              <div class="image-container">
-                <img src="${imageUrl}" alt="Receipt Image" onerror="this.parentElement.innerHTML='<div class=\\'error-message\\'>❌ Failed to display receipt image. The file may be corrupted.</div>'" />
-              </div>
-              <div class="button-group">
-                <button class="btn-download" onclick="downloadImage()">📥 Download Receipt</button>
-                <button class="btn-close" onclick="window.close()">✖ Close Window</button>
-              </div>
+            <div class="loader">
+              <div class="spinner"></div>
+              <p>Loading receipt image...</p>
+              <p style="font-size: 12px; color: #666;">Filename: ${receiptFilename}</p>
             </div>
-            <script>
-              function downloadImage() {
-                const link = document.createElement('a');
-                link.href = "${imageUrl}";
-                link.download = "${receiptFilename}";
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-              }
-              
-              // Clean up when window closes
-              window.addEventListener('beforeunload', function() {
-                URL.revokeObjectURL("${imageUrl}");
-              });
-            </script>
           </body>
         </html>
       `);
       receiptWindow.document.close();
       
+      // Try to fetch the image
+      const imageUrl = `${API_URL}/refund/receipt-image/${encodeURIComponent(receiptFilename)}`;
+      console.log('🖼️ Image URL:', imageUrl);
+      
+      // Try to fetch and display the image
+      const response = await fetch(imageUrl, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      
+      // Check file type
+      const contentType = response.headers.get('content-type');
+      const isPDF = contentType === 'application/pdf' || receiptFilename.toLowerCase().endsWith('.pdf');
+      
+      if (isPDF) {
+        // For PDF, redirect to blob URL
+        receiptWindow.location.href = objectUrl;
+      } else {
+        // Display the image
+        receiptWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Receipt - ${receiptFilename}</title>
+              <meta charset="UTF-8">
+              <style>
+                * {
+                  margin: 0;
+                  padding: 0;
+                  box-sizing: border-box;
+                }
+                body {
+                  background: #f5f5f5;
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                  padding: 20px;
+                }
+                .container {
+                  max-width: 90%;
+                  margin: 0 auto;
+                  text-align: center;
+                  background: white;
+                  border-radius: 12px;
+                  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                  padding: 20px;
+                }
+                h2 {
+                  color: #333;
+                  margin-bottom: 20px;
+                  font-size: 24px;
+                }
+                .receipt-info {
+                  background: #f8f9fa;
+                  padding: 12px;
+                  border-radius: 8px;
+                  margin-bottom: 20px;
+                  font-size: 14px;
+                  color: #666;
+                }
+                .receipt-info strong {
+                  color: #333;
+                }
+                .image-container {
+                  margin: 20px 0;
+                  text-align: center;
+                  min-height: 200px;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                }
+                img {
+                  max-width: 100%;
+                  max-height: 70vh;
+                  object-fit: contain;
+                  border-radius: 8px;
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                }
+                .button-group {
+                  margin-top: 20px;
+                  display: flex;
+                  gap: 12px;
+                  justify-content: center;
+                  flex-wrap: wrap;
+                }
+                button {
+                  padding: 10px 24px;
+                  border: none;
+                  border-radius: 8px;
+                  cursor: pointer;
+                  font-size: 14px;
+                  font-weight: 500;
+                  transition: all 0.3s ease;
+                }
+                .btn-download {
+                  background: #2d6a4f;
+                  color: white;
+                }
+                .btn-download:hover {
+                  background: #1b4d3e;
+                  transform: translateY(-1px);
+                }
+                .btn-close {
+                  background: #6c757d;
+                  color: white;
+                }
+                .btn-close:hover {
+                  background: #5a6268;
+                  transform: translateY(-1px);
+                }
+                @media (max-width: 768px) {
+                  .container {
+                    padding: 12px;
+                  }
+                  h2 {
+                    font-size: 18px;
+                  }
+                  button {
+                    padding: 8px 16px;
+                    font-size: 12px;
+                  }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <h2>📄 Receipt Attachment</h2>
+                <div class="receipt-info">
+                  <strong>Filename:</strong> ${receiptFilename}
+                </div>
+                <div class="image-container">
+                  <img src="${objectUrl}" alt="Receipt Image" onerror="this.parentElement.innerHTML='<div style=\\'color: red; padding: 40px;\\'>❌ Failed to display receipt image. The file may be corrupted.</div>'" />
+                </div>
+                <div class="button-group">
+                  <button class="btn-download" onclick="downloadImage()">📥 Download Receipt</button>
+                  <button class="btn-close" onclick="window.close()">✖ Close Window</button>
+                </div>
+              </div>
+              <script>
+                function downloadImage() {
+                  const link = document.createElement('a');
+                  link.href = "${objectUrl}";
+                  link.download = "${receiptFilename}";
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }
+                
+                window.addEventListener('beforeunload', function() {
+                  URL.revokeObjectURL("${objectUrl}");
+                });
+              <\/script>
+            </body>
+          </html>
+        `);
+        receiptWindow.document.close();
+      }
+      
       showNotification('success', 'Receipt loaded successfully');
       
     } catch (error) {
       console.error('Error viewing receipt:', error);
-      showNotification('error', 'Failed to load receipt. The file may be missing or corrupted.');
+      showNotification('error', `Failed to load receipt: ${error.message}`);
     } finally {
       setReceiptLoading(false);
     }
@@ -748,6 +643,7 @@ const AdminReturns = () => {
                 <tr>
                   <th>ID</th>
                   <th>DATE</th>
+                  <th>CUSTOMER</th>
                   <th>PRODUCT</th>
                   <th>QUANTITY</th>
                   <th>AMOUNT</th>
@@ -761,6 +657,10 @@ const AdminReturns = () => {
                   <tr key={refund._id || refund.returnId || index}>
                     <td className="id-cell">{index + 1 + (pagination.page - 1) * 15}</td>
                     <td className="date-cell">{formatDate(refund?.createdAt)}</td>
+                    <td className="customer-cell">
+                      <div><strong>{refund?.fullName || 'N/A'}</strong></div>
+                      <div className="customer-email">{refund?.email || 'N/A'}</div>
+                    </td>
                     <td className="product-cell">{getProductName(refund)}</td>
                     <td className="quantity-cell">{getQuantity(refund)} kg</td>
                     <td className="amount-cell">{formatCurrency(getAmount(refund))}</td>
@@ -825,9 +725,24 @@ const AdminReturns = () => {
             </div>
             
             <div className="modal-body">
+              {/* Customer Information */}
+              <div className="details-section">
+                <h3>👤 Customer Information</h3>
+                <div className="details-grid">
+                  <div className="detail-row">
+                    <span className="detail-label">Full Name:</span>
+                    <span className="detail-value">{selectedRefund?.fullName || 'N/A'}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Email:</span>
+                    <span className="detail-value">{selectedRefund?.email || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Transaction Information */}
               <div className="details-section">
-                <h3>Transaction Information</h3>
+                <h3>📋 Transaction Information</h3>
                 <div className="details-grid">
                   <div className="detail-row">
                     <span className="detail-label">Transaction ID:</span>
@@ -852,32 +767,17 @@ const AdminReturns = () => {
                 </div>
               </div>
 
-              {/* Customer Information */}
-              <div className="details-section">
-                <h3>Customer Information</h3>
-                <div className="details-grid">
-                  <div className="detail-row">
-                    <span className="detail-label">Name:</span>
-                    <span className="detail-value">{selectedRefund?.fullName || 'N/A'}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-label">Email:</span>
-                    <span className="detail-value">{selectedRefund?.email || 'N/A'}</span>
-                  </div>
-                </div>
-              </div>
-
               {/* Refund Reason */}
               <div className="details-section">
-                <h3>Refund Reason</h3>
+                <h3>❓ Refund Reason</h3>
                 <div className="info-box">
-                  <p>{getReason(selectedRefund)}</p>
+                  <p><strong>{getReason(selectedRefund)}</strong></p>
                 </div>
               </div>
 
               {/* Customer Description */}
               <div className="details-section">
-                <h3>Customer Description</h3>
+                <h3>📝 Customer Description</h3>
                 <div className="info-box">
                   <p>{getDescription(selectedRefund) || 'No description provided.'}</p>
                 </div>
@@ -886,7 +786,7 @@ const AdminReturns = () => {
               {/* Receipt Attachment */}
               {(selectedRefund?.receiptFilename || selectedRefund?.receiptImage) && (
                 <div className="details-section">
-                  <h3>Receipt Attachment</h3>
+                  <h3>📎 Receipt Attachment</h3>
                   <button 
                     className="btn-view-receipt"
                     onClick={() => viewReceipt(selectedRefund.receiptFilename || selectedRefund.receiptImage)}
@@ -895,7 +795,7 @@ const AdminReturns = () => {
                     {receiptLoading ? '⏳ Loading Receipt...' : '📄 View Receipt'}
                   </button>
                   <small className="receipt-hint">
-                    Note: If receipt doesn't load, please check that the file exists on the server
+                    Click to view the uploaded receipt image
                   </small>
                 </div>
               )}
@@ -903,7 +803,7 @@ const AdminReturns = () => {
               {/* Admin Notes - Only show if exists and not pending */}
               {selectedRefund?.status !== 'PENDING' && selectedRefund?.adminNotes && (
                 <div className="details-section">
-                  <h3>Admin Notes</h3>
+                  <h3>📌 Admin Notes</h3>
                   <div className="info-box">
                     <p>{selectedRefund.adminNotes}</p>
                     {selectedRefund.processedAt && (
@@ -920,14 +820,14 @@ const AdminReturns = () => {
                 <>
                   <button 
                     className="btn-reject-modal"
-                    onClick={() => handleReject(selectedRefund?._id)}
+                    onClick={() => handleReject(selectedRefund?.returnId || selectedRefund?._id)}
                     disabled={processing}
                   >
                     {processing ? 'Processing...' : 'Reject Refund'}
                   </button>
                   <button 
                     className="btn-approve-modal"
-                    onClick={() => handleApprove(selectedRefund?._id)}
+                    onClick={() => handleApprove(selectedRefund?.returnId || selectedRefund?._id)}
                     disabled={processing}
                   >
                     {processing ? 'Processing...' : 'Approve Refund'}

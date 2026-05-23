@@ -3,7 +3,6 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import './Login.css';
 
-// ADD THIS LINE - Missing API_URL constant
 const API_URL = 'https://e-agrivend.onrender.com/api';
 
 const Login = () => {
@@ -116,56 +115,80 @@ const Login = () => {
     return otp.join('');
   };
 
-  // Send OTP
   const handleSendOTP = async (e) => {
-    e.preventDefault();
+  e.preventDefault();
+  
+  if (!resetEmail) {
+    setResetError('Please enter your email address');
+    return;
+  }
+
+  setResetLoading(true);
+  setResetError('');
+  setResetMessage('');
+  setOtp(['', '', '', '', '', '']);
+
+  try {
+    const response = await axios.post(`${API_URL}/auth/send-otp`, {
+      email: resetEmail
+    }, {
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
     
-    if (!resetEmail) {
-      setResetError('Please enter your email address');
-      return;
+    if (response.data.success) {
+      // Don't auto-fill OTP - user must enter from email
+      setResetMessage('OTP sent to your email address. Please check your inbox.');
+      setOtpSent(true);
+      setResetStep(2);
+    } else {
+      setResetError(response.data?.error || 'Failed to send OTP');
     }
+    
+  } catch (error) {
+    console.error('Error sending OTP:', error);
+    setResetError('Failed to send OTP. Please try again.');
+  } finally {
+    setResetLoading(false);
+  }
+};
 
-    setResetLoading(true);
-    setResetError('');
-    setResetMessage('');
-    setOtp(['', '', '', '', '', '']);
+  // RESEND OTP - UPDATED (No auto-fill)
+const handleResendOTP = async () => {
+  setResetLoading(true);
+  setResetError('');
+  setResetMessage('');
 
-    try {
-      const response = await axios.post(`${API_URL}/auth/send-otp`, {
-        email: resetEmail
-      }, {
-        timeout: 30000,
-        headers: {
-          'Content-Type': 'application/json'
+  try {
+    const response = await axios.post(`${API_URL}/auth/resend-otp`, {
+      email: resetEmail
+    }, {
+      timeout: 30000
+    });
+    
+    if (response.data && response.data.success) {
+      setResetMessage('New OTP sent to your email address. Please check your inbox.');
+      setOtp(['', '', '', '', '', '']);
+      
+      // Focus on first OTP input
+      setTimeout(() => {
+        if (otpInputs.current[0]) {
+          otpInputs.current[0].focus();
         }
-      });
-      
-      if (response.status === 200 || response.status === 201) {
-        if (response.data && response.data.success !== false) {
-          setResetMessage('OTP sent successfully to your registered email');
-          setOtpSent(true);
-          setResetStep(2);
-        } else {
-          setResetError(response.data?.error || 'Failed to send OTP');
-        }
-      } else {
-        setResetError('Unexpected response from server');
-      }
-      
-    } catch (error) {
-      console.error('Error sending OTP:', error);
-      
-      if (error.code === 'ECONNABORTED') {
-        setResetError('Request timeout. Please try again.');
-      } else if (error.response) {
-        setResetError(error.response.data?.error || 'Failed to send OTP');
-      } else {
-        setResetError('Network error. Please check your connection.');
-      }
-    } finally {
-      setResetLoading(false);
+      }, 100);
+    } else {
+      setResetError(response.data?.error || 'Failed to resend OTP');
     }
-  };
+    
+  } catch (error) {
+    console.error('Error resending OTP:', error);
+    setResetError('Failed to resend OTP. Please try again.');
+  } finally {
+    setResetLoading(false);
+  }
+};
 
   // Reset Password
   const handleResetPassword = async (e) => {
@@ -224,40 +247,6 @@ const Login = () => {
       } else {
         setResetError('An error occurred. Please try again.');
       }
-    } finally {
-      setResetLoading(false);
-    }
-  };
-
-  // Resend OTP
-  const handleResendOTP = async () => {
-    setResetLoading(true);
-    setResetError('');
-    setResetMessage('');
-
-    try {
-      const response = await axios.post(`${API_URL}/auth/resend-otp`, {
-        email: resetEmail
-      }, {
-        timeout: 30000
-      });
-      
-      if (response.data && response.data.success) {
-        setResetMessage('New OTP sent successfully');
-        setOtp(['', '', '', '', '', '']);
-        
-        setTimeout(() => {
-          if (otpInputs.current[0]) {
-            otpInputs.current[0].focus();
-          }
-        }, 100);
-      } else {
-        setResetError(response.data?.error || 'Failed to resend OTP');
-      }
-      
-    } catch (error) {
-      console.error('Error resending OTP:', error);
-      setResetError('Failed to resend OTP. Please try again.');
     } finally {
       setResetLoading(false);
     }
@@ -355,7 +344,7 @@ const Login = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@agrivend.com"
+                    placeholder="Enter your email"
                     className="form-input"
                     disabled={loading}
                   />
@@ -398,7 +387,7 @@ const Login = () => {
                   <form onSubmit={handleSendOTP}>
                     <h3 className="reset-title">Reset Password</h3>
                     <p className="reset-description">
-                      Enter your email address and we'll send you a verification code
+                      Enter your email address to receive a verification code
                     </p>
                     
                     <div className="input-group">

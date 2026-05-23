@@ -1,12 +1,18 @@
 /* Returns.css - Professional Dashboard Style */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
 .returns-container {
   padding: 2rem;
   background: #f5f7fa;
   min-height: 100vh;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Page Header with Show Filters Button */
+/* Page Header */
 .returns-header {
   display: flex;
   justify-content: space-between;
@@ -17,64 +23,66 @@
 }
 
 .returns-header-left h1 {
-  font-size: 1.5rem;
+  font-size: 1.75rem;
   font-weight: 600;
-  color: #0f172a;
+  color: #1e293b;
   margin: 0 0 0.25rem 0;
+  letter-spacing: -0.01em;
 }
 
 .returns-header-left p {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: #64748b;
   margin: 0;
 }
 
 .btn-secondary {
   padding: 0.5rem 1rem;
-  background: white;
+  background: #ffffff;
   border: 1px solid #1a472a;
   border-radius: 0.375rem;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   color: #1a472a;
+  font-family: inherit;
 }
 
 .btn-secondary:hover {
   background: #1a472a;
-  color: white;
+  color: #ffffff;
 }
 
 /* Stats Cards */
 .returns-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
+  gap: 1.25rem;
   margin-bottom: 1.5rem;
 }
 
 .stat-card {
-  background: white;
-  border-radius: 0.5rem;
+  background: #ffffff;
+  border-radius: 0.75rem;
   padding: 1rem;
   border: 1px solid #e2e8f0;
   text-align: center;
 }
 
 .stat-label {
-  font-size: 0.7rem;
+  font-size: 0.688rem;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.03em;
   margin-bottom: 0.25rem;
 }
 
 .stat-value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #0f172a;
+  color: #1e293b;
 }
 
 .stat-value.warning { color: #d97706; }
@@ -83,8 +91,8 @@
 
 /* Filters Card */
 .filters-card {
-  background: white;
-  border-radius: 0.5rem;
+  background: #ffffff;
+  border-radius: 0.75rem;
   padding: 1rem;
   margin-bottom: 1.5rem;
   border: 1px solid #e2e8f0;
@@ -100,9 +108,10 @@
   padding: 0.5rem 1rem;
   border: 1px solid #e2e8f0;
   border-radius: 0.375rem;
-  font-size: 0.85rem;
-  background: white;
+  font-size: 0.75rem;
+  background: #ffffff;
   cursor: pointer;
+  font-family: inherit;
 }
 
 .filter-select:focus {
@@ -112,8 +121,8 @@
 
 /* Returns Table */
 .returns-table {
-  background: white;
-  border-radius: 0.5rem;
+  background: #ffffff;
+  border-radius: 0.75rem;
   border: 1px solid #e2e8f0;
   overflow: hidden;
 }
@@ -125,23 +134,24 @@
 .data-table {
   width: 100%;
   border-collapse: collapse;
+  min-width: 800px;
 }
 
 .data-table th {
   padding: 0.75rem 1rem;
   text-align: left;
-  font-size: 0.7rem;
+  font-size: 0.688rem;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.03em;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
 }
 
 .data-table td {
   padding: 0.75rem 1rem;
-  font-size: 0.85rem;
+  font-size: 0.813rem;
   color: #334155;
   border-bottom: 1px solid #f1f5f9;
 }
@@ -157,12 +167,13 @@
 /* Table Cells */
 .id-cell {
   font-weight: 500;
-  color: #0f172a;
+  color: #1e293b;
 }
 
 .date-cell {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #64748b;
+  white-space: nowrap;
 }
 
 .product-cell {
@@ -182,16 +193,21 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #64748b;
+}
+
+.customer-cell .customer-email {
+  font-size: 0.688rem;
+  color: #94a3b8;
 }
 
 /* Status Badges */
 .status-badge {
   display: inline-block;
-  padding: 0.2rem 0.6rem;
+  padding: 0.25rem 0.625rem;
   border-radius: 2rem;
-  font-size: 0.7rem;
+  font-size: 0.688rem;
   font-weight: 600;
 }
 
@@ -213,18 +229,19 @@
 /* Action Buttons */
 .btn-view {
   padding: 0.25rem 0.75rem;
-  background-color: #6b7280;
-  color: white;
+  background-color: #64748b;
+  color: #ffffff;
   border: none;
   border-radius: 0.25rem;
-  font-size: 0.7rem;
+  font-size: 0.688rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  font-family: inherit;
 }
 
 .btn-view:hover {
-  background-color: #4b5563;
+  background-color: #475569;
 }
 
 /* Pagination */
@@ -234,17 +251,19 @@
   align-items: center;
   gap: 1rem;
   margin-top: 1.5rem;
+  flex-wrap: wrap;
 }
 
 .pagination-btn {
-  padding: 0.4rem 0.8rem;
-  background: white;
+  padding: 0.375rem 0.875rem;
+  background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 0.25rem;
-  font-size: 0.8rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   color: #334155;
+  font-family: inherit;
 }
 
 .pagination-btn:hover:not(:disabled) {
@@ -258,7 +277,7 @@
 }
 
 .page-info {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #64748b;
 }
 
@@ -266,15 +285,15 @@
 .loading-state, .empty-state, .error-state {
   text-align: center;
   padding: 3rem;
-  background: white;
-  border-radius: 0.5rem;
+  background: #ffffff;
+  border-radius: 0.75rem;
   border: 1px solid #e2e8f0;
 }
 
 .loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid #e2e8f0;
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid #e2e8f0;
   border-top-color: #1a472a;
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -286,19 +305,21 @@
 }
 
 .empty-icon {
-  font-size: 2.5rem;
+  font-size: 2rem;
   margin-bottom: 0.5rem;
+  opacity: 0.5;
 }
 
 .btn-retry {
   padding: 0.5rem 1rem;
   background: #1a472a;
-  color: white;
+  color: #ffffff;
   border: none;
   border-radius: 0.25rem;
   cursor: pointer;
   margin-top: 1rem;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  font-family: inherit;
 }
 
 /* Notification Toast */
@@ -307,7 +328,7 @@
   top: 1rem;
   right: 1rem;
   padding: 0.75rem 1rem;
-  background: white;
+  background: #ffffff;
   border-radius: 0.5rem;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   display: flex;
@@ -315,7 +336,8 @@
   gap: 0.75rem;
   z-index: 1100;
   border-left: 3px solid;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  font-family: inherit;
 }
 
 .notification-toast.success {
@@ -336,6 +358,7 @@
   font-size: 1rem;
   cursor: pointer;
   color: #64748b;
+  font-family: inherit;
 }
 
 /* Modal */
@@ -353,8 +376,8 @@
 }
 
 .modal-container {
-  background: white;
-  border-radius: 0.5rem;
+  background: #ffffff;
+  border-radius: 0.75rem;
   width: 90%;
   max-width: 500px;
   max-height: 90vh;
@@ -365,11 +388,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.5rem;
+  padding: 1rem 1.25rem;
   border-bottom: 1px solid #e2e8f0;
   position: sticky;
   top: 0;
-  background: white;
+  background: #ffffff;
 }
 
 .modal-header h2 {
@@ -384,10 +407,11 @@
   font-size: 1.25rem;
   cursor: pointer;
   color: #64748b;
+  font-family: inherit;
 }
 
 .modal-body {
-  padding: 1.5rem;
+  padding: 1.25rem;
 }
 
 .details-section {
@@ -395,11 +419,11 @@
 }
 
 .details-section h3 {
-  font-size: 0.7rem;
+  font-size: 0.688rem;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.03em;
   margin: 0 0 0.5rem 0;
 }
 
@@ -412,9 +436,9 @@
 .detail-row {
   display: flex;
   justify-content: space-between;
-  padding: 0.4rem 0;
+  padding: 0.375rem 0;
   border-bottom: 1px solid #e2e8f0;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
 }
 
 .detail-row:last-child {
@@ -443,7 +467,7 @@
 
 .info-box p {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #334155;
   line-height: 1.4;
 }
@@ -451,48 +475,57 @@
 .info-box small {
   display: block;
   margin-top: 0.5rem;
-  font-size: 0.65rem;
+  font-size: 0.625rem;
   color: #64748b;
 }
 
 .btn-view-receipt {
   padding: 0.5rem 1rem;
   background: #1a472a;
-  color: white;
+  color: #ffffff;
   border: none;
-  border-radius: 0.25rem;
-  font-size: 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.688rem;
   cursor: pointer;
+  font-family: inherit;
 }
 
 .btn-view-receipt:hover {
   background: #0e2a1a;
 }
 
+.receipt-hint {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.625rem;
+  color: #64748b;
+}
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
-  padding: 1rem 1.5rem;
+  padding: 1rem 1.25rem;
   border-top: 1px solid #e2e8f0;
   position: sticky;
   bottom: 0;
-  background: white;
+  background: #ffffff;
 }
 
 .btn-close, .btn-approve-modal, .btn-reject-modal {
   padding: 0.5rem 1rem;
   border: none;
-  border-radius: 0.25rem;
+  border-radius: 0.375rem;
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  font-family: inherit;
 }
 
 .btn-close {
   background-color: #1a472a;
-  color: white;
+  color: #ffffff;
 }
 
 .btn-close:hover {
@@ -501,7 +534,7 @@
 
 .btn-approve-modal {
   background-color: #10b981;
-  color: white;
+  color: #ffffff;
 }
 
 .btn-approve-modal:hover:not(:disabled) {
@@ -510,7 +543,7 @@
 
 .btn-reject-modal {
   background-color: #ef4444;
-  color: white;
+  color: #ffffff;
 }
 
 .btn-reject-modal:hover:not(:disabled) {
@@ -555,63 +588,14 @@ button:disabled {
   .modal-footer button {
     width: 100%;
   }
-}
-/* Source Selector */
-.source-selector {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 12px;
-}
-
-.source-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #1e293b;
-}
-
-.source-select {
-  padding: 8px 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 14px;
-  background: white;
-  cursor: pointer;
-  min-width: 180px;
-}
-
-.source-select:focus {
-  outline: none;
-  border-color: #2d6a4f;
-  box-shadow: 0 0 0 2px rgba(45, 106, 79, 0.1);
-}
-
-/* Report Source */
-.report-source {
-  font-size: 13px;
-  color: #64748b;
-  margin-top: 8px;
-  font-style: italic;
-}
-
-@media (max-width: 768px) {
-  .report-controls {
-    flex-direction: column;
-  }
   
-  .source-selector {
-    width: 100%;
-    justify-content: space-between;
-  }
-  
-  .source-select {
-    flex: 1;
+  .returns-header-left h1 {
+    font-size: 1.5rem;
   }
 }
 
-.receipt-hint {
-  display: block;
-  margin-top: 8px;
-  font-size: 12px;
-  color: #6c757d;
+@media (max-width: 480px) {
+  .returns-container {
+    padding: 0.75rem;
+  }
 }
