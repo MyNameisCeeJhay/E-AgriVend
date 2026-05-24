@@ -132,7 +132,7 @@ const Login = () => {
     const response = await axios.post(`${API_URL}/auth/send-otp`, {
       email: resetEmail
     }, {
-      timeout: 30000,
+      timeout: 10000,
       headers: {
         'Content-Type': 'application/json'
       }

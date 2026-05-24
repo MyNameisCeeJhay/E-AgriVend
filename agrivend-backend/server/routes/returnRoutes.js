@@ -31,9 +31,6 @@ router.get('/test', (req, res) => {
 });
 
 // ===== ADMIN ROUTES =====
-// IMPORTANT: These must be in the correct order - static routes before dynamic ones
-
-// Admin stats route
 router.get('/admin/stats', protect, admin, async (req, res) => {
   console.log('📊 ADMIN STATS ROUTE HIT - by:', req.user?.email);
   try {
@@ -52,7 +49,6 @@ router.get('/admin/stats', protect, admin, async (req, res) => {
   }
 });
 
-// Admin all returns route with pagination
 router.get('/admin/all', protect, admin, async (req, res) => {
   console.log('📋 ADMIN ALL ROUTE HIT - by:', req.user?.email);
   try {
@@ -83,7 +79,6 @@ router.get('/admin/all', protect, admin, async (req, res) => {
   }
 });
 
-// Get single return by returnId (admin only)
 router.get('/admin/:returnId', protect, admin, async (req, res) => {
   console.log('🔍 ADMIN SINGLE RETURN ROUTE HIT - returnId:', req.params.returnId);
   try {
@@ -108,7 +103,7 @@ router.get('/admin/:returnId', protect, admin, async (req, res) => {
   }
 });
 
-// Process return (approve/reject) - admin only
+// Process return (approve/reject) - admin only WITH EMAIL NOTIFICATION
 router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
   console.log('⚙️ PROCESS RETURN ROUTE HIT - returnId:', req.params.returnId);
   console.log('Request body:', req.body);
@@ -133,12 +128,55 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
       });
     }
 
+    console.log(`📋 Processing refund for: ${returnRequest.fullName} (${returnRequest.email})`);
+    console.log(`   Status: ${status}`);
+
+    // Update return request
     returnRequest.status = status;
     returnRequest.adminNotes = adminNotes || '';
     returnRequest.processedBy = req.user._id;
+    returnRequest.processedByName = `${req.user.firstName} ${req.user.lastName}`;
     returnRequest.processedAt = new Date();
 
     await returnRequest.save();
+    console.log(`✅ Return ${returnId} ${status} successfully`);
+
+    // SEND EMAIL NOTIFICATION TO CUSTOMER
+    let emailSent = false;
+    let emailError = null;
+    
+    try {
+      const { sendRefundStatusEmail } = await import('../services/emailService.js');
+      
+      console.log(`📧 Sending ${status} notification email to ${returnRequest.email}...`);
+      
+      const emailResult = await sendRefundStatusEmail(
+        returnRequest.email,
+        returnRequest.fullName,
+        {
+          returnId: returnRequest.returnId,
+          transactionId: returnRequest.transactionId,
+          riceType: returnRequest.riceType,
+          quantityKg: returnRequest.quantityKg,
+          amountPaid: returnRequest.amountPaid
+        },
+        status,
+        adminNotes || (status === 'APPROVED' 
+          ? 'Your refund has been approved and will be processed within 3-5 business days.' 
+          : 'We regret to inform you that your refund request has been rejected.')
+      );
+      
+      if (emailResult.success) {
+        emailSent = true;
+        console.log(`✅ ${status} email sent successfully to ${returnRequest.email}`);
+      } else {
+        emailError = emailResult.error;
+        console.error(`❌ Failed to send ${status} email:`, emailError);
+      }
+    } catch (emailErr) {
+      console.error(`❌ Exception sending email:`, emailErr.message);
+      emailError = emailErr.message;
+    }
 
     // Emit socket event for real-time update
     const io = req.app.get('io');
@@ -146,15 +184,17 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
       io.emit('return_status_update', {
         returnId: returnRequest.returnId,
         status: returnRequest.status,
-        processedAt: returnRequest.processedAt
+        processedAt: returnRequest.processedAt,
+        emailSent: emailSent
       });
     }
 
-    console.log(`✅ Return ${returnId} ${status} successfully`);
-
     res.json({
       success: true,
-      data: returnRequest
+      message: `Refund ${status.toLowerCase()} successfully`,
+      data: returnRequest,
+      emailSent: emailSent,
+      emailError: emailError
     });
   } catch (error) {
     console.error('Error in process return:', error);
@@ -202,11 +242,11 @@ router.get('/my-returns', protect, async (req, res) => {
   }
 });
 
-// Create return request (customer)
+// Create return request (customer) WITH CONFIRMATION EMAIL
 router.post('/', protect, upload.single('receipt'), async (req, res) => {
   console.log('📝 CREATE RETURN ROUTE HIT - by:', req.user?.email);
   try {
-    const { transactionId, riceType, quantityKg, amountPaid, returnReason } = req.body;
+    const { transactionId, riceType, quantityKg, amountPaid, returnReason, description } = req.body;
 
     // Validation
     if (!transactionId || !riceType || !quantityKg || !amountPaid || !returnReason) {
@@ -224,19 +264,51 @@ router.post('/', protect, upload.single('receipt'), async (req, res) => {
     }
 
     const newReturn = new Return({
-      returnId: 'RET-' + Date.now().toString(36).toUpperCase(),
+      returnId: 'RET-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
       transactionId,
       user: req.user._id,
+      fullName: `${req.user.firstName} ${req.user.lastName}`,
+      email: req.user.email,
       riceType,
       quantityKg: parseFloat(quantityKg),
       amountPaid: parseFloat(amountPaid),
       returnReason,
+      description: description || '',
       receiptFilename: req.file.filename,
       receiptPath: req.file.path,
       status: 'PENDING'
     });
 
     await newReturn.save();
+
+    // SEND CONFIRMATION EMAIL TO CUSTOMER
+    let emailSent = false;
+    try {
+      const { sendRefundConfirmationEmail } = await import('../services/emailService.js');
+      
+      console.log(`📧 Sending confirmation email to ${req.user.email}...`);
+      
+      const emailResult = await sendRefundConfirmationEmail(
+        req.user.email,
+        `${req.user.firstName} ${req.user.lastName}`,
+        {
+          returnId: newReturn.returnId,
+          transactionId: newReturn.transactionId,
+          riceType: newReturn.riceType,
+          quantityKg: newReturn.quantityKg,
+          amountPaid: newReturn.amountPaid
+        }
+      );
+      
+      if (emailResult.success) {
+        emailSent = true;
+        console.log(`✅ Confirmation email sent to ${req.user.email}`);
+      } else {
+        console.error(`❌ Failed to send confirmation email:`, emailResult.error);
+      }
+    } catch (emailErr) {
+      console.error(`❌ Error sending confirmation email:`, emailErr.message);
+    }
 
     // Emit socket event for admin notification
     const io = req.app.get('io');
@@ -250,21 +322,23 @@ router.post('/', protect, upload.single('receipt'), async (req, res) => {
         },
         riceType: newReturn.riceType,
         quantity: newReturn.quantityKg,
-        amount: newReturn.amountPaid
+        amount: newReturn.amountPaid,
+        emailSent: emailSent
       });
     }
 
     res.status(201).json({ 
       success: true, 
       data: newReturn,
-      message: 'Return request created successfully' 
+      emailSent: emailSent,
+      message: 'Return request created successfully.'
     });
   } catch (error) {
     console.error('Error creating return:', error);
     res.status(500).json({ success: false, error: error.message });
   }
-  
 });
+
 // Get unread return updates count
 router.get('/unread-updates', protect, async (req, res) => {
   console.log('🔔 GET /api/returns/unread-updates - by:', req.user?.email);

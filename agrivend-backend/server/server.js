@@ -58,10 +58,11 @@ if (!process.env.FRONTEND_URL && isProduction) {
 }
 
 if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-  console.warn('⚠️  Email configuration not found. Password reset functionality will not work.');
-  if (!isProduction) {
-    console.warn('   To enable password reset, add EMAIL_USER and EMAIL_PASS to .env file');
-  }
+  console.warn('⚠️  Email configuration not found. Email notifications will not work.');
+  console.warn('   To enable email notifications, add EMAIL_USER and EMAIL_PASS to .env file');
+  console.warn('   For Gmail: Use App Password (https://myaccount.google.com/apppasswords)');
+} else {
+  console.log('✅ Email configuration found - Email notifications enabled');
 }
 
 console.log('✅ Environment check completed\n');
@@ -229,7 +230,7 @@ console.log('   /api/esp32 → esp32Routes');
 console.log('   /api/refund → refundRoutes');
 console.log('   /api/machine → machineRoutes');
 console.log('   /api/staff → staffRoutes');
-
+console.log('   /api/products → productRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/terms', termsRoutes);
@@ -246,6 +247,49 @@ app.use('/api/machine', machineRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/products', productRoutes);
 
+// ===== EMAIL SERVICE INITIALIZATION =====
+// Import email service to verify configuration
+import { sendRefundStatusEmail, sendRefundConfirmationEmail } from './services/emailService.js';
+
+// Test email endpoint
+app.post('/api/test-email-config', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email required' });
+    }
+    
+    console.log('📧 Testing email configuration...');
+    console.log('EMAIL_USER:', process.env.EMAIL_USER ? 'Set' : 'Not set');
+    console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? 'Set' : 'Not set');
+    
+    const { sendRefundStatusEmail } = await import('./services/emailService.js');
+    
+    const result = await sendRefundStatusEmail(
+      email,
+      'Test User',
+      {
+        returnId: 'TEST-123',
+        transactionId: 'TXN-TEST-001',
+        riceType: 'Test Rice',
+        quantityKg: 1,
+        amountPaid: 100
+      },
+      'APPROVED',
+      'This is a test email to verify your email configuration.'
+    );
+    
+    if (result.success) {
+      res.json({ success: true, message: 'Test email sent successfully!' });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    console.error('Test email error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ===== CREATE DEFAULT STAFF ACCOUNTS =====
 const createDefaultStaffAccounts = async () => {
@@ -459,6 +503,7 @@ app.get('/api/test', (req, res) => {
     message: 'API is working',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
+    emailConfigured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS)
   });
 });
 
@@ -471,6 +516,7 @@ app.get('/api/health', (req, res) => {
     environment: process.env.NODE_ENV,
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     emailConfigured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
+    emailUser: process.env.EMAIL_USER ? process.env.EMAIL_USER.split('@')[0] + '@***' : 'not set',
     frontendUrl: process.env.FRONTEND_URL || 'not set',
     cors: {
       productionOrigins: allowedOrigins,
@@ -509,6 +555,10 @@ server.listen(PORT, () => {
   console.log(`📦 MongoDB: Connected`);
   console.log(`🔒 CORS: All localhost ports allowed + Flutter mobile`);
   console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configured ⚠️'}`);
+  if (process.env.EMAIL_USER) {
+    console.log(`   Email Account: ${process.env.EMAIL_USER}`);
+    console.log(`   Test Endpoint: POST /api/test-email`);
+  }
   console.log('=================================\n');
   console.log('📝 Login Credentials:');
   console.log('   Admin: admin@agrivend.com / admin123');

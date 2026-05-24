@@ -14,6 +14,8 @@ const AdminReturns = () => {
   const [selectedRefund, setSelectedRefund] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [notification, setNotification] = useState(null);
+  const [emailSending, setEmailSending] = useState(false);
+  const [lastEmailStatus, setLastEmailStatus] = useState(null);
   const [stats, setStats] = useState({
     pending: 0,
     approved: 0,
@@ -68,6 +70,13 @@ const AdminReturns = () => {
       return () => clearTimeout(timer);
     }
   }, [notification]);
+
+  useEffect(() => {
+    if (lastEmailStatus) {
+      const timer = setTimeout(() => setLastEmailStatus(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastEmailStatus]);
 
   const fetchRefunds = async () => {
     if (abortControllerRef.current) {
@@ -159,13 +168,14 @@ const AdminReturns = () => {
   };
 
   const handleApprove = async (refundId) => {
-    const confirmApprove = window.confirm('Are you sure you want to approve this refund request?');
+    const confirmApprove = window.confirm('Are you sure you want to approve this refund request? The customer will receive an email notification.');
     if (!confirmApprove) return;
 
     setProcessing(true);
+    setEmailSending(true);
     try {
       const authToken = localStorage.getItem('token');
-      await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
+      const response = await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
         status: 'APPROVED',
         adminNotes: 'Refund approved by administrator.',
         processedBy: user?._id,
@@ -179,23 +189,33 @@ const AdminReturns = () => {
       fetchRefunds();
       fetchStats();
       
-      showNotification('success', 'Refund approved successfully');
+      if (response.data.emailSent) {
+        setLastEmailStatus({ type: 'success', message: '✅ Refund approved and email notification sent!' });
+        showNotification('success', 'Refund approved and email notification sent!');
+      } else {
+        setLastEmailStatus({ type: 'warning', message: '⚠️ Refund approved but email notification failed.' });
+        showNotification('warning', 'Refund approved but email notification failed.');
+      }
     } catch (error) {
       console.error('Error approving refund:', error);
       showNotification('error', error.response?.data?.error || 'Failed to approve refund');
+      setLastEmailStatus({ type: 'error', message: '❌ Failed to approve refund' });
     } finally {
       setProcessing(false);
+      setEmailSending(false);
+      setTimeout(() => setLastEmailStatus(null), 5000);
     }
   };
 
   const handleReject = async (refundId) => {
-    const confirmReject = window.confirm('Are you sure you want to reject this refund request?');
+    const confirmReject = window.confirm('Are you sure you want to reject this refund request? The customer will receive an email notification.');
     if (!confirmReject) return;
 
     setProcessing(true);
+    setEmailSending(true);
     try {
       const authToken = localStorage.getItem('token');
-      await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
+      const response = await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
         status: 'REJECTED',
         adminNotes: 'Refund rejected by administrator.',
         processedBy: user?._id,
@@ -209,12 +229,21 @@ const AdminReturns = () => {
       fetchRefunds();
       fetchStats();
       
-      showNotification('success', 'Refund rejected successfully');
+      if (response.data.emailSent) {
+        setLastEmailStatus({ type: 'success', message: '✅ Refund rejected and email notification sent!' });
+        showNotification('success', 'Refund rejected and email notification sent!');
+      } else {
+        setLastEmailStatus({ type: 'warning', message: '⚠️ Refund rejected but email notification failed.' });
+        showNotification('warning', 'Refund rejected but email notification failed.');
+      }
     } catch (error) {
       console.error('Error rejecting refund:', error);
       showNotification('error', error.response?.data?.error || 'Failed to reject refund');
+      setLastEmailStatus({ type: 'error', message: '❌ Failed to reject refund' });
     } finally {
       setProcessing(false);
+      setEmailSending(false);
+      setTimeout(() => setLastEmailStatus(null), 5000);
     }
   };
 
@@ -577,6 +606,14 @@ const AdminReturns = () => {
         </div>
       )}
 
+      {/* Email Status Toast */}
+      {lastEmailStatus && (
+        <div className={`email-status-toast ${lastEmailStatus.type}`}>
+          <span className="email-status-message">{lastEmailStatus.message}</span>
+          <button className="email-status-close" onClick={() => setLastEmailStatus(null)}>×</button>
+        </div>
+      )}
+
       {/* Header with Show Filters Button */}
       <div className="returns-header">
         <div className="returns-header-left">
@@ -821,16 +858,16 @@ const AdminReturns = () => {
                   <button 
                     className="btn-reject-modal"
                     onClick={() => handleReject(selectedRefund?.returnId || selectedRefund?._id)}
-                    disabled={processing}
+                    disabled={processing || emailSending}
                   >
-                    {processing ? 'Processing...' : 'Reject Refund'}
+                    {processing || emailSending ? 'Processing...' : 'Reject Refund'}
                   </button>
                   <button 
                     className="btn-approve-modal"
                     onClick={() => handleApprove(selectedRefund?.returnId || selectedRefund?._id)}
-                    disabled={processing}
+                    disabled={processing || emailSending}
                   >
-                    {processing ? 'Processing...' : 'Approve Refund'}
+                    {processing || emailSending ? 'Processing...' : 'Approve Refund'}
                   </button>
                 </>
               ) : (
