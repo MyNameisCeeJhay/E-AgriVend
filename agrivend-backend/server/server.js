@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
+import nodemailer from 'nodemailer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -89,31 +90,23 @@ const app = express();
 const server = http.createServer(app);
 
 // ===== CORS CONFIGURATION =====
-// Production origins (explicitly listed from environment variable)
 const allowedOrigins = [
   ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
 ];
 
-// FIX: Regex to match ANY localhost port
 const localhostRegex = /^http:\/\/localhost(:\d+)?$/;
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow Flutter mobile apps (Android/iOS send no Origin header)
     if (!origin) {
       return callback(null, true);
     }
-
-    // Allow any localhost port — Flutter Web dev on any random port
     if (localhostRegex.test(origin)) {
       return callback(null, true);
     }
-
-    // Allow production origins listed in FRONTEND_URL env var
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-
     console.warn(`⚠️  CORS blocked request from origin: ${origin}`);
     return callback(new Error(`Origin ${origin} not allowed by CORS`));
   },
@@ -122,7 +115,7 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 };
 
-// Initialize Socket.io with matching CORS config
+// Initialize Socket.io
 const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
@@ -157,7 +150,6 @@ io.on('connection', (socket) => {
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
     console.log('✅ MongoDB Connected successfully');
-    // Create default staff accounts after connection
     createDefaultStaffAccounts();
   })
   .catch((err) => {
@@ -172,10 +164,7 @@ app.use(
   })
 );
 
-// FIX: Apply CORS middleware BEFORE all route definitions
 app.use(cors(corsOptions));
-
-// FIX: Explicitly handle preflight OPTIONS requests for every route
 app.options('*', cors(corsOptions));
 
 app.use(express.json());
@@ -189,25 +178,19 @@ const uploadsDir = path.join(__dirname, 'uploads');
 const refundReceiptsDir = path.join(__dirname, 'uploads/refund-receipts');
 const returnsDir = path.join(__dirname, 'uploads/returns');
 
-// Create main uploads directory
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
   console.log('📁 Created uploads directory');
 }
-
-// Create refund-receipts subdirectory
 if (!fs.existsSync(refundReceiptsDir)) {
   fs.mkdirSync(refundReceiptsDir, { recursive: true });
   console.log('📁 Created refund-receipts directory');
 }
-
-// Create returns subdirectory
 if (!fs.existsSync(returnsDir)) {
   fs.mkdirSync(returnsDir, { recursive: true });
   console.log('📁 Created returns directory');
 }
 
-// Serve static files from uploads directory
 app.use('/uploads', express.static(uploadsDir));
 
 console.log('📁 Upload directories ready:');
@@ -247,46 +230,132 @@ app.use('/api/machine', machineRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/products', productRoutes);
 
-// ===== EMAIL SERVICE INITIALIZATION =====
-// Import email service to verify configuration
-import { sendRefundStatusEmail, sendRefundConfirmationEmail } from './services/emailService.js';
-
-// Test email endpoint
-app.post('/api/test-email-config', async (req, res) => {
+// ============================================
+// DIRECT EMAIL TEST ENDPOINT (NO DEPENDENCIES)
+// ============================================
+app.post('/api/test-email-direct', async (req, res) => {
+  console.log('\n🔧 ===== DIRECT EMAIL TEST =====');
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'Email address required' });
+  }
+  
+  console.log(`   Sending to: ${email}`);
+  console.log(`   From: ${process.env.EMAIL_USER}`);
+  
   try {
-    const { email } = req.body;
+    // Create transporter directly
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
     
-    if (!email) {
-      return res.status(400).json({ success: false, error: 'Email required' });
-    }
+    const mailOptions = {
+      from: `"AgriVend" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Test Email from AgriVend',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+          <div style="background: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; margin: -20px -20px 20px -20px;">
+            <h1 style="margin: 0;">Test Email</h1>
+          </div>
+          <p>Dear Customer,</p>
+          <p>If you receive this email, your email system is working correctly!</p>
+          <p><strong>Time sent:</strong> ${new Date().toLocaleString()}</p>
+          <p>This is a test email from AgriVend Smart Vending System.</p>
+          <hr style="margin: 20px 0;">
+          <p style="color: #999; font-size: 12px;">This is an automated test message.</p>
+        </div>
+      `,
+      text: `Test Email from AgriVend\n\nIf you receive this email, your email system is working correctly!\n\nTime sent: ${new Date().toLocaleString()}\n\nThis is a test email from AgriVend Smart Vending System.`
+    };
     
-    console.log('📧 Testing email configuration...');
-    console.log('EMAIL_USER:', process.env.EMAIL_USER ? 'Set' : 'Not set');
-    console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? 'Set' : 'Not set');
+    console.log('📧 Sending test email...');
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Test email sent successfully!');
+    console.log(`   Message ID: ${info.messageId}`);
+    console.log(`   Response: ${info.response}`);
     
-    const { sendRefundStatusEmail } = await import('./services/emailService.js');
-    
-    const result = await sendRefundStatusEmail(
-      email,
-      'Test User',
-      {
-        returnId: 'TEST-123',
-        transactionId: 'TXN-TEST-001',
-        riceType: 'Test Rice',
-        quantityKg: 1,
-        amountPaid: 100
-      },
-      'APPROVED',
-      'This is a test email to verify your email configuration.'
-    );
-    
-    if (result.success) {
-      res.json({ success: true, message: 'Test email sent successfully!' });
-    } else {
-      res.status(500).json({ success: false, error: result.error });
-    }
+    res.json({ 
+      success: true, 
+      message: 'Test email sent successfully! Please check your inbox/spam folder.',
+      messageId: info.messageId
+    });
   } catch (error) {
-    console.error('Test email error:', error);
+    console.error('❌ Test email failed:', error.message);
+    console.error('   Error code:', error.code);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      code: error.code
+    });
+  }
+});
+
+// ============================================
+// SIMPLE REFUND EMAIL TEST
+// ============================================
+app.post('/api/test-refund-email', async (req, res) => {
+  console.log('\n🔧 ===== TEST REFUND EMAIL =====');
+  const { email, name } = req.body;
+  
+  const testEmail = email || 'test@example.com';
+  const testName = name || 'Test Customer';
+  
+  console.log(`   Sending to: ${testEmail}`);
+  console.log(`   Name: ${testName}`);
+  
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+    
+    const isApproved = true;
+    const statusText = 'APPROVED';
+    
+    const mailOptions = {
+      from: `"AgriVend Support" <${process.env.EMAIL_USER}>`,
+      to: testEmail,
+      subject: `Refund Request ${statusText} - TEST-001`,
+      html: `
+        <div style="font-family: Arial; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+          <div style="background: ${isApproved ? '#4CAF50' : '#f44336'}; color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; margin: -20px -20px 20px -20px;">
+            <h1 style="margin: 0;">Refund ${statusText}</h1>
+          </div>
+          <p>Dear <strong>${testName}</strong>,</p>
+          <p>Your refund request has been <strong>${statusText}</strong>.</p>
+          <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Refund ID:</strong> TEST-001</p>
+            <p><strong>Transaction ID:</strong> TXN-TEST-123</p>
+            <p><strong>Product:</strong> Premium Rice</p>
+            <p><strong>Quantity:</strong> 2 kg</p>
+            <p><strong>Amount:</strong> ₱150.00</p>
+          </div>
+          <p>This is a test email to verify refund notifications are working.</p>
+          <p>Thank you,<br>AgriVend Team</p>
+        </div>
+      `
+    };
+    
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Test refund email sent successfully!');
+    console.log(`   Message ID: ${info.messageId}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Test refund email sent successfully!',
+      messageId: info.messageId
+    });
+  } catch (error) {
+    console.error('❌ Test failed:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -333,7 +402,6 @@ const createDefaultStaffAccounts = async () => {
         await staff.save();
         console.log(`✅ Staff account created: ${staffData.email} / ${staffData.password}`);
       } else if (existingStaff.role !== 'staff') {
-        // Update existing user to staff role
         existingStaff.role = 'staff';
         existingStaff.isActive = true;
         await existingStaff.save();
@@ -347,25 +415,19 @@ const createDefaultStaffAccounts = async () => {
   }
 };
 
-// ===== STAFF ACCOUNT CREATION ENDPOINT (Alternative method via API) =====
+// ===== STAFF ACCOUNT CREATION ENDPOINT =====
 app.post('/api/auth/create-staff', async (req, res) => {
   try {
     const { email, password, firstName, lastName, phone, address } = req.body;
     
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'User already exists' 
-      });
+      return res.status(400).json({ success: false, error: 'User already exists' });
     }
     
-    // Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
     
-    // Create staff user
     const staff = new User({
       email,
       password: hashedPassword,
@@ -399,7 +461,6 @@ app.post('/api/auth/create-staff', async (req, res) => {
 });
 
 // ===== STORE MANAGEMENT API =====
-// Get store settings
 app.get('/api/store/settings', async (req, res) => {
   try {
     const StoreSettings = mongoose.model('StoreSettings');
@@ -413,7 +474,6 @@ app.get('/api/store/settings', async (req, res) => {
   }
 });
 
-// Update store settings
 app.put('/api/store/settings', async (req, res) => {
   try {
     const StoreSettings = mongoose.model('StoreSettings');
@@ -429,7 +489,6 @@ app.put('/api/store/settings', async (req, res) => {
 });
 
 // ===== REFUND ADMIN ROUTES =====
-// Get all refund requests
 app.get('/api/admin/refunds', async (req, res) => {
   try {
     const RefundRequest = mongoose.model('RefundRequest');
@@ -449,7 +508,6 @@ app.get('/api/admin/refunds', async (req, res) => {
   }
 });
 
-// Update refund status
 app.put('/api/admin/refunds/:id', async (req, res) => {
   const { id } = req.params;
   const { status, adminNotes } = req.body;
@@ -476,7 +534,6 @@ app.put('/api/admin/refunds/:id', async (req, res) => {
   }
 });
 
-// Get refund statistics
 app.get('/api/admin/refunds/stats', async (req, res) => {
   try {
     const RefundRequest = mongoose.model('RefundRequest');
@@ -496,7 +553,7 @@ app.get('/api/admin/refunds/stats', async (req, res) => {
   }
 });
 
-// Test route
+// ===== TEST ROUTES =====
 app.get('/api/test', (req, res) => {
   res.json({
     success: true,
@@ -507,7 +564,6 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// Health check
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
@@ -518,11 +574,6 @@ app.get('/api/health', (req, res) => {
     emailConfigured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
     emailUser: process.env.EMAIL_USER ? process.env.EMAIL_USER.split('@')[0] + '@***' : 'not set',
     frontendUrl: process.env.FRONTEND_URL || 'not set',
-    cors: {
-      productionOrigins: allowedOrigins,
-      localhostAllowed: true,
-      mobileAllowed: true,
-    },
   });
 });
 
@@ -557,7 +608,9 @@ server.listen(PORT, () => {
   console.log(`📧 Email Service: ${process.env.EMAIL_USER ? 'Configured ✅' : 'Not Configured ⚠️'}`);
   if (process.env.EMAIL_USER) {
     console.log(`   Email Account: ${process.env.EMAIL_USER}`);
-    console.log(`   Test Endpoint: POST /api/test-email`);
+    console.log(`   Test Endpoints:`);
+    console.log(`     POST /api/test-email-direct`);
+    console.log(`     POST /api/test-refund-email`);
   }
   console.log('=================================\n');
   console.log('📝 Login Credentials:');

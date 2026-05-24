@@ -167,86 +167,82 @@ const AdminReturns = () => {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  const handleApprove = async (refundId) => {
-    const confirmApprove = window.confirm('Are you sure you want to approve this refund request? The customer will receive an email notification.');
-    if (!confirmApprove) return;
+ const handleApprove = async (refundId) => {
+  const confirmApprove = window.confirm('Are you sure you want to approve this refund request? The customer will receive an email notification.');
+  if (!confirmApprove) return;
 
-    setProcessing(true);
-    setEmailSending(true);
-    try {
-      const authToken = localStorage.getItem('token');
-      const response = await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
-        status: 'APPROVED',
-        adminNotes: 'Refund approved by administrator.',
-        processedBy: user?._id,
-        processedByName: user?.firstName + ' ' + user?.lastName
-      }, {
-        headers: { Authorization: `Bearer ${authToken}` },
-        timeout: 15000
-      });
-      
-      setSelectedRefund(null);
-      fetchRefunds();
-      fetchStats();
-      
-      if (response.data.emailSent) {
-        setLastEmailStatus({ type: 'success', message: '✅ Refund approved and email notification sent!' });
-        showNotification('success', 'Refund approved and email notification sent!');
-      } else {
-        setLastEmailStatus({ type: 'warning', message: '⚠️ Refund approved but email notification failed.' });
-        showNotification('warning', 'Refund approved but email notification failed.');
-      }
-    } catch (error) {
-      console.error('Error approving refund:', error);
+  setProcessing(true);
+  try {
+    const authToken = localStorage.getItem('token');
+    const response = await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
+      status: 'APPROVED',
+      adminNotes: 'Refund approved by administrator.',
+      processedBy: user?._id,
+      processedByName: user?.firstName + ' ' + user?.lastName
+    }, {
+      headers: { Authorization: `Bearer ${authToken}` },
+      timeout: 30000 // 30 seconds timeout
+    });
+    
+    setSelectedRefund(null);
+    await fetchRefunds();
+    await fetchStats();
+    
+    showNotification('success', 'Refund approved successfully! Email notification will be sent to the customer.');
+  } catch (error) {
+    console.error('Error approving refund:', error);
+    if (error.code === 'ECONNABORTED') {
+      showNotification('warning', 'Request timed out. Please refresh the page to check if the refund was processed.');
+      // Refresh after timeout to check actual status
+      setTimeout(() => {
+        fetchRefunds();
+        fetchStats();
+      }, 3000);
+    } else {
       showNotification('error', error.response?.data?.error || 'Failed to approve refund');
-      setLastEmailStatus({ type: 'error', message: '❌ Failed to approve refund' });
-    } finally {
-      setProcessing(false);
-      setEmailSending(false);
-      setTimeout(() => setLastEmailStatus(null), 5000);
     }
-  };
+  } finally {
+    setProcessing(false);
+  }
+};
 
-  const handleReject = async (refundId) => {
-    const confirmReject = window.confirm('Are you sure you want to reject this refund request? The customer will receive an email notification.');
-    if (!confirmReject) return;
+const handleReject = async (refundId) => {
+  const confirmReject = window.confirm('Are you sure you want to reject this refund request? The customer will receive an email notification.');
+  if (!confirmReject) return;
 
-    setProcessing(true);
-    setEmailSending(true);
-    try {
-      const authToken = localStorage.getItem('token');
-      const response = await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
-        status: 'REJECTED',
-        adminNotes: 'Refund rejected by administrator.',
-        processedBy: user?._id,
-        processedByName: user?.firstName + ' ' + user?.lastName
-      }, {
-        headers: { Authorization: `Bearer ${authToken}` },
-        timeout: 15000
-      });
-      
-      setSelectedRefund(null);
-      fetchRefunds();
-      fetchStats();
-      
-      if (response.data.emailSent) {
-        setLastEmailStatus({ type: 'success', message: '✅ Refund rejected and email notification sent!' });
-        showNotification('success', 'Refund rejected and email notification sent!');
-      } else {
-        setLastEmailStatus({ type: 'warning', message: '⚠️ Refund rejected but email notification failed.' });
-        showNotification('warning', 'Refund rejected but email notification failed.');
-      }
-    } catch (error) {
-      console.error('Error rejecting refund:', error);
+  setProcessing(true);
+  try {
+    const authToken = localStorage.getItem('token');
+    const response = await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
+      status: 'REJECTED',
+      adminNotes: 'Refund rejected by administrator.',
+      processedBy: user?._id,
+      processedByName: user?.firstName + ' ' + user?.lastName
+    }, {
+      headers: { Authorization: `Bearer ${authToken}` },
+      timeout: 30000 // 30 seconds timeout
+    });
+    
+    setSelectedRefund(null);
+    await fetchRefunds();
+    await fetchStats();
+    
+    showNotification('success', 'Refund rejected successfully! Email notification will be sent to the customer.');
+  } catch (error) {
+    console.error('Error rejecting refund:', error);
+    if (error.code === 'ECONNABORTED') {
+      showNotification('warning', 'Request timed out. Please refresh the page to check if the refund was processed.');
+      setTimeout(() => {
+        fetchRefunds();
+        fetchStats();
+      }, 3000);
+    } else {
       showNotification('error', error.response?.data?.error || 'Failed to reject refund');
-      setLastEmailStatus({ type: 'error', message: '❌ Failed to reject refund' });
-    } finally {
-      setProcessing(false);
-      setEmailSending(false);
-      setTimeout(() => setLastEmailStatus(null), 5000);
     }
-  };
-
+  } finally {
+    setProcessing(false);
+  }
+};
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
