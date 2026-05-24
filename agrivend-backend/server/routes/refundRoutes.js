@@ -191,42 +191,14 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     console.log('   Return ID:', returnRequest.returnId);
     console.log('   Name:', returnRequest.fullName);
     console.log('   Email:', returnRequest.email);
-    
-    // SEND CONFIRMATION EMAIL
-    let emailSent = false;
-    try {
-      const { sendRefundConfirmationEmail } = await import('../services/emailService.js');
-      console.log(`📧 Sending confirmation email to ${email}...`);
-      
-      const emailResult = await sendRefundConfirmationEmail(
-        email,
-        fullName,
-        {
-          returnId: returnRequest.returnId,
-          transactionId: transactionNumber,
-          riceType: riceType,
-          quantityKg: Number(quantityKg),
-          amountPaid: Number(amountPaid)
-        }
-      );
-      
-      if (emailResult.success) {
-        emailSent = true;
-        console.log(`✅ Confirmation email sent successfully to ${email}`);
-      } else {
-        console.error(`❌ Failed to send confirmation email:`, emailResult.error);
-      }
-    } catch (emailError) {
-      console.error(`❌ Error sending confirmation email:`, emailError.message);
-    }
+    console.log('   Description:', returnRequest.description);
     
     res.json({ 
       success: true, 
       message: 'Refund request submitted successfully!',
       data: { 
         returnId: returnRequest.returnId, 
-        status: returnRequest.status,
-        emailSent: emailSent
+        status: returnRequest.status 
       }
     });
     
@@ -254,7 +226,7 @@ router.get('/status/:transactionId', async (req, res) => {
 
 // ==================== ADMIN ROUTES ====================
 
-// Get all returns
+// Get all returns - THIS IS WHAT YOUR ADMIN PANEL CALLS
 router.get('/admin/all', protect, admin, async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
@@ -270,6 +242,9 @@ router.get('/admin/all', protect, admin, async (req, res) => {
     const total = await Return.countDocuments(query);
     
     console.log(`📋 Found ${returns.length} returns`);
+    returns.forEach(r => {
+      console.log(`   ID: ${r.returnId}, Name: ${r.fullName}, Email: ${r.email}, Desc: ${r.description?.substring(0, 30)}`);
+    });
     
     res.json({
       success: true,
@@ -317,13 +292,11 @@ router.get('/admin/stats/summary', protect, admin, async (req, res) => {
   }
 });
 
-// Process return (approve/reject) - WITH EMAIL NOTIFICATION
+// Process return (approve/reject)
 router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
   try {
     const { returnId } = req.params;
     const { status, adminNotes, processedBy, processedByName } = req.body;
-    
-    console.log(`🔧 Processing refund ${returnId} to ${status}`);
     
     if (!status || !['APPROVED', 'REJECTED'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Valid status required' });
@@ -335,9 +308,6 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Return not found' });
     }
     
-    console.log(`📋 Found refund request for: ${returnRequest.fullName} (${returnRequest.email})`);
-    
-    // Update the return request
     returnRequest.status = status;
     returnRequest.adminNotes = adminNotes || '';
     returnRequest.processedAt = new Date();
@@ -345,66 +315,15 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
     returnRequest.processedByName = processedByName;
     await returnRequest.save();
     
-    console.log(`✅ Refund request updated to ${status}`);
-    
     if (status === 'APPROVED') {
       await Transaction.findOneAndUpdate(
         { transactionId: returnRequest.transactionId },
         { status: 'REFUNDED' }
       );
-      console.log(`💰 Transaction ${returnRequest.transactionId} marked as REFUNDED`);
     }
     
-    // SEND EMAIL NOTIFICATION
-    let emailSent = false;
-    let emailError = null;
-    
-    try {
-      const { sendRefundStatusEmail } = await import('../services/emailService.js');
-      
-      console.log(`📧 Sending ${status} notification email to ${returnRequest.email}...`);
-      
-      const emailResult = await sendRefundStatusEmail(
-        returnRequest.email,
-        returnRequest.fullName,
-        {
-          returnId: returnRequest.returnId,
-          transactionId: returnRequest.transactionId,
-          riceType: returnRequest.riceType,
-          quantityKg: returnRequest.quantityKg,
-          amountPaid: returnRequest.amountPaid
-        },
-        status,
-        adminNotes || (status === 'APPROVED' 
-          ? 'Your refund has been approved and will be processed within 3-5 business days.' 
-          : 'We regret to inform you that your refund request has been rejected. Please contact support if you have questions.')
-      );
-      
-      if (emailResult.success) {
-        emailSent = true;
-        console.log(`✅ ${status} email sent successfully to ${returnRequest.email}`);
-      } else {
-        emailError = emailResult.error;
-        console.error(`❌ Failed to send ${status} email:`, emailError);
-      }
-    } catch (emailErr) {
-      console.error(`❌ Exception while sending email:`, emailErr.message);
-      emailError = emailErr.message;
-    }
-    
-    res.json({ 
-      success: true, 
-      message: `Refund ${status.toLowerCase()}`,
-      emailSent: emailSent,
-      emailError: emailError,
-      data: {
-        returnId: returnRequest.returnId,
-        status: returnRequest.status,
-        customerEmail: returnRequest.email
-      }
-    });
+    res.json({ success: true, message: `Refund ${status.toLowerCase()}` });
   } catch (error) {
-    console.error('Error processing refund:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
