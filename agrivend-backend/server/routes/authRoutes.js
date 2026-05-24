@@ -20,7 +20,7 @@ console.log('');
 
 const router = express.Router();
 
-// Store OTPs temporarily
+// Store OTPs temporarily (in production, use database)
 const otpStore = new Map();
 
 // Generate OTP
@@ -49,8 +49,15 @@ const checkPasswordStrength = (password) => {
   return { isStrong, requirements, requirementsList };
 };
 
-// Send email function
+// Send email function with better error handling
 const sendEmailOTP = async (email, otp, userName) => {
+  console.log(`📧 Preparing to send OTP email to ${email}...`);
+  
+  // Check if email credentials exist
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    throw new Error('Email credentials not configured. Please set EMAIL_USER and EMAIL_PASS in .env file');
+  }
+  
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -59,8 +66,15 @@ const sendEmailOTP = async (email, otp, userName) => {
     },
     tls: {
       rejectUnauthorized: false
-    }
+    },
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 30000
   });
+
+  // Verify transporter
+  await transporter.verify();
+  console.log('✅ Email transporter verified');
 
   const mailOptions = {
     from: `"AgriVend Support" <${process.env.EMAIL_USER}>`,
@@ -71,34 +85,131 @@ const sendEmailOTP = async (email, otp, userName) => {
       <html>
       <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Password Reset OTP</title>
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 500px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; }
-          .logo { font-size: 24px; font-weight: bold; color: #2d6a4f; text-align: center; margin-bottom: 20px; }
-          .otp-code { font-size: 36px; font-weight: bold; color: #2d6a4f; background: #ffffff; padding: 15px; border-radius: 8px; text-align: center; letter-spacing: 5px; margin: 20px 0; border: 1px solid #e2e8f0; }
-          .footer { text-align: center; font-size: 12px; color: #64748b; margin-top: 20px; }
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+          }
+          .container {
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+          }
+          .content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+          }
+          .logo {
+            font-size: 28px;
+            font-weight: bold;
+            color: #2d6a4f;
+            text-align: center;
+            margin-bottom: 20px;
+          }
+          .otp-code {
+            font-size: 42px;
+            font-weight: bold;
+            color: #2d6a4f;
+            background: #f0fdf4;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            letter-spacing: 8px;
+            margin: 20px 0;
+            border: 2px dashed #86efac;
+          }
+          .warning {
+            background: #fef3c7;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #92400e;
+            text-align: center;
+            margin: 20px 0;
+          }
+          .footer {
+            text-align: center;
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+          }
+          button {
+            background: #2d6a4f;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+          }
         </style>
       </head>
       <body>
         <div class="container">
-          <div class="logo">🌾 AgriVend</div>
-          <h2>Password Reset Request</h2>
-          <p>Hello <strong>${userName}</strong>,</p>
-          <p>You requested to reset your password. Use the OTP below to proceed:</p>
-          <div class="otp-code">${otp}</div>
-          <p>This OTP will expire in <strong>10 minutes</strong>.</p>
-          <p>If you didn't request this, please ignore this email.</p>
+          <div class="content">
+            <div class="logo">
+              🌾 AgriVend
+            </div>
+            <h2 style="color: #1f2937; margin-top: 0;">Password Reset Request</h2>
+            <p>Hello <strong>${userName}</strong>,</p>
+            <p>We received a request to reset your password for your AgriVend account. Use the verification code below to proceed:</p>
+            
+            <div class="otp-code">
+              ${otp}
+            </div>
+            
+            <div class="warning">
+              ⚠️ This OTP will expire in <strong>10 minutes</strong>
+            </div>
+            
+            <p>If you didn't request this password reset, please ignore this email or contact support if you have concerns.</p>
+            
+            <p style="margin-top: 30px;">
+              Best regards,<br>
+              <strong>AgriVend Support Team</strong>
+            </p>
+          </div>
           <div class="footer">
             <p>AgriVend - Solar Powered Grain Vending Machine</p>
             <p>Loma De Gato, Marilao, Bulacan</p>
+            <p>© ${new Date().getFullYear()} AgriVend. All rights reserved.</p>
           </div>
         </div>
       </body>
       </html>
+    `,
+    text: `
+      AgriVend Password Reset
+    
+      Hello ${userName},
+      
+      We received a request to reset your password. Your OTP is: ${otp}
+      
+      This OTP will expire in 10 minutes.
+      
+      If you didn't request this, please ignore this email.
+      
+      Best regards,
+      AgriVend Support Team
+      
+      AgriVend - Solar Powered Grain Vending Machine
+      Loma De Gato, Marilao, Bulacan
     `
   };
 
   const info = await transporter.sendMail(mailOptions);
+  console.log(`✅ Email sent successfully to ${email}`);
+  console.log(`📨 Message ID: ${info.messageId}`);
   return info;
 };
 
@@ -246,7 +357,8 @@ router.post('/create-staff', async (req, res) => {
 
 // ===== SEND OTP VIA EMAIL =====
 router.post('/send-otp', async (req, res) => {
-  console.log('📧 Sending OTP to:', req.body.email);
+  console.log('\n📧 ===== SEND OTP REQUEST =====');
+  console.log('📧 Email:', req.body.email);
   
   try {
     const { email } = req.body;
@@ -269,15 +381,15 @@ router.post('/send-otp', async (req, res) => {
     otpStore.set(email, { otp, expiresAt, attempts: 0 });
     
     console.log(`✅ OTP generated for ${email}: ${otp}`);
+    console.log(`⏰ Expires at: ${new Date(expiresAt).toLocaleString()}`);
     
     // Send email with OTP
     await sendEmailOTP(email, otp, `${user.firstName} ${user.lastName}`);
-    console.log(`✅ Email sent to ${email}`);
     
-    // Return success WITHOUT OTP in response
+    // Return success
     res.json({ 
       success: true, 
-      message: 'OTP sent to your email address'
+      message: 'OTP sent to your email address. Please check your inbox and spam folder.'
     });
     
   } catch (error) {
@@ -288,15 +400,24 @@ router.post('/send-otp', async (req, res) => {
         success: false, 
         error: 'Email authentication failed. Please contact support.' 
       });
+    } else if (error.message.includes('credentials')) {
+      res.status(503).json({ 
+        success: false, 
+        error: 'Email service not configured. Please contact administrator.' 
+      });
     } else {
-      res.status(500).json({ success: false, error: 'Failed to send OTP. Please try again.' });
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to send OTP. Please try again.' 
+      });
     }
   }
 });
 
-// ===== RESEND OTP VIA EMAIL (NO OTP IN RESPONSE) =====
+// ===== RESEND OTP =====
 router.post('/resend-otp', async (req, res) => {
-  console.log('🔄 Resending OTP to:', req.body.email);
+  console.log('\n🔄 ===== RESEND OTP REQUEST =====');
+  console.log('📧 Email:', req.body.email);
   
   try {
     const { email } = req.body;
@@ -317,11 +438,8 @@ router.post('/resend-otp', async (req, res) => {
     
     console.log(`✅ New OTP generated for ${email}: ${otp}`);
     
-    // Send email with new OTP
     await sendEmailOTP(email, otp, `${user.firstName} ${user.lastName}`);
-    console.log(`✅ New OTP email sent to ${email}`);
     
-    // Return success WITHOUT OTP in response
     res.json({ 
       success: true, 
       message: 'New OTP sent to your email address'
@@ -335,7 +453,9 @@ router.post('/resend-otp', async (req, res) => {
 
 // ===== RESET PASSWORD =====
 router.post('/reset-password', async (req, res) => {
-  console.log('🔑 Reset password request for:', req.body.email);
+  console.log('\n🔑 ===== RESET PASSWORD REQUEST =====');
+  console.log('📧 Email:', req.body.email);
+  console.log('🔢 OTP length:', req.body.otp?.length);
   
   try {
     const { email, newPassword, otp } = req.body;
@@ -354,44 +474,59 @@ router.post('/reset-password', async (req, res) => {
       });
     }
     
+    // Get stored OTP
     const storedData = otpStore.get(email);
     if (!storedData) {
       return res.status(400).json({ success: false, error: 'No OTP found. Please request a new OTP.' });
     }
     
+    console.log(`📊 Stored OTP: ${storedData.otp}, Received OTP: ${otp}`);
+    console.log(`⏰ Expires: ${new Date(storedData.expiresAt).toLocaleString()}`);
+    console.log(`🕐 Current: ${new Date().toLocaleString()}`);
+    
+    // Check expiration
     if (Date.now() > storedData.expiresAt) {
       otpStore.delete(email);
       return res.status(400).json({ success: false, error: 'OTP has expired. Please request a new one.' });
     }
     
+    // Check attempts
     if (storedData.attempts >= 5) {
       otpStore.delete(email);
       return res.status(400).json({ success: false, error: 'Too many failed attempts. Please request a new OTP.' });
     }
     
+    // Verify OTP
     if (storedData.otp !== otp) {
       storedData.attempts++;
       otpStore.set(email, storedData);
+      console.log(`❌ Invalid OTP attempt ${storedData.attempts}/5`);
       return res.status(400).json({ success: false, error: 'Invalid OTP. Please try again.' });
     }
     
+    // Find user and update password
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
     
+    // Update password
     user.password = newPassword;
     await user.save();
     
+    // Clear OTP from store
     otpStore.delete(email);
     
     console.log(`✅ Password reset successfully for ${email}`);
     
-    res.json({ success: true, message: 'Password reset successfully. You can now login with your new password.' });
+    res.json({ 
+      success: true, 
+      message: 'Password reset successfully. You can now login with your new password.' 
+    });
     
   } catch (error) {
-    console.error('Error resetting password:', error);
-    res.status(500).json({ success: false, error: 'Failed to reset password' });
+    console.error('❌ Error resetting password:', error);
+    res.status(500).json({ success: false, error: 'Failed to reset password: ' + error.message });
   }
 });
 
@@ -429,5 +564,45 @@ router.get('/me', async (req, res) => {
     res.status(401).json({ success: false, error: 'Invalid token' });
   }
 });
+
+// ===== VERIFY OTP (Optional - for testing) =====
+router.post('/verify-otp', async (req, res) => {
+  console.log('\n✅ ===== VERIFY OTP REQUEST =====');
+  const { email, otp } = req.body;
+  
+  try {
+    const storedData = otpStore.get(email);
+    
+    if (!storedData) {
+      return res.status(400).json({ success: false, error: 'No OTP found' });
+    }
+    
+    if (Date.now() > storedData.expiresAt) {
+      otpStore.delete(email);
+      return res.status(400).json({ success: false, error: 'OTP expired' });
+    }
+    
+    if (storedData.otp !== otp) {
+      return res.status(400).json({ success: false, error: 'Invalid OTP' });
+    }
+    
+    res.json({ success: true, message: 'OTP is valid' });
+    
+  } catch (error) {
+    console.error('Error verifying OTP:', error);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// ===== CLEANUP EXPIRED OTPS (Run every minute) =====
+setInterval(() => {
+  const now = Date.now();
+  for (const [email, data] of otpStore.entries()) {
+    if (now > data.expiresAt) {
+      otpStore.delete(email);
+      console.log(`🗑️ Cleaned up expired OTP for ${email}`);
+    }
+  }
+}, 60000); // Run every minute
 
 export default router;
