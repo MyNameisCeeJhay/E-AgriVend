@@ -24,8 +24,8 @@ router.get('/latest', async (req, res) => {
       console.log('No machine found in database');
       return res.json({
         success: true,
-        storage1: { currentWeight: 0, percentage: 0, status: 'Empty', pricePerKg: 52 },
-        storage2: { currentWeight: 0, percentage: 0, status: 'Empty', pricePerKg: 65 },
+        storage1: { currentWeight: 0, percentage: 0, status: 'Empty', pricePerKg: 135, name: 'Pedigree' },
+        storage2: { currentWeight: 0, percentage: 0, status: 'Empty', pricePerKg: 165, name: 'AOZI' },
         batteryPercentage: 100,
         doorStatus: 'Closed',
         temperature: 25,
@@ -34,8 +34,8 @@ router.get('/latest', async (req, res) => {
     }
     
     console.log('✅ Returning data from database:');
-    console.log('   Sinandomeng weight:', machine.storage1?.currentWeight);
-    console.log('   Dinorado weight:', machine.storage2?.currentWeight);
+    console.log('   Pedigree weight:', machine.storage1?.currentWeight);
+    console.log('   AOZI weight:', machine.storage2?.currentWeight);
     
     res.json({
       success: true,
@@ -43,13 +43,15 @@ router.get('/latest', async (req, res) => {
         currentWeight: machine.storage1?.currentWeight || 0,
         percentage: machine.storage1?.percentage || 0,
         status: machine.storage1?.status || 'Empty',
-        pricePerKg: machine.storage1?.pricePerKg || 52
+        pricePerKg: machine.storage1?.pricePerKg || 135,
+        name: machine.storage1?.name || 'Pedigree'
       },
       storage2: {
         currentWeight: machine.storage2?.currentWeight || 0,
         percentage: machine.storage2?.percentage || 0,
         status: machine.storage2?.status || 'Empty',
-        pricePerKg: machine.storage2?.pricePerKg || 65
+        pricePerKg: machine.storage2?.pricePerKg || 165,
+        name: machine.storage2?.name || 'AOZI'
       },
       batteryPercentage: machine.battery?.percentage || 100,
       doorStatus: machine.machineStatus?.doorStatus || 'Closed',
@@ -70,11 +72,14 @@ router.post('/sensors/update', async (req, res) => {
   
   try {
     const {
-      loadCellLeft,    // Sinandomeng
-      loadCellRight,   // Dinorado
+      loadCellLeft,    // Pedigree (Left)
+      loadCellRight,   // AOZI (Right)
       batteryPercentage,
       doorStatus,
-      temperature
+      temperature,
+      machineState,
+      transactionCount,
+      machineStatus
     } = req.body;
 
     // Find ANY machine document (the one with your data)
@@ -102,6 +107,7 @@ router.post('/sensors/update', async (req, res) => {
     // Update battery
     if (batteryPercentage !== undefined) {
       machine.battery.percentage = batteryPercentage;
+      machine.battery.status = batteryPercentage > 70 ? 'Good' : batteryPercentage > 30 ? 'Warning' : 'Critical';
     }
     
     // Update door status
@@ -114,14 +120,19 @@ router.post('/sensors/update', async (req, res) => {
       machine.machineStatus.temperature = temperature;
     }
     
+    // Update transaction count
+    if (transactionCount !== undefined) {
+      machine.machineStatus.transactionCount = transactionCount;
+    }
+    
     machine.machineStatus.lastUpdate = new Date();
     machine.machineStatus.isOnline = true;
     
     await machine.save();
     
     console.log(`✅ Updated machine!`);
-    console.log(`   Sinandomeng: ${machine.storage1.currentWeight}kg`);
-    console.log(`   Dinorado: ${machine.storage2.currentWeight}kg`);
+    console.log(`   Pedigree: ${machine.storage1.currentWeight}kg`);
+    console.log(`   AOZI: ${machine.storage2.currentWeight}kg`);
     
     res.json({ success: true, message: 'Machine updated' });
     
@@ -132,7 +143,7 @@ router.post('/sensors/update', async (req, res) => {
 });
 
 // ============================================
-// PRODUCT PRICE MANAGEMENT (PRESERVED)
+// PRODUCT PRICE MANAGEMENT - UPDATED FOR AOZI & PEDIGREE
 // ============================================
 
 // Get product prices AND names (for ESP32)
@@ -144,12 +155,12 @@ router.get('/prices', async (req, res) => {
       return res.json({
         success: true,
         prices: {
-          dinorado: 65,
-          sinandomeng: 52
+          aozi: 165,
+          pedigree: 135
         },
-        names: {
-          dinorado: 'Dinorado Rice',
-          sinandomeng: 'Sinandomeng Rice'
+        products: {
+          aozi_name: 'AOZI',
+          pedigree_name: 'Pedigree'
         }
       });
     }
@@ -157,20 +168,20 @@ router.get('/prices', async (req, res) => {
     res.json({
       success: true,
       prices: {
-        dinorado: machine.storage2?.pricePerKg || 65,
-        sinandomeng: machine.storage1?.pricePerKg || 52
+        aozi: machine.storage2?.pricePerKg || 165,
+        pedigree: machine.storage1?.pricePerKg || 135
       },
-      names: {
-        dinorado: machine.storage2?.name || 'Dinorado Rice',
-        sinandomeng: machine.storage1?.name || 'Sinandomeng Rice'
+      products: {
+        aozi_name: machine.storage2?.name || 'AOZI',
+        pedigree_name: machine.storage1?.name || 'Pedigree'
       }
     });
   } catch (error) {
     console.error('❌ Error fetching prices:', error);
     res.json({
       success: true,
-      prices: { dinorado: 65, sinandomeng: 52 },
-      names: { dinorado: 'Dinorado Rice', sinandomeng: 'Sinandomeng Rice' }
+      prices: { aozi: 165, pedigree: 135 },
+      products: { aozi_name: 'AOZI', pedigree_name: 'Pedigree' }
     });
   }
 });
@@ -178,37 +189,23 @@ router.get('/prices', async (req, res) => {
 // Update product prices (from website)
 router.post('/prices/update', async (req, res) => {
   try {
-    const { dinoradoPrice, sinandomengPrice } = req.body;
-    
-    // Update prices in database
-    await Product.findOneAndUpdate(
-      { name: 'DINORADO' },
-      { price: dinoradoPrice || 65.0 },
-      { upsert: true, new: true }
-    );
-    
-    await Product.findOneAndUpdate(
-      { name: 'SINANDOMENG' },
-      { price: sinandomengPrice || 52.0 },
-      { upsert: true, new: true }
-    );
+    const { aoziPrice, pedigreePrice } = req.body;
     
     // Update machine table
     const machine = await Machine.findOne({});
     if (machine) {
-      machine.storage1.pricePerKg = sinandomengPrice || 52;
-      machine.storage2.pricePerKg = dinoradoPrice || 65;
+      if (aoziPrice !== undefined) machine.storage2.pricePerKg = aoziPrice;
+      if (pedigreePrice !== undefined) machine.storage1.pricePerKg = pedigreePrice;
       await machine.save();
     }
     
-    console.log(`💰 Prices updated - Dinorado: PHP ${dinoradoPrice}, Sinandomeng: PHP ${sinandomengPrice}`);
+    console.log(`💰 Prices updated - AOZI: PHP ${aoziPrice}, Pedigree: PHP ${pedigreePrice}`);
     
-    // ***** ADD THIS - Send price update to ESP32 via Socket.io *****
     const io = req.app.get('io');
     if (io) {
       io.emit('price_updated', {
-        dinorado: dinoradoPrice,
-        sinandomeng: sinandomengPrice
+        aozi: aoziPrice,
+        pedigree: pedigreePrice
       });
       console.log('📡 Price update sent to ESP32 via WebSocket');
     }
@@ -221,7 +218,7 @@ router.post('/prices/update', async (req, res) => {
   }
 });
 
-// Get current prices (for website display)
+// Get current prices (for ESP32) - UPDATED FOR AOZI & PEDIGREE
 router.get('/prices/current', async (req, res) => {
   try {
     const machine = await Machine.findOne({});
@@ -229,15 +226,20 @@ router.get('/prices/current', async (req, res) => {
     res.json({
       success: true,
       prices: {
-        dinorado: machine?.storage2?.pricePerKg || 65,
-        sinandomeng: machine?.storage1?.pricePerKg || 52
+        aozi: machine?.storage2?.pricePerKg || 165,
+        pedigree: machine?.storage1?.pricePerKg || 135
+      },
+      products: {
+        aozi_name: machine?.storage2?.name || "AOZI",
+        pedigree_name: machine?.storage1?.name || "Pedigree"
       }
     });
   } catch (error) {
     console.error('❌ Error fetching current prices:', error);
     res.json({
       success: true,
-      prices: { dinorado: 65, sinandomeng: 52 }
+      prices: { aozi: 165, pedigree: 135 },
+      products: { aozi_name: "AOZI", pedigree_name: "Pedigree" }
     });
   }
 });
@@ -245,14 +247,17 @@ router.get('/prices/current', async (req, res) => {
 // Force ESP32 to fetch latest prices
 router.post('/prices/force-update', async (req, res) => {
   try {
-    const dinoradoProduct = await Product.findOne({ name: 'DINORADO' });
-    const sinandomengProduct = await Product.findOne({ name: 'SINANDOMENG' });
+    const machine = await Machine.findOne({});
     
     res.json({
       success: true,
       prices: {
-        dinorado: dinoradoProduct ? dinoradoProduct.price : 65,
-        sinandomeng: sinandomengProduct ? sinandomengProduct.price : 52
+        aozi: machine?.storage2?.pricePerKg || 165,
+        pedigree: machine?.storage1?.pricePerKg || 135
+      },
+      products: {
+        aozi_name: machine?.storage2?.name || "AOZI",
+        pedigree_name: machine?.storage1?.name || "Pedigree"
       }
     });
   } catch (error) {
@@ -281,22 +286,16 @@ router.put('/product/update/:storageId', async (req, res) => {
     if (storageId === '1') {
       if (name) machine.storage1.name = name;
       if (pricePerKg) machine.storage1.pricePerKg = pricePerKg;
+      console.log(`✅ Storage 1 (Pedigree) updated: ${name} @ PHP ${pricePerKg}/kg`);
     } else if (storageId === '2') {
       if (name) machine.storage2.name = name;
       if (pricePerKg) machine.storage2.pricePerKg = pricePerKg;
+      console.log(`✅ Storage 2 (AOZI) updated: ${name} @ PHP ${pricePerKg}/kg`);
     } else {
       return res.status(400).json({ success: false, error: 'Invalid storage ID' });
     }
     
     await machine.save();
-    
-    // Also update the Products table
-    const productName = storageId === '1' ? 'SINANDOMENG' : 'DINORADO';
-    await Product.findOneAndUpdate(
-      { name: productName },
-      { name: name, price: pricePerKg },
-      { upsert: true, new: true }
-    );
     
     console.log(`✅ Product updated: ${name} @ PHP ${pricePerKg}/kg`);
     
@@ -333,20 +332,20 @@ router.get('/products/current', async (req, res) => {
     if (!machine) {
       return res.json({
         success: true,
-        storage1: { name: 'Sinandomeng Rice', pricePerKg: 52 },
-        storage2: { name: 'Dinorado Rice', pricePerKg: 65 }
+        storage1: { name: 'Pedigree', pricePerKg: 135 },
+        storage2: { name: 'AOZI', pricePerKg: 165 }
       });
     }
     
     res.json({
       success: true,
       storage1: {
-        name: machine.storage1.name || 'Sinandomeng Rice',
-        pricePerKg: machine.storage1.pricePerKg || 52
+        name: machine.storage1.name || 'Pedigree',
+        pricePerKg: machine.storage1.pricePerKg || 135
       },
       storage2: {
-        name: machine.storage2.name || 'Dinorado Rice',
-        pricePerKg: machine.storage2.pricePerKg || 65
+        name: machine.storage2.name || 'AOZI',
+        pricePerKg: machine.storage2.pricePerKg || 165
       }
     });
   } catch (error) {
@@ -356,109 +355,7 @@ router.get('/products/current', async (req, res) => {
 });
 
 // ============================================
-// PUBLIC ENDPOINTS
-// ============================================
-
-// Get latest machine data for public dashboard
-router.get('/public/latest', async (req, res) => {
-  try {
-    const machine = await Machine.findOne({});
-    
-    if (!machine) {
-      return res.json({
-        success: true,
-        data: {
-          storage1: { currentWeight: 0, percentage: 0, status: 'NO_DATA' },
-          storage2: { currentWeight: 0, percentage: 0, status: 'NO_DATA' },
-          totalStock: 0,
-          batteryPercentage: 100,
-          doorStatus: 'Closed',
-          machineStatus: 'ACTIVE',
-          lastUpdate: null
-        }
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: {
-        storage1: {
-          currentWeight: machine.storage1.currentWeight,
-          percentage: machine.storage1.percentage,
-          status: machine.storage1.status
-        },
-        storage2: {
-          currentWeight: machine.storage2.currentWeight,
-          percentage: machine.storage2.percentage,
-          status: machine.storage2.status
-        },
-        totalStock: (machine.storage1.currentWeight || 0) + (machine.storage2.currentWeight || 0),
-        batteryPercentage: machine.battery.percentage,
-        doorStatus: machine.machineStatus.doorStatus,
-        machineStatus: machine.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE',
-        lastUpdate: machine.machineStatus.lastUpdate
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Get specific storage data
-router.get('/public/storage/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const machine = await Machine.findOne({});
-    const maxLevel = 20;
-    
-    if (!machine) {
-      return res.json({
-        success: true,
-        data: { level: 0, maxLevel, percentage: 0, fillLevel: '0%', status: 'OK', remainingKg: 0 }
-      });
-    }
-    
-    const storage = id === '1' ? machine.storage1 : machine.storage2;
-    
-    res.json({
-      success: true,
-      data: {
-        level: storage.currentWeight,
-        maxLevel: storage.maxCapacity,
-        percentage: storage.percentage,
-        fillLevel: storage.percentage.toFixed(1) + '%',
-        status: storage.status,
-        remainingKg: storage.currentWeight
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Get machine summary
-router.get('/public/summary', async (req, res) => {
-  try {
-    const machine = await Machine.findOne({});
-    
-    res.json({
-      success: true,
-      data: {
-        totalStock: machine ? (machine.storage1.currentWeight + machine.storage2.currentWeight) : 0,
-        batteryPercentage: machine?.battery.percentage || 100,
-        doorStatus: machine?.machineStatus.doorStatus || 'Closed',
-        machineStatus: machine?.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE'
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ============================================
-// TRANSACTIONS
+// TRANSACTIONS - UPDATED FOR AOZI & PEDIGREE
 // ============================================
 
 // Transaction confirm from ESP32
@@ -466,14 +363,17 @@ router.post('/transaction/confirm', async (req, res) => {
   console.log('📝 ESP32 Transaction received:', req.body);
   
   try {
-    const { transactionId, riceType, quantityKg, amountPaid, status } = req.body;
+    // Support both field names (riceType from old, productType from new)
+    let productType = req.body.productType || req.body.riceType;
     
-    if (!riceType) {
+    if (!productType) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Rice type is required' 
+        error: 'Product type is required' 
       });
     }
+    
+    const { transactionId, quantityKg, amountPaid, status } = req.body;
     
     if (!quantityKg || !amountPaid) {
       return res.status(400).json({ 
@@ -485,17 +385,27 @@ router.post('/transaction/confirm', async (req, res) => {
     let productName;
     let pricePerKg;
     
-    if (riceType === "DINORADO" || riceType === "Dinorado Rice") {
+    // Handle AOZI and PEDIGREE product names
+    if (productType === "AOZI" || productType === "AOZI Dog Food") {
+      productName = "AOZI Dog Food";
+      pricePerKg = 165.0;
+    } else if (productType === "PEDIGREE" || productType === "Pedigree Dog Food") {
+      productName = "Pedigree Dog Food";
+      pricePerKg = 135.0;
+    } 
+    // Fallback for old product names
+    else if (productType === "DINORADO" || productType === "Dinorado Rice") {
       productName = "Dinorado Rice";
       pricePerKg = 65.0;
-    } else if (riceType === "SINANDOMENG" || riceType === "Sinandomeng Rice") {
+    } else if (productType === "SINANDOMENG" || productType === "Sinandomeng Rice") {
       productName = "Sinandomeng Rice";
       pricePerKg = 52.0;
     } else {
-      productName = "Sinandomeng Rice";
-      pricePerKg = 52.0;
+      productName = productType;
+      pricePerKg = 135.0;
     }
     
+    // Check for duplicate transaction
     const existingTransaction = await Transaction.findOne({ transactionId: transactionId });
     if (existingTransaction) {
       console.log(`⚠️ Transaction ${transactionId} already exists, skipping...`);
@@ -574,6 +484,111 @@ router.get('/transactions', async (req, res) => {
 });
 
 // ============================================
+// PUBLIC ENDPOINTS
+// ============================================
+
+// Get latest machine data for public dashboard
+router.get('/public/latest', async (req, res) => {
+  try {
+    const machine = await Machine.findOne({});
+    
+    if (!machine) {
+      return res.json({
+        success: true,
+        data: {
+          storage1: { currentWeight: 0, percentage: 0, status: 'NO_DATA', name: 'Pedigree' },
+          storage2: { currentWeight: 0, percentage: 0, status: 'NO_DATA', name: 'AOZI' },
+          totalStock: 0,
+          batteryPercentage: 100,
+          doorStatus: 'Closed',
+          machineStatus: 'ACTIVE',
+          lastUpdate: null
+        }
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        storage1: {
+          currentWeight: machine.storage1.currentWeight,
+          percentage: machine.storage1.percentage,
+          status: machine.storage1.status,
+          name: machine.storage1.name || 'Pedigree'
+        },
+        storage2: {
+          currentWeight: machine.storage2.currentWeight,
+          percentage: machine.storage2.percentage,
+          status: machine.storage2.status,
+          name: machine.storage2.name || 'AOZI'
+        },
+        totalStock: (machine.storage1.currentWeight || 0) + (machine.storage2.currentWeight || 0),
+        batteryPercentage: machine.battery.percentage,
+        doorStatus: machine.machineStatus.doorStatus,
+        machineStatus: machine.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE',
+        lastUpdate: machine.machineStatus.lastUpdate
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get specific storage data
+router.get('/public/storage/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const machine = await Machine.findOne({});
+    const maxLevel = 20;
+    
+    if (!machine) {
+      return res.json({
+        success: true,
+        data: { level: 0, maxLevel, percentage: 0, fillLevel: '0%', status: 'OK', remainingKg: 0, name: id === '1' ? 'Pedigree' : 'AOZI' }
+      });
+    }
+    
+    const storage = id === '1' ? machine.storage1 : machine.storage2;
+    
+    res.json({
+      success: true,
+      data: {
+        level: storage.currentWeight,
+        maxLevel: storage.maxCapacity,
+        percentage: storage.percentage,
+        fillLevel: storage.percentage.toFixed(1) + '%',
+        status: storage.status,
+        remainingKg: storage.currentWeight,
+        name: storage.name || (id === '1' ? 'Pedigree' : 'AOZI')
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get machine summary
+router.get('/public/summary', async (req, res) => {
+  try {
+    const machine = await Machine.findOne({});
+    
+    res.json({
+      success: true,
+      data: {
+        totalStock: machine ? (machine.storage1.currentWeight + machine.storage2.currentWeight) : 0,
+        batteryPercentage: machine?.battery.percentage || 100,
+        doorStatus: machine?.machineStatus.doorStatus || 'Closed',
+        machineStatus: machine?.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
 // SECURITY & DEBUG
 // ============================================
 
@@ -596,18 +611,16 @@ router.get('/debug', async (req, res) => {
     allMachines.forEach((m, i) => {
       console.log(`Machine ${i + 1}:`);
       console.log(`  _id: ${m._id}`);
-      console.log(`  Sinandomeng: ${m.storage1?.currentWeight}kg`);
-      console.log(`  Dinorado: ${m.storage2?.currentWeight}kg`);
-      console.log(`  Sinandomeng Price: PHP ${m.storage1?.pricePerKg}`);
-      console.log(`  Dinorado Price: PHP ${m.storage2?.pricePerKg}`);
+      console.log(`  Pedigree: ${m.storage1?.currentWeight}kg @ PHP ${m.storage1?.pricePerKg}`);
+      console.log(`  AOZI: ${m.storage2?.currentWeight}kg @ PHP ${m.storage2?.pricePerKg}`);
     });
     
     res.json({
       totalMachines: allMachines.length,
       machines: allMachines.map(m => ({
         id: m._id,
-        sinandomeng: { weight: m.storage1?.currentWeight, price: m.storage1?.pricePerKg },
-        dinorado: { weight: m.storage2?.currentWeight, price: m.storage2?.pricePerKg }
+        pedigree: { weight: m.storage1?.currentWeight, price: m.storage1?.pricePerKg, name: m.storage1?.name },
+        aozi: { weight: m.storage2?.currentWeight, price: m.storage2?.pricePerKg, name: m.storage2?.name }
       }))
     });
   } catch (error) {
@@ -623,23 +636,25 @@ router.get('/stock', async (req, res) => {
     if (!machine) {
       return res.json({
         success: true,
-        premium: { kg: 0, status: 'NO_DATA', percentage: 0 },
-        regular: { kg: 0, status: 'NO_DATA', percentage: 0 },
+        aozi: { kg: 0, status: 'NO_DATA', percentage: 0 },
+        pedigree: { kg: 0, status: 'NO_DATA', percentage: 0 },
         total: 0
       });
     }
     
     res.json({
       success: true,
-      premium: {
+      aozi: {
         kg: machine.storage2?.currentWeight || 0,
         status: machine.storage2?.status || 'Empty',
-        percentage: machine.storage2?.percentage || 0
+        percentage: machine.storage2?.percentage || 0,
+        name: machine.storage2?.name || 'AOZI'
       },
-      regular: {
+      pedigree: {
         kg: machine.storage1?.currentWeight || 0,
         status: machine.storage1?.status || 'Empty',
-        percentage: machine.storage1?.percentage || 0
+        percentage: machine.storage1?.percentage || 0,
+        name: machine.storage1?.name || 'Pedigree'
       },
       total: (machine.storage1?.currentWeight || 0) + (machine.storage2?.currentWeight || 0)
     });
@@ -672,13 +687,13 @@ router.get('/sensors/history', async (req, res) => {
 router.get('/test', (req, res) => {
   res.json({
     success: true,
-    message: 'ESP32 Routes working with ALL features!',
+    message: 'ESP32 Routes working with AOZI & PEDIGREE!',
     endpoints: [
       'GET /api/esp32/latest - Get machine data from database',
       'POST /api/esp32/sensors/update - Update machine weights',
-      'GET /api/esp32/prices - Get product prices',
+      'GET /api/esp32/prices - Get product prices (AOZI/PEDIGREE)',
       'POST /api/esp32/prices/update - Update product prices',
-      'GET /api/esp32/prices/current - Get current prices',
+      'GET /api/esp32/prices/current - Get current prices for ESP32',
       'POST /api/esp32/transaction/confirm - Send transaction',
       'GET /api/esp32/transactions - Get transactions',
       'GET /api/esp32/public/latest - Public dashboard',
