@@ -13,31 +13,31 @@ const AdminMachine = () => {
   const [notification, setNotification] = useState(null);
   const [editLoading, setEditLoading] = useState(false);
   
-  // Storage 1 - Sinandomeng should be 52
-  const [storage1, setStorage1] = useState({
-    id: 1,
-    name: 'Sinandomeng Rice',
-    productId: null,
-    pricePerKg: 52,
-    currentWeight: 0,
-    maxCapacity: 20,
-    percentage: 0,
-    status: 'Normal',
-    isLow: false
-  });
+  // Storage 1 - Pedigree (Left) - Price should be 135
+const [storage1, setStorage1] = useState({
+  id: 1,
+  name: 'Pedigree',
+  productId: null,
+  pricePerKg: 135,
+  currentWeight: 0,
+  maxCapacity: 20,
+  percentage: 0,
+  status: 'Normal',
+  isLow: false
+});
 
-  // Storage 2 - Dinorado should be 65
-  const [storage2, setStorage2] = useState({
-    id: 2,
-    name: 'Dinorado Rice',
-    productId: null,
-    pricePerKg: 65,
-    currentWeight: 0,
-    maxCapacity: 20,
-    percentage: 0,
-    status: 'Normal',
-    isLow: false
-  });
+// Storage 2 - AOZI (Right) - Price should be 165
+const [storage2, setStorage2] = useState({
+  id: 2,
+  name: 'AOZI',
+  productId: null,
+  pricePerKg: 165,
+  currentWeight: 0,
+  maxCapacity: 20,
+  percentage: 0,
+  status: 'Normal',
+  isLow: false
+});
   
   // Battery Monitoring
   const [battery, setBattery] = useState({
@@ -94,7 +94,7 @@ const AdminMachine = () => {
       if (response.data.success) {
         const data = response.data.data;
         
-        // Update Storage 1 (Sinandomeng)
+        // Update Storage 1 (Pedigree)
         if (data.storage1) {
           const weight = data.storage1.currentWeight || 0;
           const percentage = (weight / 20) * 100;
@@ -109,7 +109,7 @@ const AdminMachine = () => {
           }));
         }
         
-        // Update Storage 2 (Dinorado)
+        // Update Storage 2 (Aozi)
         if (data.storage2) {
           const weight = data.storage2.currentWeight || 0;
           const percentage = (weight / 20) * 100;
