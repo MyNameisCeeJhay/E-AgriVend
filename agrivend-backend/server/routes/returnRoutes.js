@@ -5,32 +5,23 @@ import upload from '../middleware/upload.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load environment variables
+dotenv.config();
+
+// Initialize Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 const router = express.Router();
 
-// Create email transporter
-const getTransporter = () => {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.error('❌ Email credentials not configured');
-    return null;
-  }
-  
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
-};
-
-// Function to send email
+// Function to send email using Resend
 const sendEmail = async (to, subject, html, text) => {
-  console.log(`📧 Attempting to send email to: ${to}`);
+  console.log(`📧 Attempting to send email via Resend to: ${to}`);
   
   if (!to) {
     console.error('❌ No recipient email address provided');
@@ -38,21 +29,22 @@ const sendEmail = async (to, subject, html, text) => {
   }
   
   try {
-    const transporter = getTransporter();
-    if (!transporter) {
-      return { success: false, error: 'Email service not configured' };
-    }
-    
-    const info = await transporter.sendMail({
-      from: `"AgriVend Support" <${process.env.EMAIL_USER}>`,
-      to: to,
+    const { data, error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+      to: [to],
       subject: subject,
       html: html,
       text: text || html.replace(/<[^>]*>/g, '')
     });
-    console.log(`✅ Email sent successfully to ${to}`);
-    console.log(`   Message ID: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
+    
+    if (error) {
+      console.error('Resend error:', error);
+      throw new Error(error.message);
+    }
+    
+    console.log(`✅ Email sent successfully via Resend to ${to}`);
+    console.log(`   Message ID: ${data?.id}`);
+    return { success: true, messageId: data?.id };
   } catch (error) {
     console.error(`❌ Email failed to ${to}:`, error.message);
     return { success: false, error: error.message };
@@ -61,18 +53,13 @@ const sendEmail = async (to, subject, html, text) => {
 
 // Function to find receipt file in multiple locations
 const findReceiptFile = (filename) => {
-  // Clean the filename (remove any path parts)
   const cleanFilename = filename.split('/').pop();
   console.log('🔍 Searching for file:', cleanFilename);
   
   const possiblePaths = [
-    // Correct path: server/uploads/receipts/
     path.join(__dirname, '..', 'uploads', 'receipts', cleanFilename),
-    // Server/uploads/returns/
     path.join(__dirname, '..', 'uploads', 'returns', cleanFilename),
-    // Server/uploads/
     path.join(__dirname, '..', 'uploads', cleanFilename),
-    // Routes/uploads/receipts/ (wrong path from before)
     path.join(__dirname, 'uploads', 'receipts', cleanFilename),
     path.join(__dirname, 'uploads', 'returns', cleanFilename),
     path.join(__dirname, 'uploads', cleanFilename),
@@ -175,7 +162,7 @@ router.get('/admin/:returnId', protect, admin, async (req, res) => {
   }
 });
 
-// Process return (approve/reject) - WITH EMAIL NOTIFICATION
+// Process return (approve/reject) - WITH EMAIL NOTIFICATION USING RESEND
 router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
   console.log('⚙️ PROCESS RETURN ROUTE HIT - returnId:', req.params.returnId);
   console.log('Request body:', req.body);
@@ -214,14 +201,15 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
     await returnRequest.save();
     console.log(`✅ Return ${returnId} ${status} successfully`);
 
-    // SEND EMAIL TO THE EMAIL FROM DATABASE
+    // SEND EMAIL TO THE EMAIL FROM DATABASE USING RESEND
     const customerEmail = returnRequest.email;
+    let emailSent = false;
     
     if (customerEmail) {
       const isApproved = status === 'APPROVED';
       const statusText = isApproved ? 'APPROVED' : 'REJECTED';
       
-      console.log(`📧 Preparing to send ${status} email to: ${customerEmail}`);
+      console.log(`📧 Preparing to send ${status} email via Resend to: ${customerEmail}`);
       
       const emailHtml = `
         <!DOCTYPE html>
@@ -265,16 +253,15 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
         </html>
       `;
       
-      // Send email (don't await - fire and forget)
-      sendEmail(customerEmail, `Refund ${statusText} - ${returnRequest.returnId}`, emailHtml)
-        .then(result => {
-          if (result.success) {
-            console.log(`✅ ${status} email sent to ${customerEmail}`);
-          } else {
-            console.error(`❌ Failed to send email to ${customerEmail}: ${result.error}`);
-          }
-        })
-        .catch(err => console.error(`❌ Email error: ${err.message}`));
+      // Send email using Resend
+      const result = await sendEmail(customerEmail, `Refund ${statusText} - ${returnRequest.returnId}`, emailHtml);
+      emailSent = result.success;
+      
+      if (result.success) {
+        console.log(`✅ ${status} email sent to ${customerEmail}`);
+      } else {
+        console.error(`❌ Failed to send email to ${customerEmail}: ${result.error}`);
+      }
     } else {
       console.error(`❌ No email address found for return ${returnId}`);
     }
@@ -295,7 +282,8 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
       data: {
         returnId: returnRequest.returnId,
         status: returnRequest.status,
-        emailSentTo: customerEmail || 'No email on file'
+        emailSent: emailSent,
+        emailTo: customerEmail || 'No email on file'
       }
     });
     
@@ -305,16 +293,13 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
   }
 });
 
-// ===== SERVE RECEIPT IMAGE - FIXED =====
+// ===== SERVE RECEIPT IMAGE =====
 router.get('/receipt-image/:filename', protect, admin, async (req, res) => {
   try {
     let { filename } = req.params;
     console.log('📎 Serving receipt from returnRoutes:', filename);
     
-    // Clean the filename (remove any path parts)
     filename = filename.split('/').pop();
-    
-    // Find the file in multiple locations
     const filePath = findReceiptFile(filename);
     
     if (!filePath) {
@@ -356,7 +341,6 @@ router.get('/admin/:returnId/receipt', protect, admin, async (req, res) => {
       });
     }
 
-    // Try to find the file using the receipt filename
     const filePath = findReceiptFile(returnRequest.receiptFilename);
     
     if (!filePath) {
@@ -424,10 +408,8 @@ router.post('/', protect, upload.single('receipt'), async (req, res) => {
     await newReturn.save();
     
     console.log(`✅ Return request created for: ${newReturn.fullName} (${newReturn.email})`);
-    console.log(`   Receipt filename: ${newReturn.receiptFilename}`);
-    console.log(`   Receipt path: ${newReturn.receiptPath}`);
 
-    // Send confirmation email (fire and forget)
+    // Send confirmation email using Resend
     const confirmationHtml = `
       <div style="font-family: Arial; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
         <div style="background: #FFC107; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; margin: -20px -20px 20px -20px;">

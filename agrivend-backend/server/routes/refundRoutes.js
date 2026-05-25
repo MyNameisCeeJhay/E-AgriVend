@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import Return from '../models/Return.js';
 import Transaction from '../models/Transaction.js';
 import { protect, admin } from '../middleware/auth.js';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,6 +14,9 @@ const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config();
+
+// Initialize Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = express.Router();
 
@@ -25,68 +28,128 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Send email function
+// Send verification email using Resend
 const sendVerificationEmail = async (email, otp, fullName) => {
-  console.log(`📧 Sending verification email to ${email}...`);
+  console.log(`📧 Sending verification email to ${email} via Resend...`);
   
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.log('⚠️ Email not configured. Returning OTP for testing.');
-    return { messageId: 'dev-mode' };
-  }
-  
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
-  });
-  
-  await transporter.verify();
-  
-  const mailOptions = {
-    from: `"AgriVend Support" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: 'Email Verification - Refund Request',
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 500px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; }
-          .logo { font-size: 24px; font-weight: bold; color: #2d6a4f; text-align: center; margin-bottom: 20px; }
-          .otp-code { font-size: 36px; font-weight: bold; color: #2d6a4f; background: #ffffff; padding: 15px; border-radius: 8px; text-align: center; letter-spacing: 5px; margin: 20px 0; border: 1px solid #e2e8f0; }
-          .footer { text-align: center; font-size: 12px; color: #64748b; margin-top: 20px; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="logo">🌾 AgriVend</div>
-          <h2>Email Verification</h2>
-          <p>Hello <strong>${fullName}</strong>,</p>
-          <p>Please use the verification code below to complete your refund request:</p>
-          <div class="otp-code">${otp}</div>
-          <p>This code will expire in <strong>10 minutes</strong>.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-          <div class="footer">
-            <p>AgriVend - Solar Powered Grain Vending Machine</p>
-            <p>Loma De Gato, Marilao, Bulacan</p>
+  try {
+    const { data, error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+      to: [email],
+      subject: 'Email Verification - AgriVend Refund Request',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 500px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; }
+            .logo { font-size: 24px; font-weight: bold; color: #2d6a4f; text-align: center; margin-bottom: 20px; }
+            .otp-code { font-size: 36px; font-weight: bold; color: #2d6a4f; background: #ffffff; padding: 15px; border-radius: 8px; text-align: center; letter-spacing: 5px; margin: 20px 0; border: 1px solid #e2e8f0; }
+            .footer { text-align: center; font-size: 12px; color: #64748b; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="logo">🌾 AgriVend</div>
+            <h2>Email Verification</h2>
+            <p>Hello <strong>${fullName}</strong>,</p>
+            <p>Please use the verification code below to complete your refund request:</p>
+            <div class="otp-code">${otp}</div>
+            <p>This code will expire in <strong>10 minutes</strong>.</p>
+            <p>If you didn't request this, please ignore this email.</p>
+            <div class="footer">
+              <p>AgriVend - Solar Powered Grain Vending Machine</p>
+              <p>Loma De Gato, Marilao, Bulacan</p>
+            </div>
           </div>
-        </div>
-      </body>
-      </html>
-    `,
-    text: `AgriVend Email Verification\n\nHello ${fullName},\n\nYour verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this, please ignore this email.\n\nAgriVend Support`
-  };
+        </body>
+        </html>
+      `,
+      text: `AgriVend Email Verification\n\nHello ${fullName},\n\nYour verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this, please ignore this email.`
+    });
+    
+    if (error) {
+      console.error('Resend error:', error);
+      throw new Error(error.message);
+    }
+    
+    console.log(`✅ Verification email sent via Resend, ID: ${data?.id}`);
+    return data;
+  } catch (error) {
+    console.error('Failed to send email:', error.message);
+    throw error;
+  }
+};
+
+// Send refund status email using Resend
+const sendRefundStatusEmail = async (email, fullName, returnId, transactionId, riceType, quantityKg, amountPaid, status, adminNotes) => {
+  console.log(`📧 Sending refund ${status} email to ${email} via Resend...`);
   
-  const info = await transporter.sendMail(mailOptions);
-  console.log(`✅ Verification email sent to ${email}`);
-  return info;
+  const isApproved = status === 'APPROVED';
+  const statusText = isApproved ? 'APPROVED' : 'REJECTED';
+  const statusColor = isApproved ? '#4CAF50' : '#f44336';
+  
+  try {
+    const { data, error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+      to: [email],
+      subject: `Refund Request ${statusText} - ${returnId}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px; }
+            .header { background: ${statusColor}; color: white; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; margin: -20px -20px 20px -20px; }
+            .content { padding: 20px; }
+            .details { background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #999; border-top: 1px solid #ddd; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Refund Request ${statusText}</h1>
+            </div>
+            <div class="content">
+              <p>Dear <strong>${fullName}</strong>,</p>
+              <p>Your refund request has been <strong>${statusText}</strong>.</p>
+              <div class="details">
+                <p><strong>Refund ID:</strong> ${returnId}</p>
+                <p><strong>Transaction ID:</strong> ${transactionId}</p>
+                <p><strong>Product:</strong> ${riceType}</p>
+                <p><strong>Quantity:</strong> ${quantityKg} kg</p>
+                <p><strong>Amount:</strong> ₱${amountPaid.toFixed(2)}</p>
+              </div>
+              ${adminNotes ? `<p><strong>Admin Note:</strong> ${adminNotes}</p>` : ''}
+              <p>${isApproved ? 'Your refund will be processed within 3-5 business days.' : 'If you have questions, please contact support.'}</p>
+              <p>Thank you,<br>AgriVend Team</p>
+            </div>
+            <div class="footer">
+              <p>This is an automated message from AgriVend.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `AgriVend Refund ${statusText}\n\nDear ${fullName},\n\nYour refund request has been ${statusText}.\n\nRefund ID: ${returnId}\nTransaction ID: ${transactionId}\nProduct: ${riceType}\nQuantity: ${quantityKg} kg\nAmount: ₱${amountPaid.toFixed(2)}\n\n${adminNotes ? `Admin Note: ${adminNotes}\n\n` : ''}${isApproved ? 'Your refund will be processed within 3-5 business days.' : 'If you have questions, please contact support.'}\n\nThank you,\nAgriVend Team`
+    });
+    
+    if (error) {
+      console.error('Resend error:', error);
+      throw new Error(error.message);
+    }
+    
+    console.log(`✅ Refund status email sent via Resend, ID: ${data?.id}`);
+    return data;
+  } catch (error) {
+    console.error('Failed to send email:', error.message);
+    throw error;
+  }
 };
 
 // Configure multer for file uploads
@@ -448,7 +511,7 @@ router.get('/status/:transactionId', async (req, res) => {
 
 // ==================== ADMIN ROUTES ====================
 
-// Get all returns - THIS IS WHAT YOUR ADMIN PANEL CALLS
+// Get all returns
 router.get('/admin/all', protect, admin, async (req, res) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
@@ -465,7 +528,7 @@ router.get('/admin/all', protect, admin, async (req, res) => {
     
     console.log(`📋 Found ${returns.length} returns`);
     returns.forEach(r => {
-      console.log(`   ID: ${r.returnId}, Name: ${r.fullName}, Email: ${r.email}, Desc: ${r.description?.substring(0, 30)}`);
+      console.log(`   ID: ${r.returnId}, Name: ${r.fullName}, Email: ${r.email}`);
     });
     
     res.json({
@@ -514,14 +577,17 @@ router.get('/admin/stats/summary', protect, admin, async (req, res) => {
   }
 });
 
-// Process return (approve/reject)
+// Process return (approve/reject) - WITH EMAIL NOTIFICATION USING RESEND
 router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
+  console.log('⚙️ PROCESS RETURN ROUTE HIT - returnId:', req.params.returnId);
+  console.log('Request body:', req.body);
+  
   try {
     const { returnId } = req.params;
     const { status, adminNotes, processedBy, processedByName } = req.body;
     
     if (!status || !['APPROVED', 'REJECTED'].includes(status)) {
-      return res.status(400).json({ success: false, error: 'Valid status required' });
+      return res.status(400).json({ success: false, error: 'Valid status (APPROVED or REJECTED) is required' });
     }
     
     const returnRequest = await Return.findOne({ returnId: returnId });
@@ -530,12 +596,45 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Return not found' });
     }
     
+    console.log(`📋 Processing refund for: ${returnRequest.fullName}`);
+    console.log(`   Email: ${returnRequest.email}`);
+    console.log(`   Status: ${status}`);
+    
+    // Update return request
     returnRequest.status = status;
-    returnRequest.adminNotes = adminNotes || '';
+    returnRequest.adminNotes = adminNotes || (status === 'APPROVED' ? 'Refund approved by administrator.' : 'Refund rejected by administrator.');
+    returnRequest.processedBy = processedBy || req.user._id;
+    returnRequest.processedByName = processedByName || `${req.user.firstName} ${req.user.lastName}`;
     returnRequest.processedAt = new Date();
-    returnRequest.processedBy = processedBy;
-    returnRequest.processedByName = processedByName;
+    
     await returnRequest.save();
+    console.log(`✅ Return ${returnId} ${status} successfully`);
+    
+    // SEND EMAIL USING RESEND
+    const customerEmail = returnRequest.email;
+    let emailSent = false;
+    
+    if (customerEmail) {
+      try {
+        await sendRefundStatusEmail(
+          customerEmail,
+          returnRequest.fullName,
+          returnRequest.returnId,
+          returnRequest.transactionId,
+          returnRequest.riceType,
+          returnRequest.quantityKg,
+          returnRequest.amountPaid,
+          status,
+          returnRequest.adminNotes
+        );
+        emailSent = true;
+        console.log(`✅ ${status} email sent to ${customerEmail}`);
+      } catch (emailError) {
+        console.error(`❌ Failed to send email to ${customerEmail}:`, emailError.message);
+      }
+    } else {
+      console.error(`❌ No email address found for return ${returnId}`);
+    }
     
     if (status === 'APPROVED') {
       await Transaction.findOneAndUpdate(
@@ -544,8 +643,29 @@ router.put('/admin/:returnId/process', protect, admin, async (req, res) => {
       );
     }
     
-    res.json({ success: true, message: `Refund ${status.toLowerCase()}` });
+    // Emit socket event for real-time update
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('return_status_update', {
+        returnId: returnRequest.returnId,
+        status: returnRequest.status,
+        processedAt: returnRequest.processedAt
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: `Refund ${status.toLowerCase()} successfully`,
+      data: {
+        returnId: returnRequest.returnId,
+        status: returnRequest.status,
+        emailSent: emailSent,
+        emailTo: customerEmail || 'No email on file'
+      }
+    });
+    
   } catch (error) {
+    console.error('Error in process return:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
