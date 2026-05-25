@@ -1,7 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -12,6 +12,13 @@ const __dirname = path.dirname(__filename);
 // Load environment variables
 const envPath = path.resolve(__dirname, '../../.env');
 dotenv.config({ path: envPath });
+
+// Initialize Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+console.log('\n📧 Email Configuration:');
+console.log('RESEND_API_KEY:', process.env.RESEND_API_KEY ? '✓ Set' : '✗ Not set');
+console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL || '✗ Not set');
 
 const router = express.Router();
 
@@ -39,60 +46,64 @@ const checkPasswordStrength = (password) => {
   if (!requirements.hasUpperCase) requirementsList.push('At least one uppercase letter');
   if (!requirements.hasLowerCase) requirementsList.push('At least one lowercase letter');
   if (!requirements.hasNumbers) requirementsList.push('At least one number');
-  if (!requirements.hasSpecialChar) requirementsList.push('At least one special character (!@#$%^&*)');
+  if (!requirements.hasSpecialChar) requirementsList.push('At least one special character');
   
-  return { isStrong, requirements, requirementsList };
+  return { isStrong, requirementsList };
 };
 
-// Send email function
+// Send email using Resend API
 const sendEmailOTP = async (email, otp, userName) => {
-  console.log(`📧 Attempting to send OTP to ${email}...`);
+  console.log(`📧 Sending OTP to ${email} via Resend...`);
   
-  // Check if running in development mode without email
-  if (process.env.NODE_ENV === 'development' && !process.env.EMAIL_USER) {
-    console.log('⚠️ Development mode: Email not configured. Console logging OTP instead.');
-    return { messageId: 'dev-mode-no-email' };
-  }
-  
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    },
-    tls: {
-      rejectUnauthorized: false
+  try {
+    const { data, error } = await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+      to: [email],
+      subject: 'Password Reset OTP - AgriVend',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 500px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; }
+            .logo { font-size: 24px; font-weight: bold; color: #2d6a4f; text-align: center; margin-bottom: 20px; }
+            .otp-code { font-size: 36px; font-weight: bold; color: #2d6a4f; background: #ffffff; padding: 15px; border-radius: 8px; text-align: center; letter-spacing: 5px; margin: 20px 0; border: 1px solid #e2e8f0; }
+            .footer { text-align: center; font-size: 12px; color: #64748b; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="logo">🌾 AgriVend</div>
+            <h2>Password Reset Request</h2>
+            <p>Hello <strong>${userName}</strong>,</p>
+            <p>You requested to reset your password. Use the OTP below:</p>
+            <div class="otp-code">${otp}</div>
+            <p>This OTP expires in <strong>10 minutes</strong>.</p>
+            <p>If you didn't request this, please ignore this email.</p>
+            <div class="footer">
+              <p>AgriVend - Solar Powered Grain Vending Machine</p>
+              <p>Loma De Gato, Marilao, Bulacan</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `AgriVend Password Reset\n\nHello ${userName},\n\nYour OTP is: ${otp}\n\nThis OTP expires in 10 minutes.\n\nIf you didn't request this, please ignore this email.`
+    });
+    
+    if (error) {
+      console.error('Resend error:', error);
+      throw new Error(error.message);
     }
-  });
-
-  // Verify connection
-  await transporter.verify();
-  console.log('✅ Email transporter verified');
-
-  const mailOptions = {
-    from: `"AgriVend Support" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: 'Password Reset OTP - AgriVend',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background: #f5f7fa; border-radius: 10px;">
-        <h2 style="color: #2d6a4f;">🌾 AgriVend Password Reset</h2>
-        <p>Hello <strong>${userName}</strong>,</p>
-        <p>You requested to reset your password. Use the OTP below:</p>
-        <div style="background: white; padding: 15px; font-size: 32px; font-weight: bold; text-align: center; letter-spacing: 5px; border-radius: 8px; margin: 20px 0;">
-          ${otp}
-        </div>
-        <p>This OTP expires in <strong>10 minutes</strong>.</p>
-        <p>If you didn't request this, please ignore this email.</p>
-        <hr>
-        <p style="font-size: 12px; color: #666;">AgriVend - Solar Powered Grain Vending Machine</p>
-      </div>
-    `,
-    text: `AgriVend Password Reset\n\nHello ${userName},\n\nYour OTP is: ${otp}\n\nThis OTP expires in 10 minutes.\n\nIf you didn't request this, please ignore this email.`
-  };
-
-  const info = await transporter.sendMail(mailOptions);
-  console.log(`✅ Email sent to ${email}, Message ID: ${info.messageId}`);
-  return info;
+    
+    console.log(`✅ Email sent via Resend, ID: ${data?.id}`);
+    return data;
+  } catch (error) {
+    console.error('Failed to send email:', error.message);
+    throw error;
+  }
 };
 
 // ===== LOGIN ROUTE =====
@@ -144,10 +155,10 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ===== SEND OTP =====
+// ===== SEND OTP ROUTE =====
 router.post('/send-otp', async (req, res) => {
   console.log('\n📧 ===== SEND OTP =====');
-  console.log('Request body:', req.body);
+  console.log('Email:', req.body.email);
   
   try {
     const { email } = req.body;
@@ -172,34 +183,16 @@ router.post('/send-otp', async (req, res) => {
     console.log(`✅ OTP generated: ${otp} for ${email}`);
     console.log(`⏰ Expires at: ${new Date(expiresAt).toLocaleString()}`);
     
-    // Try to send email
-    try {
-      await sendEmailOTP(email, otp, `${user.firstName} ${user.lastName}`);
-      console.log('✅ Email sent successfully');
-      
-      res.json({ 
-        success: true, 
-        message: 'OTP sent to your email address'
-      });
-    } catch (emailError) {
-      console.error('Email sending failed:', emailError.message);
-      
-      // In development, return OTP in response for testing
-      if (process.env.NODE_ENV === 'development') {
-        console.log('⚠️ Development mode: Returning OTP in response');
-        return res.json({ 
-          success: true, 
-          message: 'OTP generated (development mode - check response)',
-          devOtp: otp,
-          note: 'In production, OTP would be sent to your email'
-        });
-      }
-      
-      throw emailError;
-    }
+    // Send email via Resend
+    await sendEmailOTP(email, otp, `${user.firstName} ${user.lastName}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'OTP sent to your email address. Please check your inbox and spam folder.'
+    });
     
   } catch (error) {
-    console.error('❌ Error in send-otp:', error.message);
+    console.error('❌ Error sending OTP:', error.message);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to send OTP. Please try again.' 
@@ -207,7 +200,7 @@ router.post('/send-otp', async (req, res) => {
   }
 });
 
-// ===== RESEND OTP =====
+// ===== RESEND OTP ROUTE =====
 router.post('/resend-otp', async (req, res) => {
   console.log('\n🔄 ===== RESEND OTP =====');
   
@@ -230,16 +223,9 @@ router.post('/resend-otp', async (req, res) => {
     
     console.log(`✅ New OTP generated: ${otp} for ${email}`);
     
-    try {
-      await sendEmailOTP(email, otp, `${user.firstName} ${user.lastName}`);
-      res.json({ success: true, message: 'New OTP sent to your email address' });
-    } catch (emailError) {
-      if (process.env.NODE_ENV === 'development') {
-        res.json({ success: true, message: 'OTP generated', devOtp: otp });
-      } else {
-        throw emailError;
-      }
-    }
+    await sendEmailOTP(email, otp, `${user.firstName} ${user.lastName}`);
+    
+    res.json({ success: true, message: 'New OTP sent to your email address' });
     
   } catch (error) {
     console.error('Error resending OTP:', error);
@@ -247,10 +233,9 @@ router.post('/resend-otp', async (req, res) => {
   }
 });
 
-// ===== RESET PASSWORD =====
+// ===== RESET PASSWORD ROUTE =====
 router.post('/reset-password', async (req, res) => {
   console.log('\n🔑 ===== RESET PASSWORD =====');
-  console.log('Request body:', { ...req.body, newPassword: '***HIDDEN***' });
   
   try {
     const { email, newPassword, otp } = req.body;
@@ -269,54 +254,40 @@ router.post('/reset-password', async (req, res) => {
       });
     }
     
-    // Get stored OTP
     const storedData = otpStore.get(email);
     if (!storedData) {
       return res.status(400).json({ success: false, error: 'No OTP found. Please request a new OTP.' });
     }
     
-    console.log(`Stored OTP: ${storedData.otp}, Received OTP: ${otp}`);
-    console.log(`OTP matches: ${storedData.otp === otp}`);
-    
-    // Check expiration
     if (Date.now() > storedData.expiresAt) {
       otpStore.delete(email);
       return res.status(400).json({ success: false, error: 'OTP has expired. Please request a new one.' });
     }
     
-    // Check attempts
     if (storedData.attempts >= 5) {
       otpStore.delete(email);
       return res.status(400).json({ success: false, error: 'Too many failed attempts. Please request a new OTP.' });
     }
     
-    // Verify OTP
     if (storedData.otp !== otp) {
       storedData.attempts++;
       otpStore.set(email, storedData);
-      console.log(`❌ Invalid OTP. Attempt ${storedData.attempts}/5`);
       return res.status(400).json({ success: false, error: 'Invalid OTP. Please try again.' });
     }
     
-    // Find user and update password
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
     
-    // Update password
     user.password = newPassword;
     await user.save();
     
-    // Clear OTP
     otpStore.delete(email);
     
     console.log(`✅ Password reset successful for ${email}`);
     
-    res.json({ 
-      success: true, 
-      message: 'Password reset successfully. You can now login with your new password.' 
-    });
+    res.json({ success: true, message: 'Password reset successfully!' });
     
   } catch (error) {
     console.error('Error resetting password:', error);
@@ -362,15 +333,11 @@ router.get('/me', async (req, res) => {
 // Clean up expired OTPs every minute
 setInterval(() => {
   const now = Date.now();
-  let cleaned = 0;
   for (const [email, data] of otpStore.entries()) {
     if (now > data.expiresAt) {
       otpStore.delete(email);
-      cleaned++;
+      console.log(`🗑️ Cleaned up expired OTP for ${email}`);
     }
-  }
-  if (cleaned > 0) {
-    console.log(`🧹 Cleaned up ${cleaned} expired OTPs`);
   }
 }, 60000);
 
