@@ -4,6 +4,7 @@ import axios from 'axios';
 import './Login.css';
 
 const API_URL = 'https://e-agrivend.onrender.com/api';
+//const API_URL = 'http://localhost:5000/api';
 // For local development, uncomment below:
 // const API_URL = 'http://localhost:5000/api';
 
@@ -204,61 +205,105 @@ const Login = () => {
   };
 
   const handleResetPassword = async (e) => {
-    e.preventDefault();
-    
-    const otpValue = getOtpValue(); // This returns a STRING now
-    console.log('Submitting OTP:', otpValue); // Debug log
-    
-    if (otpValue.length !== 6) {
-      setResetError('Please enter the complete 6-digit OTP');
-      return;
-    }
-    
-    if (newPassword !== confirmPassword) {
-      setResetError('Passwords do not match');
-      return;
-    }
-    
-    if (!passwordStrength.isStrong) {
-      setResetError('Please ensure your password meets all requirements');
-      return;
-    }
-    
-    setResetLoading(true);
-    setResetError('');
-    setResetMessage('');
+  e.preventDefault();
+  
+  const otpValue = getOtpValue();
+  console.log('🔑 Submitting OTP:', otpValue);
+  console.log('📧 Email:', resetEmail);
+  console.log('🔒 New Password length:', newPassword.length);
+  
+  if (otpValue.length !== 6) {
+    setResetError('Please enter the complete 6-digit OTP');
+    return;
+  }
+  
+  if (newPassword !== confirmPassword) {
+    setResetError('Passwords do not match');
+    return;
+  }
+  
+  if (!passwordStrength.isStrong) {
+    const missing = [];
+    if (!passwordStrength.requirements.minLength) missing.push('8+ characters');
+    if (!passwordStrength.requirements.hasUpperCase) missing.push('uppercase letter');
+    if (!passwordStrength.requirements.hasLowerCase) missing.push('lowercase letter');
+    if (!passwordStrength.requirements.hasNumbers) missing.push('number');
+    if (!passwordStrength.requirements.hasSpecialChar) missing.push('special character');
+    setResetError(`Password must contain: ${missing.join(', ')}`);
+    return;
+  }
+  
+  setResetLoading(true);
+  setResetError('');
+  setResetMessage('');
 
-    try {
-      const response = await axios.post(`${API_URL}/auth/reset-password`, {
-        email: resetEmail,
-        otp: otpValue, // Send as string, not array
-        newPassword: newPassword
-      }, {
-        timeout: 30000,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.data && response.data.success) {
-        setResetMessage('Password reset successful! Redirecting to login...');
-      } else {
-        setResetError(response.data?.error || 'Failed to reset password');
+  try {
+    const requestData = {
+      email: resetEmail,
+      otp: otpValue,
+      newPassword: newPassword
+    };
+    
+    console.log('📤 Sending reset request:', { 
+      email: requestData.email, 
+      otp: requestData.otp,
+      passwordLength: requestData.newPassword.length 
+    });
+    
+    const response = await axios.post(`${API_URL}/auth/reset-password`, requestData, {
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json'
       }
+    });
+    
+    console.log('✅ Reset response:', response.data);
+    
+    if (response.data && response.data.success) {
+      setResetMessage('Password reset successful! Redirecting to login...');
       
-    } catch (error) {
-      console.error('Error resetting password:', error);
-      if (error.response) {
-        setResetError(error.response.data?.error || 'Invalid OTP or failed to reset password');
-      } else if (error.request) {
-        setResetError('Cannot connect to server. Please check your connection.');
-      } else {
-        setResetError('An error occurred. Please try again.');
-      }
-    } finally {
-      setResetLoading(false);
+      // Auto redirect after 2 seconds
+      setTimeout(() => {
+        setShowForgotPassword(false);
+        setResetStep(1);
+        setResetEmail('');
+        setOtp(['', '', '', '', '', '']);
+        setNewPassword('');
+        setConfirmPassword('');
+        setResetMessage('');
+        setOtpSent(false);
+        setResetError('');
+      }, 2000);
+    } else {
+      setResetError(response.data?.error || 'Failed to reset password');
     }
-  };
+    
+  } catch (error) {
+    console.error('❌ Error resetting password:', error);
+    
+    if (error.response) {
+      // Server responded with error
+      console.error('Server error data:', error.response.data);
+      console.error('Server error status:', error.response.status);
+      
+      const errorMessage = error.response.data?.error || error.response.data?.message || 'Server error';
+      setResetError(errorMessage);
+      
+      // Log specific error details
+      if (error.response.data?.requirements) {
+        console.log('Missing requirements:', error.response.data.requirements);
+      }
+    } else if (error.request) {
+      console.error('No response received');
+      setResetError('Cannot connect to server. Please check your connection.');
+    } else {
+      console.error('Error:', error.message);
+      setResetError('An error occurred. Please try again.');
+    }
+  } finally {
+    setResetLoading(false);
+  }
+};
 
   // Check password strength
   const checkPasswordStrength = (pwd) => {

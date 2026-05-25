@@ -1,4 +1,5 @@
 const API_URL = 'https://e-agrivend.onrender.com/api';
+//const API_URL = 'http://localhost:5000/api';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -97,7 +98,8 @@ const AdminReturns = () => {
         return;
       }
       
-      const response = await axios.get(`${API_URL}/refund/admin/all`, {
+      // Use the correct endpoint - /api/returns/admin/all
+      const response = await axios.get(`${API_URL}/returns/admin/all`, {
         params: {
           status: filter !== 'all' ? filter : undefined,
           page: pagination.page,
@@ -116,7 +118,7 @@ const AdminReturns = () => {
         id: r.returnId, 
         name: r.fullName, 
         email: r.email,
-        description: r.description 
+        status: r.status
       })));
       setRefunds(Array.isArray(refundsData) ? refundsData : []);
       setPagination(response.data?.pagination || { page: 1, total: 0, pages: 1 });
@@ -146,7 +148,8 @@ const AdminReturns = () => {
     try {
       const authToken = localStorage.getItem('token');
       
-      const response = await axios.get(`${API_URL}/refund/admin/stats/summary`, {
+      // Use the correct endpoint - /api/returns/admin/stats
+      const response = await axios.get(`${API_URL}/returns/admin/stats`, {
         headers: { Authorization: `Bearer ${authToken}` },
         timeout: 15000
       });
@@ -167,82 +170,94 @@ const AdminReturns = () => {
     setTimeout(() => setNotification(null), 5000);
   };
 
- const handleApprove = async (refundId) => {
-  const confirmApprove = window.confirm('Are you sure you want to approve this refund request? The customer will receive an email notification.');
-  if (!confirmApprove) return;
+  const handleApprove = async (returnId) => {
+    const confirmApprove = window.confirm('Are you sure you want to approve this refund request? The customer will receive an email notification.');
+    if (!confirmApprove) return;
 
-  setProcessing(true);
-  try {
-    const authToken = localStorage.getItem('token');
-    const response = await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
-      status: 'APPROVED',
-      adminNotes: 'Refund approved by administrator.',
-      processedBy: user?._id,
-      processedByName: user?.firstName + ' ' + user?.lastName
-    }, {
-      headers: { Authorization: `Bearer ${authToken}` },
-      timeout: 30000 // 30 seconds timeout
-    });
+    setProcessing(true);
+    setEmailSending(true);
     
-    setSelectedRefund(null);
-    await fetchRefunds();
-    await fetchStats();
-    
-    showNotification('success', 'Refund approved successfully! Email notification will be sent to the customer.');
-  } catch (error) {
-    console.error('Error approving refund:', error);
-    if (error.code === 'ECONNABORTED') {
-      showNotification('warning', 'Request timed out. Please refresh the page to check if the refund was processed.');
-      // Refresh after timeout to check actual status
-      setTimeout(() => {
-        fetchRefunds();
-        fetchStats();
-      }, 3000);
-    } else {
-      showNotification('error', error.response?.data?.error || 'Failed to approve refund');
+    try {
+      const authToken = localStorage.getItem('token');
+      
+      // Use the correct endpoint - /api/returns/admin/:returnId/process
+      const response = await axios.put(`${API_URL}/returns/admin/${returnId}/process`, {
+        status: 'APPROVED',
+        adminNotes: 'Refund approved by administrator.',
+        processedBy: user?._id,
+        processedByName: user?.firstName + ' ' + user?.lastName
+      }, {
+        headers: { Authorization: `Bearer ${authToken}` },
+        timeout: 30000
+      });
+      
+      setSelectedRefund(null);
+      await fetchRefunds();
+      await fetchStats();
+      
+      showNotification('success', 'Refund approved successfully! Email notification sent to the customer.');
+      
+    } catch (error) {
+      console.error('Error approving refund:', error);
+      if (error.code === 'ECONNABORTED') {
+        showNotification('warning', 'Request timed out. Please refresh the page to check if the refund was processed.');
+        setTimeout(() => {
+          fetchRefunds();
+          fetchStats();
+        }, 3000);
+      } else {
+        showNotification('error', error.response?.data?.error || 'Failed to approve refund');
+      }
+    } finally {
+      setProcessing(false);
+      setEmailSending(false);
     }
-  } finally {
-    setProcessing(false);
-  }
-};
+  };
 
-const handleReject = async (refundId) => {
-  const confirmReject = window.confirm('Are you sure you want to reject this refund request? The customer will receive an email notification.');
-  if (!confirmReject) return;
+  const handleReject = async (returnId) => {
+    const confirmReject = window.confirm('Are you sure you want to reject this refund request? The customer will receive an email notification.');
+    if (!confirmReject) return;
 
-  setProcessing(true);
-  try {
-    const authToken = localStorage.getItem('token');
-    const response = await axios.put(`${API_URL}/refund/admin/${refundId}/process`, {
-      status: 'REJECTED',
-      adminNotes: 'Refund rejected by administrator.',
-      processedBy: user?._id,
-      processedByName: user?.firstName + ' ' + user?.lastName
-    }, {
-      headers: { Authorization: `Bearer ${authToken}` },
-      timeout: 30000 // 30 seconds timeout
-    });
+    setProcessing(true);
+    setEmailSending(true);
     
-    setSelectedRefund(null);
-    await fetchRefunds();
-    await fetchStats();
-    
-    showNotification('success', 'Refund rejected successfully! Email notification will be sent to the customer.');
-  } catch (error) {
-    console.error('Error rejecting refund:', error);
-    if (error.code === 'ECONNABORTED') {
-      showNotification('warning', 'Request timed out. Please refresh the page to check if the refund was processed.');
-      setTimeout(() => {
-        fetchRefunds();
-        fetchStats();
-      }, 3000);
-    } else {
-      showNotification('error', error.response?.data?.error || 'Failed to reject refund');
+    try {
+      const authToken = localStorage.getItem('token');
+      
+      // Use the correct endpoint - /api/returns/admin/:returnId/process
+      const response = await axios.put(`${API_URL}/returns/admin/${returnId}/process`, {
+        status: 'REJECTED',
+        adminNotes: 'Refund rejected by administrator.',
+        processedBy: user?._id,
+        processedByName: user?.firstName + ' ' + user?.lastName
+      }, {
+        headers: { Authorization: `Bearer ${authToken}` },
+        timeout: 30000
+      });
+      
+      setSelectedRefund(null);
+      await fetchRefunds();
+      await fetchStats();
+      
+      showNotification('success', 'Refund rejected successfully! Email notification sent to the customer.');
+      
+    } catch (error) {
+      console.error('Error rejecting refund:', error);
+      if (error.code === 'ECONNABORTED') {
+        showNotification('warning', 'Request timed out. Please refresh the page to check if the refund was processed.');
+        setTimeout(() => {
+          fetchRefunds();
+          fetchStats();
+        }, 3000);
+      } else {
+        showNotification('error', error.response?.data?.error || 'Failed to reject refund');
+      }
+    } finally {
+      setProcessing(false);
+      setEmailSending(false);
     }
-  } finally {
-    setProcessing(false);
-  }
-};
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
@@ -336,66 +351,8 @@ const handleReject = async (refundId) => {
         return;
       }
       
-      console.log('📎 Attempting to load receipt:', receiptFilename);
-      
-      // Open a new window for the receipt
-      const receiptWindow = window.open('', '_blank');
-      if (!receiptWindow) {
-        showNotification('warning', 'Please allow popups to view receipts');
-        setReceiptLoading(false);
-        return;
-      }
-      
-      // Show loading message
-      receiptWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Loading Receipt...</title>
-            <style>
-              body {
-                margin: 0;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                font-family: Arial, sans-serif;
-                background: #f5f5f5;
-              }
-              .loader {
-                text-align: center;
-              }
-              .spinner {
-                border: 4px solid #f3f3f3;
-                border-top: 4px solid #3498db;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin: 0 auto 20px;
-              }
-              @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="loader">
-              <div class="spinner"></div>
-              <p>Loading receipt image...</p>
-              <p style="font-size: 12px; color: #666;">Filename: ${receiptFilename}</p>
-            </div>
-          </body>
-        </html>
-      `);
-      receiptWindow.document.close();
-      
-      // Try to fetch the image
       const imageUrl = `${API_URL}/refund/receipt-image/${encodeURIComponent(receiptFilename)}`;
-      console.log('🖼️ Image URL:', imageUrl);
       
-      // Try to fetch and display the image
       const response = await fetch(imageUrl, {
         headers: {
           'Authorization': `Bearer ${authToken}`
@@ -408,153 +365,7 @@ const handleReject = async (refundId) => {
       
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
-      
-      // Check file type
-      const contentType = response.headers.get('content-type');
-      const isPDF = contentType === 'application/pdf' || receiptFilename.toLowerCase().endsWith('.pdf');
-      
-      if (isPDF) {
-        // For PDF, redirect to blob URL
-        receiptWindow.location.href = objectUrl;
-      } else {
-        // Display the image
-        receiptWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Receipt - ${receiptFilename}</title>
-              <meta charset="UTF-8">
-              <style>
-                * {
-                  margin: 0;
-                  padding: 0;
-                  box-sizing: border-box;
-                }
-                body {
-                  background: #f5f5f5;
-                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                  padding: 20px;
-                }
-                .container {
-                  max-width: 90%;
-                  margin: 0 auto;
-                  text-align: center;
-                  background: white;
-                  border-radius: 12px;
-                  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-                  padding: 20px;
-                }
-                h2 {
-                  color: #333;
-                  margin-bottom: 20px;
-                  font-size: 24px;
-                }
-                .receipt-info {
-                  background: #f8f9fa;
-                  padding: 12px;
-                  border-radius: 8px;
-                  margin-bottom: 20px;
-                  font-size: 14px;
-                  color: #666;
-                }
-                .receipt-info strong {
-                  color: #333;
-                }
-                .image-container {
-                  margin: 20px 0;
-                  text-align: center;
-                  min-height: 200px;
-                  display: flex;
-                  justify-content: center;
-                  align-items: center;
-                }
-                img {
-                  max-width: 100%;
-                  max-height: 70vh;
-                  object-fit: contain;
-                  border-radius: 8px;
-                  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                }
-                .button-group {
-                  margin-top: 20px;
-                  display: flex;
-                  gap: 12px;
-                  justify-content: center;
-                  flex-wrap: wrap;
-                }
-                button {
-                  padding: 10px 24px;
-                  border: none;
-                  border-radius: 8px;
-                  cursor: pointer;
-                  font-size: 14px;
-                  font-weight: 500;
-                  transition: all 0.3s ease;
-                }
-                .btn-download {
-                  background: #2d6a4f;
-                  color: white;
-                }
-                .btn-download:hover {
-                  background: #1b4d3e;
-                  transform: translateY(-1px);
-                }
-                .btn-close {
-                  background: #6c757d;
-                  color: white;
-                }
-                .btn-close:hover {
-                  background: #5a6268;
-                  transform: translateY(-1px);
-                }
-                @media (max-width: 768px) {
-                  .container {
-                    padding: 12px;
-                  }
-                  h2 {
-                    font-size: 18px;
-                  }
-                  button {
-                    padding: 8px 16px;
-                    font-size: 12px;
-                  }
-                }
-              </style>
-            </head>
-            <body>
-              <div class="container">
-                <h2>📄 Receipt Attachment</h2>
-                <div class="receipt-info">
-                  <strong>Filename:</strong> ${receiptFilename}
-                </div>
-                <div class="image-container">
-                  <img src="${objectUrl}" alt="Receipt Image" onerror="this.parentElement.innerHTML='<div style=\\'color: red; padding: 40px;\\'>❌ Failed to display receipt image. The file may be corrupted.</div>'" />
-                </div>
-                <div class="button-group">
-                  <button class="btn-download" onclick="downloadImage()">📥 Download Receipt</button>
-                  <button class="btn-close" onclick="window.close()">✖ Close Window</button>
-                </div>
-              </div>
-              <script>
-                function downloadImage() {
-                  const link = document.createElement('a');
-                  link.href = "${objectUrl}";
-                  link.download = "${receiptFilename}";
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                }
-                
-                window.addEventListener('beforeunload', function() {
-                  URL.revokeObjectURL("${objectUrl}");
-                });
-              <\/script>
-            </body>
-          </html>
-        `);
-        receiptWindow.document.close();
-      }
-      
+      window.open(objectUrl, '_blank');
       showNotification('success', 'Receipt loaded successfully');
       
     } catch (error) {
@@ -565,7 +376,6 @@ const handleReject = async (refundId) => {
     }
   };
 
-  // Loading state
   if (loading && refunds.length === 0) {
     return (
       <div className="returns-container">
@@ -577,7 +387,6 @@ const handleReject = async (refundId) => {
     );
   }
 
-  // Error state
   if (error) {
     return (
       <div className="returns-container">
@@ -594,7 +403,6 @@ const handleReject = async (refundId) => {
 
   return (
     <div className="returns-container">
-      {/* Notification Toast */}
       {notification && (
         <div className={`notification-toast ${notification.type}`}>
           <span className="notification-message">{notification.message}</span>
@@ -602,7 +410,6 @@ const handleReject = async (refundId) => {
         </div>
       )}
 
-      {/* Email Status Toast */}
       {lastEmailStatus && (
         <div className={`email-status-toast ${lastEmailStatus.type}`}>
           <span className="email-status-message">{lastEmailStatus.message}</span>
@@ -610,7 +417,6 @@ const handleReject = async (refundId) => {
         </div>
       )}
 
-      {/* Header with Show Filters Button */}
       <div className="returns-header">
         <div className="returns-header-left">
           <h1>Refund Requests</h1>
@@ -623,7 +429,6 @@ const handleReject = async (refundId) => {
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="returns-stats">
         <div className="stat-card">
           <div className="stat-label">TOTAL REFUNDS</div>
@@ -643,7 +448,6 @@ const handleReject = async (refundId) => {
         </div>
       </div>
 
-      {/* Filters Section */}
       {showFilters && (
         <div className="filters-card">
           <div className="filter-controls">
@@ -661,7 +465,6 @@ const handleReject = async (refundId) => {
         </div>
       )}
 
-      {/* Refunds Table */}
       {refunds.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">📭</div>
@@ -725,7 +528,6 @@ const handleReject = async (refundId) => {
         </div>
       )}
 
-      {/* Pagination */}
       {pagination.pages > 1 && (
         <div className="returns-pagination">
           <button
@@ -748,7 +550,6 @@ const handleReject = async (refundId) => {
         </div>
       )}
 
-      {/* Modal */}
       {selectedRefund && (
         <div className="modal-overlay" onClick={() => setSelectedRefund(null)}>
           <div className="modal-container" onClick={(e) => e.stopPropagation()}>
@@ -758,7 +559,6 @@ const handleReject = async (refundId) => {
             </div>
             
             <div className="modal-body">
-              {/* Customer Information */}
               <div className="details-section">
                 <h3>👤 Customer Information</h3>
                 <div className="details-grid">
@@ -773,7 +573,6 @@ const handleReject = async (refundId) => {
                 </div>
               </div>
 
-              {/* Transaction Information */}
               <div className="details-section">
                 <h3>📋 Transaction Information</h3>
                 <div className="details-grid">
@@ -800,7 +599,6 @@ const handleReject = async (refundId) => {
                 </div>
               </div>
 
-              {/* Refund Reason */}
               <div className="details-section">
                 <h3>❓ Refund Reason</h3>
                 <div className="info-box">
@@ -808,7 +606,6 @@ const handleReject = async (refundId) => {
                 </div>
               </div>
 
-              {/* Customer Description */}
               <div className="details-section">
                 <h3>📝 Customer Description</h3>
                 <div className="info-box">
@@ -816,7 +613,6 @@ const handleReject = async (refundId) => {
                 </div>
               </div>
 
-              {/* Receipt Attachment */}
               {(selectedRefund?.receiptFilename || selectedRefund?.receiptImage) && (
                 <div className="details-section">
                   <h3>📎 Receipt Attachment</h3>
@@ -827,13 +623,9 @@ const handleReject = async (refundId) => {
                   >
                     {receiptLoading ? '⏳ Loading Receipt...' : '📄 View Receipt'}
                   </button>
-                  <small className="receipt-hint">
-                    Click to view the uploaded receipt image
-                  </small>
                 </div>
               )}
 
-              {/* Admin Notes - Only show if exists and not pending */}
               {selectedRefund?.status !== 'PENDING' && selectedRefund?.adminNotes && (
                 <div className="details-section">
                   <h3>📌 Admin Notes</h3>
@@ -847,20 +639,19 @@ const handleReject = async (refundId) => {
               )}
             </div>
             
-            {/* Footer with Approve/Reject for PENDING, Close for others */}
             <div className="modal-footer">
               {selectedRefund?.status === 'PENDING' ? (
                 <>
                   <button 
                     className="btn-reject-modal"
-                    onClick={() => handleReject(selectedRefund?.returnId || selectedRefund?._id)}
+                    onClick={() => handleReject(selectedRefund?.returnId)}
                     disabled={processing || emailSending}
                   >
                     {processing || emailSending ? 'Processing...' : 'Reject Refund'}
                   </button>
                   <button 
                     className="btn-approve-modal"
-                    onClick={() => handleApprove(selectedRefund?.returnId || selectedRefund?._id)}
+                    onClick={() => handleApprove(selectedRefund?.returnId)}
                     disabled={processing || emailSending}
                   >
                     {processing || emailSending ? 'Processing...' : 'Approve Refund'}
