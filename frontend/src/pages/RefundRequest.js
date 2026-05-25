@@ -1,6 +1,6 @@
 const API_URL = 'https://e-agrivend.onrender.com/api';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './RefundRequest.css';
@@ -31,6 +31,17 @@ const RefundRequest = () => {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [validating, setValidating] = useState(false);
   const [transactionData, setTransactionData] = useState(null);
+
+  // Email OTP Validation States
+  const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
+  const [emailOtp, setEmailOtp] = useState(['', '', '', '', '', '']);
+  const [emailOtpLoading, setEmailOtpLoading] = useState(false);
+  const [emailOtpError, setEmailOtpError] = useState('');
+  const [emailOtpMessage, setEmailOtpMessage] = useState('');
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
+  const [emailToVerify, setEmailToVerify] = useState('');
+  const emailOtpInputs = useRef([]);
 
   const handleValidateTransaction = async () => {
     const transactionNumber = formData.transactionNumber.trim().toUpperCase();
@@ -127,13 +138,174 @@ const RefundRequest = () => {
     return () => clearInterval(interval);
   };
 
+  // Email OTP Functions
+  const handleSendEmailOtp = async () => {
+    const email = formData.email.trim();
+    
+    if (!email) {
+      setError('Please enter your email address first');
+      return;
+    }
+    
+    // Email validation regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    
+    setEmailOtpLoading(true);
+    setEmailOtpError('');
+    setEmailOtpMessage('');
+    setEmailOtpSent(false);
+    setEmailToVerify(email);
+    
+    try {
+      console.log('📧 Sending OTP to:', email);
+      const response = await axios.post(`${API_URL}/refund/send-email-otp`, {
+        email: email,
+        fullName: formData.fullName
+      });
+      
+      if (response.data.success) {
+        setEmailOtpMessage('Verification code sent to your email! Please check your inbox.');
+        setEmailOtpSent(true);
+        setShowEmailOtpModal(true);
+        // Reset OTP inputs
+        setEmailOtp(['', '', '', '', '', '']);
+      } else {
+        setEmailOtpError(response.data?.error || 'Failed to send verification code');
+      }
+    } catch (error) {
+      console.error('Error sending OTP:', error);
+      setEmailOtpError(error.response?.data?.error || 'Failed to send verification code. Please try again.');
+    } finally {
+      setEmailOtpLoading(false);
+    }
+  };
+
+  const handleEmailOtpChange = (index, value) => {
+    if (value && !/^\d*$/.test(value)) return;
+    
+    const newOtp = [...emailOtp];
+    newOtp[index] = value.slice(-1);
+    setEmailOtp(newOtp);
+    
+    if (value && index < 5) {
+      emailOtpInputs.current[index + 1].focus();
+    }
+  };
+
+  const handleEmailOtpKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !emailOtp[index] && index > 0) {
+      emailOtpInputs.current[index - 1].focus();
+    }
+  };
+
+  const handleEmailOtpPaste = (e) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text');
+    const pastedNumbers = pastedData.replace(/\D/g, '').slice(0, 6);
+    
+    if (pastedNumbers) {
+      const newOtp = [...emailOtp];
+      for (let i = 0; i < pastedNumbers.length; i++) {
+        newOtp[i] = pastedNumbers[i];
+      }
+      setEmailOtp(newOtp);
+      
+      const lastFilledIndex = Math.min(pastedNumbers.length - 1, 5);
+      if (lastFilledIndex >= 0 && lastFilledIndex < 6) {
+        emailOtpInputs.current[lastFilledIndex].focus();
+      }
+    }
+  };
+
+  const getEmailOtpValue = () => {
+    return emailOtp.join('');
+  };
+
+  const handleVerifyEmailOtp = async () => {
+    const otpValue = getEmailOtpValue();
+    
+    if (otpValue.length !== 6) {
+      setEmailOtpError('Please enter the complete 6-digit verification code');
+      return;
+    }
+    
+    setEmailOtpLoading(true);
+    setEmailOtpError('');
+    
+    try {
+      const response = await axios.post(`${API_URL}/refund/verify-email-otp`, {
+        email: emailToVerify,
+        otp: otpValue
+      });
+      
+      if (response.data.success) {
+        setEmailVerified(true);
+        setShowEmailOtpModal(false);
+        setEmailOtpMessage('');
+        setSuccess('Email verified successfully! You can now submit your refund request.');
+        
+        // Clear OTP after 5 seconds
+        setTimeout(() => {
+          setSuccess('');
+        }, 5000);
+      } else {
+        setEmailOtpError(response.data?.error || 'Invalid verification code');
+      }
+    } catch (error) {
+      console.error('Error verifying OTP:', error);
+      setEmailOtpError(error.response?.data?.error || 'Failed to verify code. Please try again.');
+    } finally {
+      setEmailOtpLoading(false);
+    }
+  };
+
+  const handleResendEmailOtp = async () => {
+    setEmailOtpLoading(true);
+    setEmailOtpError('');
+    setEmailOtpMessage('');
+    
+    try {
+      const response = await axios.post(`${API_URL}/refund/resend-email-otp`, {
+        email: emailToVerify,
+        fullName: formData.fullName
+      });
+      
+      if (response.data.success) {
+        setEmailOtpMessage('New verification code sent to your email!');
+        setEmailOtp(['', '', '', '', '', '']);
+        setTimeout(() => {
+          if (emailOtpInputs.current[0]) {
+            emailOtpInputs.current[0].focus();
+          }
+        }, 100);
+      } else {
+        setEmailOtpError(response.data?.error || 'Failed to resend code');
+      }
+    } catch (error) {
+      setEmailOtpError('Failed to resend verification code');
+    } finally {
+      setEmailOtpLoading(false);
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    
     if (name === 'transactionNumber') {
       setTransactionValid(false);
       setError('');
       setTransactionData(null);
+    }
+    
+    // Reset email verification if email changes
+    if (name === 'email') {
+      setEmailVerified(false);
+      setEmailOtpSent(false);
     }
   };
 
@@ -175,6 +347,12 @@ const RefundRequest = () => {
       return;
     }
 
+    if (!emailVerified) {
+      setError('Please verify your email address first. Click "Verify Email" button.');
+      setLoading(false);
+      return;
+    }
+
     if (!formData.fullName || !formData.email || !formData.refundReason || !formData.description || !formData.receiptImage) {
       setError('Please fill in all required fields and upload your receipt.');
       setLoading(false);
@@ -188,11 +366,11 @@ const RefundRequest = () => {
     submitData.append('riceType', formData.grainType);
     submitData.append('quantityKg', formData.selectedQuantity);
     submitData.append('amountPaid', formData.amountInserted);
-    // Send BOTH field names to ensure backend receives it
     submitData.append('refundReason', formData.refundReason);
     submitData.append('returnReason', formData.refundReason);
     submitData.append('description', formData.description);
     submitData.append('receiptImage', formData.receiptImage);
+    submitData.append('emailVerified', 'true');
 
     try {
       console.log('📤 Submitting refund request...');
@@ -237,6 +415,8 @@ const RefundRequest = () => {
     setIsWithinTimeLimit(true);
     setTimeRemaining(null);
     setTransactionData(null);
+    setEmailVerified(false);
+    setEmailOtpSent(false);
   };
 
   const refundReasons = [
@@ -301,15 +481,36 @@ const RefundRequest = () => {
               </div>
               <div className="form-group">
                 <label>Email Address *</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="Enter your email address"
-                  required
-                  disabled={!transactionValid || !isWithinTimeLimit}
-                />
+                <div className="email-input-group">
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    placeholder="Enter your email address"
+                    required
+                    disabled={!transactionValid || !isWithinTimeLimit || emailVerified}
+                    className={emailVerified ? 'email-verified' : ''}
+                  />
+                  {transactionValid && isWithinTimeLimit && !emailVerified && (
+                    <button
+                      type="button"
+                      onClick={handleSendEmailOtp}
+                      disabled={emailOtpLoading || !formData.email}
+                      className="verify-email-btn"
+                    >
+                      {emailOtpLoading ? 'Sending...' : 'Verify Email'}
+                    </button>
+                  )}
+                  {emailVerified && (
+                    <div className="verified-badge">
+                      ✓ Email Verified
+                    </div>
+                  )}
+                </div>
+                {emailVerified && (
+                  <small className="verified-note">Your email has been verified ✓</small>
+                )}
               </div>
             </div>
           </div>
@@ -501,13 +702,93 @@ const RefundRequest = () => {
             <button 
               type="submit" 
               className="btn-submit" 
-              disabled={loading || !isWithinTimeLimit || !transactionValid}
+              disabled={loading || !isWithinTimeLimit || !transactionValid || !emailVerified}
             >
               {loading ? 'Submitting...' : 'Submit Refund Request'}
             </button>
           </div>
         </form>
       </div>
+
+      {/* Email OTP Modal */}
+      {showEmailOtpModal && (
+        <div className="modal-overlay" onClick={() => !emailOtpLoading && setShowEmailOtpModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Email Verification</h3>
+              <button 
+                className="modal-close" 
+                onClick={() => !emailOtpLoading && setShowEmailOtpModal(false)}
+                disabled={emailOtpLoading}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>We've sent a verification code to:</p>
+              <p className="email-highlight">{emailToVerify}</p>
+              
+              <div className="otp-section">
+                <label className="input-label">Verification Code</label>
+                <div className="otp-input-group">
+                  {emailOtp.map((digit, index) => (
+                    <input
+                      key={index}
+                      type="text"
+                      maxLength="1"
+                      value={digit}
+                      onChange={(e) => handleEmailOtpChange(index, e.target.value)}
+                      onKeyDown={(e) => handleEmailOtpKeyDown(index, e)}
+                      onPaste={index === 0 ? handleEmailOtpPaste : undefined}
+                      ref={(el) => (emailOtpInputs.current[index] = el)}
+                      className="otp-input"
+                      autoFocus={index === 0}
+                      disabled={emailOtpLoading}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {emailOtpError && (
+                <div className="error-message small">{emailOtpError}</div>
+              )}
+              
+              {emailOtpMessage && (
+                <div className="success-message small">{emailOtpMessage}</div>
+              )}
+
+              <div className="resend-section">
+                <button
+                  type="button"
+                  onClick={handleResendEmailOtp}
+                  className="resend-link"
+                  disabled={emailOtpLoading}
+                >
+                  Resend Code
+                </button>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                onClick={() => setShowEmailOtpModal(false)}
+                className="btn-secondary"
+                disabled={emailOtpLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleVerifyEmailOtp}
+                className="btn-primary"
+                disabled={emailOtpLoading || getEmailOtpValue().length !== 6}
+              >
+                {emailOtpLoading ? 'Verifying...' : 'Verify'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

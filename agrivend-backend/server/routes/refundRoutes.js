@@ -6,11 +6,88 @@ import { fileURLToPath } from 'url';
 import Return from '../models/Return.js';
 import Transaction from '../models/Transaction.js';
 import { protect, admin } from '../middleware/auth.js';
+import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load environment variables
+dotenv.config();
+
 const router = express.Router();
+
+// Email OTP Store (temporary - use database in production)
+const emailOtpStore = new Map();
+
+// Generate OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// Send email function
+const sendVerificationEmail = async (email, otp, fullName) => {
+  console.log(`📧 Sending verification email to ${email}...`);
+  
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.log('⚠️ Email not configured. Returning OTP for testing.');
+    return { messageId: 'dev-mode' };
+  }
+  
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
+  });
+  
+  await transporter.verify();
+  
+  const mailOptions = {
+    from: `"AgriVend Support" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: 'Email Verification - Refund Request',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 500px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 12px; }
+          .logo { font-size: 24px; font-weight: bold; color: #2d6a4f; text-align: center; margin-bottom: 20px; }
+          .otp-code { font-size: 36px; font-weight: bold; color: #2d6a4f; background: #ffffff; padding: 15px; border-radius: 8px; text-align: center; letter-spacing: 5px; margin: 20px 0; border: 1px solid #e2e8f0; }
+          .footer { text-align: center; font-size: 12px; color: #64748b; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="logo">🌾 AgriVend</div>
+          <h2>Email Verification</h2>
+          <p>Hello <strong>${fullName}</strong>,</p>
+          <p>Please use the verification code below to complete your refund request:</p>
+          <div class="otp-code">${otp}</div>
+          <p>This code will expire in <strong>10 minutes</strong>.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+          <div class="footer">
+            <p>AgriVend - Solar Powered Grain Vending Machine</p>
+            <p>Loma De Gato, Marilao, Bulacan</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+    text: `AgriVend Email Verification\n\nHello ${fullName},\n\nYour verification code is: ${otp}\n\nThis code expires in 10 minutes.\n\nIf you didn't request this, please ignore this email.\n\nAgriVend Support`
+  };
+  
+  const info = await transporter.sendMail(mailOptions);
+  console.log(`✅ Verification email sent to ${email}`);
+  return info;
+};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -46,6 +123,144 @@ const generateReturnId = () => {
   const random = Math.random().toString(36).substring(2, 8).toUpperCase();
   return `RET-${timestamp}-${random}`;
 };
+
+// ==================== EMAIL OTP ROUTES ====================
+
+// Send OTP for email verification
+router.post('/send-email-otp', async (req, res) => {
+  console.log('\n📧 ===== SEND EMAIL OTP =====');
+  console.log('Email:', req.body.email);
+  
+  try {
+    const { email, fullName } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ success: false, error: 'Invalid email format' });
+    }
+    
+    const otp = generateOTP();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+    
+    emailOtpStore.set(email, { otp, expiresAt, attempts: 0 });
+    
+    console.log(`✅ OTP generated: ${otp} for ${email}`);
+    
+    try {
+      await sendVerificationEmail(email, otp, fullName || 'Customer');
+      
+      res.json({ 
+        success: true, 
+        message: 'Verification code sent to your email'
+      });
+    } catch (emailError) {
+      console.error('Email error:', emailError);
+      // In development, return OTP for testing
+      if (process.env.NODE_ENV === 'development') {
+        return res.json({ 
+          success: true, 
+          message: 'Development mode - Check console for OTP',
+          devOtp: otp
+        });
+      }
+      throw emailError;
+    }
+    
+  } catch (error) {
+    console.error('Error sending OTP:', error);
+    res.status(500).json({ success: false, error: 'Failed to send verification code' });
+  }
+});
+
+// Resend OTP
+router.post('/resend-email-otp', async (req, res) => {
+  console.log('\n🔄 ===== RESEND EMAIL OTP =====');
+  
+  try {
+    const { email, fullName } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+    
+    const otp = generateOTP();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    
+    emailOtpStore.set(email, { otp, expiresAt, attempts: 0 });
+    
+    console.log(`✅ New OTP generated: ${otp} for ${email}`);
+    
+    try {
+      await sendVerificationEmail(email, otp, fullName || 'Customer');
+      res.json({ success: true, message: 'New verification code sent' });
+    } catch (emailError) {
+      if (process.env.NODE_ENV === 'development') {
+        res.json({ success: true, message: 'Development mode', devOtp: otp });
+      } else {
+        throw emailError;
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error resending OTP:', error);
+    res.status(500).json({ success: false, error: 'Failed to resend code' });
+  }
+});
+
+// Verify Email OTP
+router.post('/verify-email-otp', async (req, res) => {
+  console.log('\n✅ ===== VERIFY EMAIL OTP =====');
+  console.log('Email:', req.body.email);
+  console.log('OTP:', req.body.otp);
+  
+  try {
+    const { email, otp } = req.body;
+    
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, error: 'Email and OTP are required' });
+    }
+    
+    const storedData = emailOtpStore.get(email);
+    
+    if (!storedData) {
+      return res.status(400).json({ success: false, error: 'No verification code found. Please request a new one.' });
+    }
+    
+    if (Date.now() > storedData.expiresAt) {
+      emailOtpStore.delete(email);
+      return res.status(400).json({ success: false, error: 'Verification code has expired. Please request a new one.' });
+    }
+    
+    if (storedData.attempts >= 5) {
+      emailOtpStore.delete(email);
+      return res.status(400).json({ success: false, error: 'Too many failed attempts. Please request a new code.' });
+    }
+    
+    if (storedData.otp !== otp) {
+      storedData.attempts++;
+      emailOtpStore.set(email, storedData);
+      console.log(`❌ Invalid OTP. Attempt ${storedData.attempts}/5`);
+      return res.status(400).json({ success: false, error: 'Invalid verification code. Please try again.' });
+    }
+    
+    // OTP is valid
+    emailOtpStore.delete(email);
+    console.log(`✅ Email verified successfully: ${email}`);
+    
+    res.json({ success: true, message: 'Email verified successfully' });
+    
+  } catch (error) {
+    console.error('Error verifying OTP:', error);
+    res.status(500).json({ success: false, error: 'Failed to verify code' });
+  }
+});
+
+// ==================== REFUND REQUEST ROUTES ====================
 
 // Validate transaction
 router.get('/validate/:transactionId', async (req, res) => {
@@ -122,7 +337,8 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       quantityKg,
       amountPaid,
       returnReason,
-      description
+      description,
+      emailVerified
     } = req.body;
     
     console.log('Extracted data:', {
@@ -133,7 +349,8 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
       quantityKg,
       amountPaid,
       returnReason,
-      description
+      description,
+      emailVerified
     });
     
     // Validate required fields
@@ -146,6 +363,11 @@ router.post('/request', upload.single('receiptImage'), async (req, res) => {
     if (!returnReason) return res.status(400).json({ success: false, error: 'Refund reason required' });
     if (!description) return res.status(400).json({ success: false, error: 'Description required' });
     if (!req.file) return res.status(400).json({ success: false, error: 'Receipt required' });
+    
+    // Validate email verification
+    if (emailVerified !== 'true') {
+      return res.status(400).json({ success: false, error: 'Please verify your email address first' });
+    }
     
     // Verify transaction exists
     const transaction = await Transaction.findOne({ 
@@ -368,5 +590,20 @@ router.get('/receipt-image/:filename', protect, admin, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// Clean up expired OTPs every minute
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [email, data] of emailOtpStore.entries()) {
+    if (now > data.expiresAt) {
+      emailOtpStore.delete(email);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`🧹 Cleaned up ${cleaned} expired email OTPs`);
+  }
+}, 60000);
 
 export default router;
