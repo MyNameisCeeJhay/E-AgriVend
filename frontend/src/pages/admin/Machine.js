@@ -12,32 +12,73 @@ const AdminMachine = () => {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
   const [editLoading, setEditLoading] = useState(false);
+  const [collectingCash, setCollectingCash] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
+  
+  // Coin & Bill Monitoring
+  const [coinCounts, setCoinCounts] = useState({
+    onePeso: 0,
+    fivePeso: 0,
+    tenPeso: 0,
+    twentyPeso: 0
+  });
+  
+  const [billCounts, setBillCounts] = useState({
+    twenty: 0,
+    fifty: 0,
+    hundred: 0,
+    twoHundred: 0
+  });
+  
+  const [totalCash, setTotalCash] = useState(0);
   
   // Storage 1 - Pedigree (Left) - Price should be 135
-const [storage1, setStorage1] = useState({
-  id: 1,
-  name: 'Pedigree',
-  productId: null,
-  pricePerKg: 135,
-  currentWeight: 0,
-  maxCapacity: 20,
-  percentage: 0,
-  status: 'Normal',
-  isLow: false
-});
+  const [storage1, setStorage1] = useState({
+    id: 1,
+    name: 'Pedigree',
+    productId: null,
+    pricePerKg: 135,
+    currentWeight: 0,
+    maxCapacity: 20,
+    percentage: 0,
+    status: 'Normal',
+    isLow: false
+  });
 
-// Storage 2 - AOZI (Right) - Price should be 165
-const [storage2, setStorage2] = useState({
-  id: 2,
-  name: 'AOZI',
-  productId: null,
-  pricePerKg: 165,
-  currentWeight: 0,
-  maxCapacity: 20,
-  percentage: 0,
-  status: 'Normal',
-  isLow: false
-});
+  // Storage 2 - AOZI (Right) - Price should be 165
+  const [storage2, setStorage2] = useState({
+    id: 2,
+    name: 'AOZI',
+    productId: null,
+    pricePerKg: 165,
+    currentWeight: 0,
+    maxCapacity: 20,
+    percentage: 0,
+    status: 'Normal',
+    isLow: false
+  });
+  
+  // Calibration State
+  const [calibration, setCalibration] = useState({
+    storage1: {
+      rawValue: 0,
+      calibratedValue: 0,
+      unit: 'kg',
+      status: 'Stable'
+    },
+    storage2: {
+      rawValue: 0,
+      calibratedValue: 0,
+      unit: 'kg',
+      status: 'Stable'
+    },
+    dispense: {
+      rawValue: 0,
+      calibratedValue: 0,
+      unit: 'kg',
+      status: 'Stable'
+    }
+  });
   
   // Battery Monitoring
   const [battery, setBattery] = useState({
@@ -66,7 +107,28 @@ const [storage2, setStorage2] = useState({
   const isMounted = useRef(true);
   const intervalRef = useRef(null);
 
-  // Helper function to safely parse date (kept for internal use)
+  // Calculate total cash
+  const calculateTotalCash = useCallback(() => {
+    const coinTotal = 
+      coinCounts.onePeso * 1 +
+      coinCounts.fivePeso * 5 +
+      coinCounts.tenPeso * 10 +
+      coinCounts.twentyPeso * 20;
+    
+    const billTotal = 
+      billCounts.twenty * 20 +
+      billCounts.fifty * 50 +
+      billCounts.hundred * 100 +
+      billCounts.twoHundred * 200;
+    
+    setTotalCash(coinTotal + billTotal);
+  }, [coinCounts, billCounts]);
+
+  useEffect(() => {
+    calculateTotalCash();
+  }, [coinCounts, billCounts, calculateTotalCash]);
+
+  // Helper function to safely parse date
   const parseDate = (dateValue) => {
     if (!dateValue) return new Date();
     try {
@@ -107,6 +169,16 @@ const [storage2, setStorage2] = useState({
             status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
             isLow: weight < 10
           }));
+          
+          // Update calibration
+          setCalibration(prev => ({
+            ...prev,
+            storage1: {
+              ...prev.storage1,
+              calibratedValue: weight,
+              status: weight > 0 ? 'Active' : 'Stable'
+            }
+          }));
         }
         
         // Update Storage 2 (Aozi)
@@ -121,6 +193,16 @@ const [storage2, setStorage2] = useState({
             percentage: percentage,
             status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
             isLow: weight < 10
+          }));
+          
+          // Update calibration
+          setCalibration(prev => ({
+            ...prev,
+            storage2: {
+              ...prev.storage2,
+              calibratedValue: weight,
+              status: weight > 0 ? 'Active' : 'Stable'
+            }
           }));
         }
         
@@ -168,6 +250,119 @@ const [storage2, setStorage2] = useState({
     setTimeout(() => setNotification(null), 5000);
   };
 
+  // Collect Cash - Reset all coin and bill counts to zero
+  const handleCollectCash = () => {
+    if (totalCash === 0) {
+      showNotification('warning', 'No cash to collect');
+      return;
+    }
+    
+    setCollectingCash(true);
+    
+    // Reset all counts to zero
+    setCoinCounts({
+      onePeso: 0,
+      fivePeso: 0,
+      tenPeso: 0,
+      twentyPeso: 0
+    });
+    
+    setBillCounts({
+      twenty: 0,
+      fifty: 0,
+      hundred: 0,
+      twoHundred: 0
+    });
+    
+    // Show success notification with collected amount
+    showNotification('success', `✅ Cash collected: ${formatCurrency(totalCash)}`);
+    
+    // Emit socket event for cash collection
+    if (socket) {
+      socket.emit('cash_collected', {
+        collectedBy: user?.firstName + ' ' + user?.lastName || 'Staff',
+        amount: totalCash,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    setCollectingCash(false);
+  };
+
+  // Calibration functions
+  const handleCalibrate = (scaleName) => {
+    setCalibrating(true);
+    
+    // Simulate calibration process
+    setTimeout(() => {
+      setCalibration(prev => {
+        const updated = { ...prev };
+        if (scaleName === 'storage1') {
+          updated.storage1 = {
+            ...updated.storage1,
+            rawValue: Math.random() * 1000,
+            calibratedValue: storage1.currentWeight || 0,
+            status: 'Calibrated'
+          };
+        } else if (scaleName === 'storage2') {
+          updated.storage2 = {
+            ...updated.storage2,
+            rawValue: Math.random() * 1000,
+            calibratedValue: storage2.currentWeight || 0,
+            status: 'Calibrated'
+          };
+        } else if (scaleName === 'dispense') {
+          updated.dispense = {
+            ...updated.dispense,
+            rawValue: Math.random() * 500,
+            calibratedValue: 0,
+            status: 'Calibrated'
+          };
+        }
+        return updated;
+      });
+      
+      showNotification('success', `✅ ${scaleName === 'storage1' ? 'Storage 1' : scaleName === 'storage2' ? 'Storage 2' : 'Dispense'} scale calibrated successfully!`);
+      setCalibrating(false);
+    }, 1500);
+  };
+
+  const handleZeroCalibrate = (scaleName) => {
+    setCalibrating(true);
+    
+    setTimeout(() => {
+      setCalibration(prev => {
+        const updated = { ...prev };
+        if (scaleName === 'storage1') {
+          updated.storage1 = {
+            ...updated.storage1,
+            rawValue: 0,
+            calibratedValue: 0,
+            status: 'Zeroed'
+          };
+        } else if (scaleName === 'storage2') {
+          updated.storage2 = {
+            ...updated.storage2,
+            rawValue: 0,
+            calibratedValue: 0,
+            status: 'Zeroed'
+          };
+        } else if (scaleName === 'dispense') {
+          updated.dispense = {
+            ...updated.dispense,
+            rawValue: 0,
+            calibratedValue: 0,
+            status: 'Zeroed'
+          };
+        }
+        return updated;
+      });
+      
+      showNotification('success', `✅ ${scaleName === 'storage1' ? 'Storage 1' : scaleName === 'storage2' ? 'Storage 2' : 'Dispense'} scale zeroed successfully!`);
+      setCalibrating(false);
+    }, 1000);
+  };
+
   // Auto load on component mount and auto-refresh
   useEffect(() => {
     isMounted.current = true;
@@ -194,6 +389,14 @@ const [storage2, setStorage2] = useState({
             ...data.storage1,
             percentage: (weight / 20) * 100
           }));
+          setCalibration(prev => ({
+            ...prev,
+            storage1: {
+              ...prev.storage1,
+              calibratedValue: weight,
+              status: weight > 0 ? 'Active' : 'Stable'
+            }
+          }));
         }
         if (data.storage2) {
           const weight = data.storage2.currentWeight || 0;
@@ -201,6 +404,14 @@ const [storage2, setStorage2] = useState({
             ...prev,
             ...data.storage2,
             percentage: (weight / 20) * 100
+          }));
+          setCalibration(prev => ({
+            ...prev,
+            storage2: {
+              ...prev.storage2,
+              calibratedValue: weight,
+              status: weight > 0 ? 'Active' : 'Stable'
+            }
           }));
         }
         if (data.battery) setBattery(prev => ({ ...prev, ...data.battery }));
@@ -220,6 +431,41 @@ const [storage2, setStorage2] = useState({
       socket.on('low_battery_alert', (data) => {
         showNotification('warning', `Low battery alert: Battery at ${data.percentage}%`);
       });
+      
+      // Coin/Bill insert events
+      socket.on('coin_inserted', (data) => {
+        const coinMap = {
+          1: 'onePeso',
+          5: 'fivePeso', 
+          10: 'tenPeso',
+          20: 'twentyPeso'
+        };
+        const key = coinMap[data.value];
+        if (key) {
+          setCoinCounts(prev => ({
+            ...prev,
+            [key]: prev[key] + 1
+          }));
+          showNotification('success', `Coin inserted: ₱${data.value}`);
+        }
+      });
+      
+      socket.on('bill_inserted', (data) => {
+        const billMap = {
+          20: 'twenty',
+          50: 'fifty',
+          100: 'hundred',
+          200: 'twoHundred'
+        };
+        const key = billMap[data.value];
+        if (key) {
+          setBillCounts(prev => ({
+            ...prev,
+            [key]: prev[key] + 1
+          }));
+          showNotification('success', `Bill inserted: ₱${data.value}`);
+        }
+      });
     }
     
     return () => {
@@ -231,6 +477,8 @@ const [storage2, setStorage2] = useState({
         socket.off('machine_data_updated');
         socket.off('low_stock_alert');
         socket.off('low_battery_alert');
+        socket.off('coin_inserted');
+        socket.off('bill_inserted');
       }
     };
   }, [socket, fetchMachineData]);
@@ -292,8 +540,9 @@ const [storage2, setStorage2] = useState({
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-PH', {
       style: 'currency',
-      currency: 'PHP'
-    }).format(amount);
+      currency: 'PHP',
+      minimumFractionDigits: 2
+    }).format(amount || 0);
   };
 
   const getBatteryColor = () => {
@@ -371,8 +620,101 @@ const [storage2, setStorage2] = useState({
         </div>
         <div className="stat-card">
           <div className="stat-info">
-            <div className="stat-label">Security Status</div>
-            <div className="stat-value">{machineStatus.securityStatus}</div>
+            <div className="stat-label">Total Cash</div>
+            <div className="stat-value">{formatCurrency(totalCash)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Coin & Bill Monitoring Section */}
+      <div className="cash-monitoring-section">
+        <div className="cash-header">
+          <div>
+            <h2>Cash Monitoring</h2>
+            <p className="cash-subtitle">Real-time coin and bill tracking</p>
+          </div>
+          <div className="cash-actions">
+            <div className="total-cash-display">
+              <span className="total-label">Total Cash:</span>
+              <span className="total-amount">{formatCurrency(totalCash)}</span>
+            </div>
+            <button 
+              className={`btn-collect ${totalCash === 0 ? 'disabled' : ''}`}
+              onClick={handleCollectCash}
+              disabled={totalCash === 0 || collectingCash}
+            >
+              {collectingCash ? 'Collecting...' : 'Collect Cash'}
+            </button>
+          </div>
+        </div>
+        
+        <div className="cash-grid">
+          {/* Coins Section */}
+          <div className="cash-card">
+            <h3>Coins</h3>
+            <div className="cash-items">
+              <div className="cash-item">
+                <span className="cash-denomination">₱1</span>
+                <span className="cash-count">{coinCounts.onePeso}</span>
+                <span className="cash-total">₱{coinCounts.onePeso * 1}</span>
+              </div>
+              <div className="cash-item">
+                <span className="cash-denomination">₱5</span>
+                <span className="cash-count">{coinCounts.fivePeso}</span>
+                <span className="cash-total">₱{coinCounts.fivePeso * 5}</span>
+              </div>
+              <div className="cash-item">
+                <span className="cash-denomination">₱10</span>
+                <span className="cash-count">{coinCounts.tenPeso}</span>
+                <span className="cash-total">₱{coinCounts.tenPeso * 10}</span>
+              </div>
+              <div className="cash-item">
+                <span className="cash-denomination">₱20</span>
+                <span className="cash-count">{coinCounts.twentyPeso}</span>
+                <span className="cash-total">₱{coinCounts.twentyPeso * 20}</span>
+              </div>
+              <div className="cash-item total-row">
+                <span className="cash-denomination">Total Coins</span>
+                <span className="cash-count">{Object.values(coinCounts).reduce((a, b) => a + b, 0)}</span>
+                <span className="cash-total">
+                  ₱{(coinCounts.onePeso * 1 + coinCounts.fivePeso * 5 + coinCounts.tenPeso * 10 + coinCounts.twentyPeso * 20)}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          {/* Bills Section */}
+          <div className="cash-card">
+            <h3>Bills</h3>
+            <div className="cash-items">
+              <div className="cash-item">
+                <span className="cash-denomination">₱20</span>
+                <span className="cash-count">{billCounts.twenty}</span>
+                <span className="cash-total">₱{billCounts.twenty * 20}</span>
+              </div>
+              <div className="cash-item">
+                <span className="cash-denomination">₱50</span>
+                <span className="cash-count">{billCounts.fifty}</span>
+                <span className="cash-total">₱{billCounts.fifty * 50}</span>
+              </div>
+              <div className="cash-item">
+                <span className="cash-denomination">₱100</span>
+                <span className="cash-count">{billCounts.hundred}</span>
+                <span className="cash-total">₱{billCounts.hundred * 100}</span>
+              </div>
+              <div className="cash-item">
+                <span className="cash-denomination">₱200</span>
+                <span className="cash-count">{billCounts.twoHundred}</span>
+                <span className="cash-total">₱{billCounts.twoHundred * 200}</span>
+              </div>
+              <div className="cash-item total-row">
+                <span className="cash-denomination">Total Bills</span>
+                <span className="cash-count">{Object.values(billCounts).reduce((a, b) => a + b, 0)}</span>
+                <span className="cash-total">
+                  ₱{(billCounts.twenty * 20 + billCounts.fifty * 50 + billCounts.hundred * 100 + billCounts.twoHundred * 200)}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -524,10 +866,144 @@ const [storage2, setStorage2] = useState({
               <span className="detail-value">{(storage1.currentWeight + storage2.currentWeight).toFixed(1)} kg</span>
             </div>
             <div className="machine-detail">
+              <span className="detail-label">Total Cash:</span>
+              <span className="detail-value">{formatCurrency(totalCash)}</span>
+            </div>
+            <div className="machine-detail">
               <span className="detail-label">Security Status:</span>
               <span className={`detail-value ${machineStatus.securityStatus === 'Safe' ? 'safe' : 'alert'}`}>
                 {machineStatus.securityStatus}
               </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== CALIBRATION SECTION ===== */}
+      <div className="calibration-section">
+        <div className="calibration-header">
+          <h2>Load Cell Calibration</h2>
+          <p className="calibration-subtitle">Monitor and calibrate weighing scales</p>
+        </div>
+        
+        <div className="calibration-grid">
+          {/* Storage 1 Calibration */}
+          <div className="calibration-card">
+            <div className="calibration-card-header">
+              <h3>Storage 1 Weighing Scale</h3>
+              <span className={`calibration-status ${calibration.storage1.status.toLowerCase()}`}>
+                {calibration.storage1.status}
+              </span>
+            </div>
+            <div className="calibration-body">
+              <div className="calibration-readings">
+                <div className="reading-item">
+                  <span className="reading-label">Raw Value</span>
+                  <span className="reading-value">{calibration.storage1.rawValue.toFixed(2)}</span>
+                </div>
+                <div className="reading-item">
+                  <span className="reading-label">Calibrated Value</span>
+                  <span className="reading-value calibrated">
+                    {calibration.storage1.calibratedValue.toFixed(2)} {calibration.storage1.unit}
+                  </span>
+                </div>
+              </div>
+              <div className="calibration-actions">
+                <button 
+                  className="btn-calibrate"
+                  onClick={() => handleCalibrate('storage1')}
+                  disabled={calibrating}
+                >
+                  {calibrating ? 'Calibrating...' : 'Calibrate'}
+                </button>
+                <button 
+                  className="btn-zero"
+                  onClick={() => handleZeroCalibrate('storage1')}
+                  disabled={calibrating}
+                >
+                  Zero Scale
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Storage 2 Calibration */}
+          <div className="calibration-card">
+            <div className="calibration-card-header">
+              <h3>Storage 2 Weighing Scale</h3>
+              <span className={`calibration-status ${calibration.storage2.status.toLowerCase()}`}>
+                {calibration.storage2.status}
+              </span>
+            </div>
+            <div className="calibration-body">
+              <div className="calibration-readings">
+                <div className="reading-item">
+                  <span className="reading-label">Raw Value</span>
+                  <span className="reading-value">{calibration.storage2.rawValue.toFixed(2)}</span>
+                </div>
+                <div className="reading-item">
+                  <span className="reading-label">Calibrated Value</span>
+                  <span className="reading-value calibrated">
+                    {calibration.storage2.calibratedValue.toFixed(2)} {calibration.storage2.unit}
+                  </span>
+                </div>
+              </div>
+              <div className="calibration-actions">
+                <button 
+                  className="btn-calibrate"
+                  onClick={() => handleCalibrate('storage2')}
+                  disabled={calibrating}
+                >
+                  {calibrating ? 'Calibrating...' : 'Calibrate'}
+                </button>
+                <button 
+                  className="btn-zero"
+                  onClick={() => handleZeroCalibrate('storage2')}
+                  disabled={calibrating}
+                >
+                  Zero Scale
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Dispense Calibration */}
+          <div className="calibration-card">
+            <div className="calibration-card-header">
+              <h3>Dispense Weighing Scale</h3>
+              <span className={`calibration-status ${calibration.dispense.status.toLowerCase()}`}>
+                {calibration.dispense.status}
+              </span>
+            </div>
+            <div className="calibration-body">
+              <div className="calibration-readings">
+                <div className="reading-item">
+                  <span className="reading-label">Raw Value</span>
+                  <span className="reading-value">{calibration.dispense.rawValue.toFixed(2)}</span>
+                </div>
+                <div className="reading-item">
+                  <span className="reading-label">Calibrated Value</span>
+                  <span className="reading-value calibrated">
+                    {calibration.dispense.calibratedValue.toFixed(2)} {calibration.dispense.unit}
+                  </span>
+                </div>
+              </div>
+              <div className="calibration-actions">
+                <button 
+                  className="btn-calibrate"
+                  onClick={() => handleCalibrate('dispense')}
+                  disabled={calibrating}
+                >
+                  {calibrating ? 'Calibrating...' : 'Calibrate'}
+                </button>
+                <button 
+                  className="btn-zero"
+                  onClick={() => handleZeroCalibrate('dispense')}
+                  disabled={calibrating}
+                >
+                  Zero Scale
+                </button>
+              </div>
             </div>
           </div>
         </div>

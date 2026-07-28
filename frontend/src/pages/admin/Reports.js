@@ -1,9 +1,10 @@
-const API_URL = 'https://e-agrivend.onrender.com/api';
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import './Reports.css';
+
+//const API_URL = 'https://e-agrivend.onrender.com/api';
+const API_URL = 'http://localhost:5000/api';
 
 const AdminReports = () => {
   const { user } = useAuth();
@@ -25,74 +26,76 @@ const AdminReports = () => {
   const [activeChartTab, setActiveChartTab] = useState('daily');
   const [productRanking, setProductRanking] = useState([]);
   const [bestSellingProduct, setBestSellingProduct] = useState(null);
+  const [reportHistory, setReportHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [generatedReport, setGeneratedReport] = useState(null);
+  const reportContentRef = React.useRef(null);
 
-  // ============================================
-  // FIXED: PROPER MACHINE TRANSACTION DETECTION
-  // ============================================
+  // Generate control number
+  const generateControlNumber = () => {
+    const prefix = 'AGR';
+    const date = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `${prefix}-${date}-${random}`;
+  };
+
+  // Load report history from localStorage
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('agrivend_report_history');
+    if (savedHistory) {
+      try {
+        setReportHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error('Error loading report history:', e);
+      }
+    }
+  }, []);
+
+  // Save report history to localStorage
+  const saveToHistory = (report) => {
+    const newHistory = [report, ...reportHistory];
+    setReportHistory(newHistory);
+    localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
+  };
+
   const isMachineTransaction = (transaction) => {
     if (!transaction) return false;
-    
-    // Check by source field
     if (transaction.source === 'machine') return true;
-    
-    // Check by transactionType field
     if (transaction.transactionType === 'machine') return true;
-    
-    // Check if recordedBy is null (machine transactions)
-    if (transaction.recordedBy === null) return true;
-    if (transaction.recordedBy === 'null') return true;
-    
-    // Check if recordedBy is undefined
+    if (transaction.recordedBy === null || transaction.recordedBy === 'null') return true;
     if (transaction.recordedBy === undefined) return true;
-    
-    // Check if recordedBy is 'machine' string
     if (transaction.recordedBy === 'machine') return true;
-    
-    // Check if recordedBy is 'System' (machine default)
     if (transaction.recordedBy === 'System' || transaction.recordedBy === 'system') return true;
-    
-    // Check if user is null (machine transactions have no user)
     if (transaction.user === null || transaction.user === undefined) return true;
     if (transaction.user === 'null') return true;
-    
-    // Check explicit flag
     if (transaction.isMachineTransaction === true) return true;
-    
-    // Check if recordedBy is an object with no name (machine)
     if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
       if (!transaction.recordedBy.firstName && !transaction.recordedBy.lastName) {
         return true;
       }
     }
-    
     return false;
   };
 
   const isManualTransaction = (transaction) => {
     if (!transaction) return false;
-    
-    // Staff recorded - has firstName/lastName
     if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
       if (transaction.recordedBy.firstName || transaction.recordedBy.lastName) {
         return true;
       }
     }
-    
-    // User exists with name
     if (transaction.user && typeof transaction.user === 'object') {
       if (transaction.user.firstName || transaction.user.lastName) {
         return true;
       }
     }
-    
-    // RecordedBy is a string name (not machine/system)
     if (transaction.recordedBy && typeof transaction.recordedBy === 'string') {
       const lower = transaction.recordedBy.toLowerCase();
       if (lower !== 'machine' && lower !== 'system' && lower !== 'null' && transaction.recordedBy.length > 2) {
         return true;
       }
     }
-    
     return false;
   };
 
@@ -114,7 +117,6 @@ const AdminReports = () => {
     }
     return 'System';
   };
-  // ============================================
 
   useEffect(() => {
     fetchSalesSummary();
@@ -302,9 +304,6 @@ const AdminReports = () => {
     };
   };
 
-  // ============================================
-  // FIXED: GENERATE REPORT WITH MACHINE TRANSACTION SUPPORT
-  // ============================================
   const generateReport = async () => {
     setLoading(true);
     try {
@@ -332,28 +331,22 @@ const AdminReports = () => {
           break;
       }
       
-      const response = await axios.get(url, { params });
+      const token = localStorage.getItem('token');
+      const response = await axios.get(url, { 
+        params,
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
       
       let data = response.data.data;
       if (data && data.transactions) {
-        // Debug logs to see what transactions we have
-        console.log('Raw transactions from API:', data.transactions.length);
-        console.log('First transaction sample:', data.transactions[0]);
-        
-        // Count machine transactions using the improved function
         const machineCount = data.transactions.filter(t => isMachineTransaction(t)).length;
         const manualCount = data.transactions.filter(t => isManualTransaction(t)).length;
-        console.log('Machine transactions detected:', machineCount);
-        console.log('Manual transactions detected:', manualCount);
         
-        // Filter based on transaction source
         if (transactionSource === 'manual') {
           data.transactions = data.transactions.filter(t => isManualTransaction(t));
-          console.log('After manual filter:', data.transactions.length);
           data.summary = calculateFilteredSummary(data.transactions);
         } else if (transactionSource === 'machine') {
           data.transactions = data.transactions.filter(t => isMachineTransaction(t));
-          console.log('After machine filter:', data.transactions.length);
           data.summary = calculateFilteredSummary(data.transactions);
         } else {
           data.summary = calculateFilteredSummary(data.transactions);
@@ -365,10 +358,41 @@ const AdminReports = () => {
           setProductRanking([]);
           setBestSellingProduct(null);
         }
+        
+        // Generate control number
+        const controlNumber = generateControlNumber();
+        const reportTitle = getReportTitle();
+        const reportEntry = {
+          controlNumber,
+          title: reportTitle,
+          generatedBy: `${user?.firstName || 'Admin'} ${user?.lastName || 'User'}`,
+          generatedAt: new Date().toISOString(),
+          type: reportType,
+          source: transactionSource,
+          totalTransactions: data.summary?.totalTransactions || 0,
+          totalSales: data.summary?.totalSales || 0
+        };
+        
+        // Save to history
+        saveToHistory(reportEntry);
+        
+        const report = {
+          ...data,
+          controlNumber,
+          generatedBy: reportEntry.generatedBy,
+          generatedAt: reportEntry.generatedAt,
+          reportTitle,
+          dateRange: {
+            start: dateRange.startDate,
+            end: dateRange.endDate
+          }
+        };
+        
+        setGeneratedReport(report);
+        setShowReportModal(true);
+        setReportData(data);
+        showNotification('success', `Report generated! Control #: ${controlNumber}`);
       }
-      
-      setReportData(data);
-      showNotification('success', 'Report generated successfully');
     } catch (error) {
       console.error('Error generating report:', error);
       showNotification('error', 'Failed to generate report');
@@ -376,238 +400,10 @@ const AdminReports = () => {
       setLoading(false);
     }
   };
-  // ============================================
 
   const handleChartTabChange = (tab) => {
     setActiveChartTab(tab);
     fetchChartData(tab);
-  };
-
-  const handlePrintReport = () => {
-    const currentDate = new Date().toLocaleString();
-    const reportTitle = getReportTitle();
-    const sourceText = getSourceText();
-    
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${reportTitle} - AgriVend</title>
-          <meta charset="UTF-8">
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-            * {
-              margin: 0;
-              padding: 0;
-              box-sizing: border-box;
-            }
-            body {
-              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              background: white;
-              padding: 40px;
-              color: #1a1a2e;
-              line-height: 1.5;
-            }
-            .print-container { max-width: 1200px; margin: 0 auto; }
-            .print-header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 3px solid #2d6a4f; }
-            .company-name { font-size: 28px; font-weight: 700; color: #2d6a4f; margin-bottom: 4px; }
-            .company-tagline { font-size: 14px; color: #64748b; margin-bottom: 15px; }
-            .report-title { font-size: 22px; font-weight: 600; color: #1e293b; margin-top: 15px; margin-bottom: 10px; }
-            .report-meta { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; }
-            .best-seller-section { background: #2d6a4f; border-radius: 8px; padding: 25px; margin-bottom: 30px; color: white; text-align: center; }
-            .best-seller-title { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.8; margin-bottom: 10px; }
-            .best-seller-name { font-size: 26px; font-weight: 700; margin-bottom: 10px; }
-            .best-seller-stats { display: flex; justify-content: center; gap: 30px; font-size: 14px; }
-            .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
-            .summary-card { background: #f8fafc; border-radius: 8px; padding: 20px; text-align: center; border: 1px solid #e2e8f0; }
-            .summary-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 8px; }
-            .summary-value { font-size: 28px; font-weight: 700; color: #2d6a4f; }
-            .summary-sub { font-size: 11px; color: #94a3b8; margin-top: 5px; }
-            .product-ranking-section { margin-bottom: 30px; }
-            .product-ranking-title { font-size: 18px; font-weight: 600; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #2d6a4f; }
-            .product-ranking-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-            .product-ranking-table th { background: #f1f5f9; padding: 12px; text-align: left; font-weight: 600; color: #334155; border-bottom: 1px solid #e2e8f0; }
-            .product-ranking-table td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #475569; }
-            .stats-grid-print { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
-            .stat-card-print { background: #f8fafc; border-radius: 8px; padding: 20px; text-align: center; }
-            .stat-label-print { font-size: 12px; text-transform: uppercase; color: #64748b; margin-bottom: 8px; }
-            .stat-number-print { font-size: 32px; font-weight: 700; color: #2d6a4f; }
-            .chart-section-print { margin-bottom: 30px; padding: 20px; background: #f8fafc; border-radius: 8px; }
-            .chart-title { font-size: 16px; font-weight: 600; margin-bottom: 20px; color: #1e293b; }
-            .chart-bars { display: flex; align-items: flex-end; justify-content: space-around; gap: 15px; height: 250px; padding: 20px 0; }
-            .chart-bar-item { flex: 1; text-align: center; }
-            .chart-bar { background: #2d6a4f; border-radius: 4px 4px 0 0; margin-bottom: 8px; min-height: 4px; }
-            .chart-label { font-size: 11px; color: #64748b; }
-            .chart-value { font-size: 10px; font-weight: 600; color: #2d6a4f; margin-bottom: 5px; }
-            .transaction-table-title { font-size: 18px; font-weight: 600; margin: 20px 0 15px; padding-bottom: 10px; border-bottom: 2px solid #2d6a4f; }
-            .transaction-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            .transaction-table th { background: #f1f5f9; padding: 12px; text-align: left; font-weight: 600; color: #334155; border-bottom: 2px solid #2d6a4f; }
-            .transaction-table td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #475569; }
-            .source-badge {
-              display: inline-block;
-              padding: 2px 8px;
-              border-radius: 12px;
-              font-size: 10px;
-              font-weight: 600;
-              text-transform: uppercase;
-            }
-            .source-badge.manual { background: #eff6ff; color: #1e40af; }
-            .source-badge.machine { background: #ecfdf5; color: #065f46; }
-            .source-badge.system { background: #f1f5f9; color: #64748b; }
-            .text-right { text-align: right; }
-            .font-bold { font-weight: 700; }
-            .print-footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 10px; color: #94a3b8; }
-            .signature-line { margin-top: 40px; display: flex; justify-content: space-between; }
-            .signature { text-align: center; width: 250px; }
-            .signature-line-space { border-top: 1px solid #1e293b; margin-top: 30px; padding-top: 5px; }
-            @media print { body { padding: 20px; } }
-          </style>
-        </head>
-        <body>
-          <div class="print-container">
-            <div class="print-header">
-              <div class="company-name">AGRIVEND</div>
-              <div class="company-tagline">Enterprise Grain Vending Solution</div>
-              <div class="report-title">${reportTitle}</div>
-              <div class="report-source-info">Transaction Source: ${sourceText}</div>
-              <div class="report-meta">
-                <span>Generated By: ${user?.firstName || 'Administrator'} ${user?.lastName || ''}</span>
-                <span>Date & Time: ${currentDate}</span>
-                <span>Report ID: ${'RPT-' + Date.now().toString().slice(-8)}</span>
-              </div>
-            </div>
-            
-            ${bestSellingProduct ? `
-            <div class="best-seller-section">
-              <div class="best-seller-title">BEST SELLING PRODUCT</div>
-              <div class="best-seller-name">${bestSellingProduct.name}</div>
-              <div class="best-seller-stats">
-                <div>${bestSellingProduct.quantity.toFixed(1)} kg sold</div>
-                <div>${formatCurrency(bestSellingProduct.revenue)} revenue</div>
-                <div>${bestSellingProduct.count} transactions</div>
-              </div>
-            </div>
-            ` : ''}
-            
-            <div class="summary-cards">
-              <div class="summary-card"><div class="summary-label">Total Transactions</div><div class="summary-value">${reportData?.summary?.totalTransactions || 0}</div><div class="summary-sub">Completed Sales</div></div>
-              <div class="summary-card"><div class="summary-label">Total Quantity</div><div class="summary-value">${reportData?.summary?.totalQuantity || 0} kg</div><div class="summary-sub">Grain Sold</div></div>
-              <div class="summary-card"><div class="summary-label">Average Order Value</div><div class="summary-value">${formatCurrency(reportData?.summary?.totalSales / (reportData?.summary?.totalTransactions || 1))}</div><div class="summary-sub">Per Transaction</div></div>
-              <div class="summary-card"><div class="summary-label">Total Revenue</div><div class="summary-value">${formatCurrency(reportData?.summary?.totalSales || 0)}</div><div class="summary-sub">Gross Sales</div></div>
-            </div>
-            
-            ${productRanking.length > 0 ? `
-            <div class="product-ranking-section">
-              <div class="product-ranking-title">Product Performance Ranking</div>
-              <table class="product-ranking-table">
-                <thead><tr><th>Rank</th><th>Product Name</th><th>Quantity Sold (kg)</th><th>Revenue</th><th>Transactions</th></tr></thead>
-                <tbody>
-                  ${productRanking.map((product, idx) => `<table><td class="rank-number">${idx + 1}</td><td><strong>${product.name}</strong></td><td>${product.quantity.toFixed(1)} kg</td><td class="text-right">${formatCurrency(product.revenue)}</td><td class="text-center">${product.count}</td></tr>`).join('')}
-                </tbody>
-              70
-            </div>
-            ` : ''}
-            
-            <div class="stats-grid-print">
-              <div class="stat-card-print"><div class="stat-label-print">Today's Sales</div><div class="stat-number-print">${formatCurrency(salesSummary.daily)}</div></div>
-              <div class="stat-card-print"><div class="stat-label-print">This Week</div><div class="stat-number-print">${formatCurrency(salesSummary.weekly)}</div></div>
-              <div class="stat-card-print"><div class="stat-label-print">This Month</div><div class="stat-number-print">${formatCurrency(salesSummary.monthly)}</div></div>
-            </div>
-            
-            <div class="chart-section-print">
-              <div class="chart-title">Sales Performance Chart</div>
-              <div class="chart-bars">
-                ${chartData.map(item => {
-                  const maxSales = Math.max(...chartData.map(d => d.sales || 0), 1);
-                  const barHeight = ((item.sales || 0) / maxSales) * 200;
-                  return `<div class="chart-bar-item"><div class="chart-value">${formatCurrency(item.sales)}</div><div class="chart-bar" style="height: ${Math.max(barHeight, 4)}px; width: 100%;"></div><div class="chart-label">${item.label}</div></div>`;
-                }).join('')}
-              </div>
-            </div>
-            
-            <div class="transaction-table-title">Transaction Details</div>
-            <table class="transaction-table">
-              <thead>
-                <tr>
-                  <th>Transaction ID</th>
-                  <th>Date & Time</th>
-                  <th>Product Name</th>
-                  <th>Quantity</th>
-                  <th>Amount</th>
-                  <th>Source</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${reportData?.transactions?.map(t => {
-                  const source = getTransactionSourceText(t);
-                  const sourceClass = source === 'Manual' ? 'manual' : (source === 'Machine' ? 'machine' : 'system');
-                  return `
-                    <tr>
-                      <td>${t.transactionId || t._id?.slice(-8) || 'N/A'}</td>
-                      <td>${new Date(t.createdAt).toLocaleString()}</td>
-                      <td>${t.riceType || t.productName}</td>
-                      <td>${t.quantityKg} kg</td
-                      <td class="text-right font-bold">${formatCurrency(t.amountPaid || t.totalAmount)}</td
-                      <td><span class="source-badge ${sourceClass}">${source}</span></td
-                    </tr>
-                  `;
-                }).join('') || '<tr><td colspan="6" class="text-center">No transactions found</td></tr>'}
-              </tbody>
-              <tfoot>
-                <tr style="background: #f1f5f9; font-weight: 700;">
-                  <td colspan="4" class="text-right">Total:</td>
-                  <td class="text-right">${formatCurrency(reportData?.summary?.totalSales || 0)}</td
-                  <td></td
-                </tr>
-              </tfoot>
-            </table>
-            
-            <div class="print-footer"><p>This is a computer-generated document. No signature is required.</p><p>AgriVend - Enterprise Grain Vending Management | support@agrivend.com</p></div>
-            <div class="signature-line">
-              <div class="signature"><div class="signature-line-space">_________________</div><div>Generated By</div><div style="font-size: 11px; color: #64748b;">${user?.firstName} ${user?.lastName}</div></div>
-              <div class="signature"><div class="signature-line-space">_________________</div><div>Authorized Signature</div><div style="font-size: 11px; color: #64748b;">Management Officer</div></div>
-              <div class="signature"><div class="signature-line-space">_________________</div><div>Date Received</div><div style="font-size: 11px; color: #64748b;">${new Date().toLocaleDateString()}</div></div>
-            </div>
-          </div>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
-  };
-
-  const handleDownloadCSV = () => {
-    if (!reportData || !reportData.transactions || reportData.transactions.length === 0) {
-      showNotification('error', 'No data to export');
-      return;
-    }
-    
-    const headers = ['Transaction ID', 'Date', 'Product Name', 'Quantity (kg)', 'Amount', 'Source'];
-    const rows = reportData.transactions.map(t => [
-      t.transactionId || t._id?.slice(-8) || 'N/A',
-      new Date(t.createdAt).toLocaleString(),
-      t.riceType || t.productName,
-      t.quantityKg,
-      t.amountPaid || t.totalAmount,
-      getTransactionSourceText(t)
-    ]);
-    
-    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${reportType}_report_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-    showNotification('success', 'CSV file downloaded');
-  };
-
-  const showNotification = (type, message) => {
-    setNotification({ type, message });
   };
 
   const formatCurrency = (amount) => {
@@ -624,6 +420,18 @@ const AdminReports = () => {
       month: 'short',
       day: 'numeric',
       year: 'numeric'
+    });
+  };
+
+  const formatDateTime = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
     });
   };
 
@@ -647,14 +455,157 @@ const AdminReports = () => {
     }
   };
 
-  const getDateRangeText = () => {
-    if (reportType === 'daily') return formatDate(dateRange.startDate);
-    if (reportType === 'weekly') return `week of ${formatDate(dateRange.startDate)}`;
-    if (reportType === 'monthly') {
-      const date = new Date(dateRange.startDate);
-      return `${date.toLocaleString('default', { month: 'long' })} ${date.getFullYear()}`;
-    }
-    return `${formatDate(dateRange.startDate)} to ${formatDate(dateRange.endDate)}`;
+  const showNotification = (type, message) => {
+    setNotification({ type, message });
+  };
+
+  // ===== PRINT FUNCTION =====
+  const handlePrintReport = () => {
+    if (!generatedReport) return;
+    
+    const reportElement = document.getElementById('report-content');
+    if (!reportElement) return;
+    
+    const printWindow = window.open('', '_blank', 'width=1200,height=800');
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>${generatedReport.reportTitle} - AgriVend</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              background: white;
+              padding: 40px;
+              color: #1a1a2e;
+              line-height: 1.5;
+            }
+            .print-container { max-width: 1200px; margin: 0 auto; }
+            .report-header {
+              text-align: center;
+              padding-bottom: 1.5rem;
+              border-bottom: 2px solid #1a472a;
+              margin-bottom: 1.5rem;
+            }
+            .company-name { font-size: 2rem; font-weight: 700; color: #1a472a; letter-spacing: 2px; }
+            .company-subtitle { font-size: 0.875rem; color: #64748b; margin: 0.25rem 0 1rem; }
+            .report-title { font-size: 1.5rem; font-weight: 600; color: #1e293b; margin: 0.5rem 0; }
+            .control-number { font-weight: 700; color: #059669; background: #ecfdf5; padding: 0.25rem 0.75rem; border-radius: 0.25rem; border: 1px solid #d1fae5; font-family: monospace; }
+            .report-meta { display: flex; justify-content: center; gap: 2rem; font-size: 0.8rem; color: #64748b; margin-top: 0.75rem; flex-wrap: wrap; }
+            .report-best-seller { background: #1a472a; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center; color: white; }
+            .report-best-seller h3 { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; margin: 0 0 0.75rem; }
+            .best-seller-info .product-name { font-size: 1.5rem; font-weight: 700; display: block; margin-bottom: 0.5rem; }
+            .best-seller-info .product-stats { display: flex; justify-content: center; gap: 2rem; font-size: 0.875rem; }
+            .report-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+            .summary-item { background: #f8fafc; border-radius: 0.5rem; padding: 1rem; text-align: center; border: 1px solid #e2e8f0; }
+            .summary-item .summary-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 0.5rem; }
+            .summary-item .summary-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
+            .summary-item .summary-value.total { color: #059669; }
+            .report-details h3 { font-size: 1.1rem; font-weight: 600; color: #1e293b; margin: 0 0 1rem; }
+            .table-wrapper { overflow-x: auto; }
+            .report-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+            .report-table th { background: #f1f5f9; padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; border-bottom: 2px solid #e2e8f0; }
+            .report-table td { padding: 0.75rem; border-bottom: 1px solid #e2e8f0; color: #475569; }
+            .report-table tfoot td { font-weight: 700; background: #f8fafc; border-top: 2px solid #e2e8f0; }
+            .text-right { text-align: right; }
+            .report-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #e2e8f0; text-align: center; font-size: 0.75rem; color: #64748b; }
+            .report-footer .verification { color: #059669; font-weight: 500; }
+            .text-center { text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="print-container">
+            ${reportElement.innerHTML}
+          </div>
+          <script>
+            window.onload = function() {
+              window.print();
+              window.close();
+            };
+          <\/script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  // ===== DOWNLOAD FUNCTION =====
+  const handleDownloadReport = () => {
+    if (!generatedReport) return;
+    
+    const reportElement = document.getElementById('report-content');
+    if (!reportElement) return;
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>${generatedReport.reportTitle} - AgriVend</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              background: white;
+              padding: 40px;
+              color: #1a1a2e;
+              line-height: 1.5;
+            }
+            .print-container { max-width: 1200px; margin: 0 auto; }
+            .report-header {
+              text-align: center;
+              padding-bottom: 1.5rem;
+              border-bottom: 2px solid #1a472a;
+              margin-bottom: 1.5rem;
+            }
+            .company-name { font-size: 2rem; font-weight: 700; color: #1a472a; letter-spacing: 2px; }
+            .company-subtitle { font-size: 0.875rem; color: #64748b; margin: 0.25rem 0 1rem; }
+            .report-title { font-size: 1.5rem; font-weight: 600; color: #1e293b; margin: 0.5rem 0; }
+            .control-number { font-weight: 700; color: #059669; background: #ecfdf5; padding: 0.25rem 0.75rem; border-radius: 0.25rem; border: 1px solid #d1fae5; font-family: monospace; }
+            .report-meta { display: flex; justify-content: center; gap: 2rem; font-size: 0.8rem; color: #64748b; margin-top: 0.75rem; flex-wrap: wrap; }
+            .report-best-seller { background: #1a472a; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center; color: white; }
+            .report-best-seller h3 { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; margin: 0 0 0.75rem; }
+            .best-seller-info .product-name { font-size: 1.5rem; font-weight: 700; display: block; margin-bottom: 0.5rem; }
+            .best-seller-info .product-stats { display: flex; justify-content: center; gap: 2rem; font-size: 0.875rem; }
+            .report-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+            .summary-item { background: #f8fafc; border-radius: 0.5rem; padding: 1rem; text-align: center; border: 1px solid #e2e8f0; }
+            .summary-item .summary-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 0.5rem; }
+            .summary-item .summary-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
+            .summary-item .summary-value.total { color: #059669; }
+            .report-details h3 { font-size: 1.1rem; font-weight: 600; color: #1e293b; margin: 0 0 1rem; }
+            .table-wrapper { overflow-x: auto; }
+            .report-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+            .report-table th { background: #f1f5f9; padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; border-bottom: 2px solid #e2e8f0; }
+            .report-table td { padding: 0.75rem; border-bottom: 1px solid #e2e8f0; color: #475569; }
+            .report-table tfoot td { font-weight: 700; background: #f8fafc; border-top: 2px solid #e2e8f0; }
+            .text-right { text-align: right; }
+            .report-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #e2e8f0; text-align: center; font-size: 0.75rem; color: #64748b; }
+            .report-footer .verification { color: #059669; font-weight: 500; }
+            .text-center { text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="print-container">
+            ${reportElement.innerHTML}
+          </div>
+        </body>
+      </html>
+    `;
+    
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${generatedReport.reportTitle.replace(/\s/g, '_')}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    showNotification('success', 'Report downloaded successfully!');
   };
 
   const maxSales = chartData.length > 0 ? Math.max(...chartData.map(d => d.sales || 0), 1) : 1;
@@ -663,8 +614,162 @@ const AdminReports = () => {
     <div className="admin-page-container">
       {notification && (
         <div className={`notification-toast ${notification.type}`}>
-          <span className={notification.type === 'success' ? 'toast-success' : 'toast-error'}>{notification.message}</span>
+          <span>{notification.message}</span>
           <button className="notification-close" onClick={() => setNotification(null)}>×</button>
+        </div>
+      )}
+
+      {/* Report History Modal */}
+      {showHistory && (
+        <div className="history-modal" onClick={() => setShowHistory(false)}>
+          <div className="history-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="history-modal-header">
+              <h2>Report History</h2>
+              <button className="history-modal-close" onClick={() => setShowHistory(false)}>×</button>
+            </div>
+            <div className="history-modal-body">
+              {reportHistory.length === 0 ? (
+                <div className="empty-history">
+                  <p>No reports generated yet.</p>
+                </div>
+              ) : (
+                <table className="history-table">
+                  <thead>
+                    <tr>
+                      <th>Control Number</th>
+                      <th>Report Title</th>
+                      <th>Generated By</th>
+                      <th>Date & Time</th>
+                      <th>Transactions</th>
+                      <th>Total Sales</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportHistory.map((report, index) => (
+                      <tr key={index}>
+                        <td className="control-number-cell">{report.controlNumber}</td>
+                        <td>{report.title}</td>
+                        <td>{report.generatedBy}</td>
+                        <td>{formatDateTime(report.generatedAt)}</td>
+                        <td>{report.totalTransactions}</td>
+                        <td>{formatCurrency(report.totalSales)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="history-modal-footer">
+              <button className="btn-secondary" onClick={() => setShowHistory(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReportModal && generatedReport && (
+        <div className="report-modal" onClick={() => setShowReportModal(false)}>
+          <div className="report-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="report-modal-header">
+              <h2>Generated Report</h2>
+              <div className="report-modal-actions">
+                <button className="btn-primary" onClick={handlePrintReport}>Print</button>
+                <button className="btn-secondary" onClick={handleDownloadReport}>Download</button>
+                <button className="history-modal-close" onClick={() => setShowReportModal(false)}>×</button>
+              </div>
+            </div>
+            <div className="report-modal-body">
+              <div id="report-content" className="report-content" ref={reportContentRef}>
+                <div className="report-header">
+                  <h1 className="company-name">AgriVend</h1>
+                  <p className="company-subtitle">Enterprise Grain Vending Solution</p>
+                  <h2 className="report-title">{generatedReport.reportTitle}</h2>
+                  <p className="report-control">Control Number: <span className="control-number">{generatedReport.controlNumber}</span></p>
+                  <div className="report-meta">
+                    <span>Generated By: {generatedReport.generatedBy}</span>
+                    <span>Date & Time: {formatDateTime(generatedReport.generatedAt)}</span>
+                    <span>Transaction Source: {getSourceText()}</span>
+                  </div>
+                </div>
+
+                {bestSellingProduct && (
+                  <div className="report-best-seller">
+                    <h3>Best Selling Product</h3>
+                    <div className="best-seller-info">
+                      <span className="product-name">{bestSellingProduct.name}</span>
+                      <div className="product-stats">
+                        <span>{bestSellingProduct.quantity.toFixed(1)} kg sold</span>
+                        <span>{formatCurrency(bestSellingProduct.revenue)} revenue</span>
+                        <span>{bestSellingProduct.count} transactions</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="report-summary">
+                  <div className="summary-item">
+                    <span className="summary-label">Total Transactions</span>
+                    <span className="summary-value">{generatedReport.summary?.totalTransactions || 0}</span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Total Quantity</span>
+                    <span className="summary-value">{(generatedReport.summary?.totalQuantity || 0).toFixed(2)} kg</span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Total Revenue</span>
+                    <span className="summary-value total">{formatCurrency(generatedReport.summary?.totalSales || 0)}</span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Average Order Value</span>
+                    <span className="summary-value">{formatCurrency(generatedReport.summary?.totalSales / (generatedReport.summary?.totalTransactions || 1))}</span>
+                  </div>
+                </div>
+
+                <div className="report-details">
+                  <h3>Transaction Details</h3>
+                  <div className="table-wrapper">
+                    <table className="report-table">
+                      <thead>
+                        <tr>
+                          <th>Transaction ID</th>
+                          <th>Date & Time</th>
+                          <th>Product Name</th>
+                          <th>Quantity</th>
+                          <th>Amount</th>
+                          <th>Source</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {generatedReport.transactions?.map((t, idx) => (
+                          <tr key={idx}>
+                            <td>{t.transactionId || t._id?.slice(-8) || 'N/A'}</td>
+                            <td>{formatDateTime(t.createdAt)}</td>
+                            <td>{t.riceType || t.productName || 'N/A'}</td>
+                            <td>{t.quantityKg} kg</td>
+                            <td>{formatCurrency(t.amountPaid || t.totalAmount)}</td>
+                            <td>{getTransactionSourceText(t)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan="4" className="text-right"><strong>Total</strong></td>
+                          <td><strong>{formatCurrency(generatedReport.summary?.totalSales || 0)}</strong></td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="report-footer">
+                  <p>This is a computer-generated document. No signature is required.</p>
+                  <p>AgriVend - Enterprise Grain Vending Management</p>
+                  <p className="verification">Verified: {formatDateTime(generatedReport.generatedAt)} | Control: {generatedReport.controlNumber}</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -673,6 +778,9 @@ const AdminReports = () => {
           <h1 className="page-title">Sales Reports</h1>
           <p className="page-description">Generate, visualize, and export professional sales reports</p>
         </div>
+        <button className="btn-history" onClick={() => setShowHistory(true)}>
+        Report History ({reportHistory.length})
+        </button>
       </div>
 
       <div className="stats-grid">
@@ -699,7 +807,7 @@ const AdminReports = () => {
       {bestSellingProduct && (
         <div className="best-seller-card">
           <div className="best-seller-content">
-            <div className="best-seller-label">BEST SELLING PRODUCT</div>
+            <div className="best-seller-label">Best Selling Product</div>
             <div className="best-seller-name">{bestSellingProduct.name}</div>
             <div className="best-seller-stats">
               <div className="stat-item">{bestSellingProduct.quantity.toFixed(1)} kg sold</div>
@@ -808,64 +916,6 @@ const AdminReports = () => {
           </button>
         </div>
       </div>
-
-      {reportData && reportData.transactions && reportData.transactions.length > 0 && (
-        <>
-          <div className="report-content">
-            <div className="report-header">
-              <h1 className="report-title">{getReportTitle()}</h1>
-              <p className="report-date">Generated on: {new Date().toLocaleString()}</p>
-              <p className="report-generator">Generated by: {user?.firstName} {user?.lastName}</p>
-              <p className="report-source">Transaction Source: {getSourceText()}</p>
-            </div>
-            
-            <div className="report-summary">
-              <h3>Summary</h3>
-              <div className="summary-grid">
-                <div className="summary-item"><span className="summary-label">Total Transactions:</span><span className="summary-value">{reportData.summary?.totalTransactions || 0}</span></div>
-                <div className="summary-item"><span className="summary-label">Total Quantity Sold:</span><span className="summary-value">{reportData.summary?.totalQuantity || 0} kg</span></div>
-                <div className="summary-item"><span className="summary-label">Total Sales:</span><span className="summary-value total">{formatCurrency(reportData.summary?.totalSales || 0)}</span></div>
-              </div>
-            </div>
-            
-            <div className="report-details">
-              <h3>Transaction Details</h3>
-              <div className="report-table-wrapper">
-                <table className="report-table">
-                  <thead>
-                    <tr><th>Transaction ID</th><th>Date & Time</th><th>Product Name</th><th>Quantity (kg)</th><th>Total Amount</th></tr>
-                  </thead>
-                  <tbody>
-                    {reportData.transactions.map((transaction) => (
-                      <tr key={transaction._id}>
-                        <td>{transaction.transactionId || transaction._id?.slice(-8)}</td>
-                        <td>{new Date(transaction.createdAt).toLocaleString()}</td>
-                        <td>{transaction.riceType || transaction.productName}</td>
-                        <td>{transaction.quantityKg}</td>
-                        <td>{formatCurrency(transaction.amountPaid || transaction.totalAmount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          
-          <div className="report-actions no-print">
-            <button className="btn-secondary" onClick={handlePrintReport}>Print Report</button>
-            <button className="btn-primary" onClick={handleDownloadCSV}>Download CSV</button>
-          </div>
-        </>
-      )}
-      
-      {reportData && (!reportData.transactions || reportData.transactions.length === 0) && (
-        <div className="no-data-message full">
-          <p>No transactions found for ${getDateRangeText()} with filter: ${getSourceText()}</p>
-          <p style={{ fontSize: '12px', marginTop: '10px' }}>
-            💡 <strong>Tip:</strong> Your machine transactions are from May 7-10. Try selecting a date range that includes these dates.
-          </p>
-        </div>
-      )}
     </div>
   );
 };

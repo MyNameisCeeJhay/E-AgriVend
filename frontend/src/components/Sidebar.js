@@ -12,7 +12,7 @@ const Sidebar = ({ isOpen, onClose, isMobile }) => {
     { name: 'Dashboard', path: '/admin/dashboard', description: 'Analytics' },
     { name: 'Machine', path: '/admin/machine', description: 'Monitor machine' },
     { name: 'Transactions', path: '/admin/transactions', description: 'All purchases' },
-    { name: 'Returns', path: '/admin/returns', description: 'Return requests' },
+    
     { name: 'Staff', path: '/admin/staff', description: 'Manage staff accounts' }, 
     { name: 'Reports', path: '/admin/reports', description: 'Sales reports' },
   ];
