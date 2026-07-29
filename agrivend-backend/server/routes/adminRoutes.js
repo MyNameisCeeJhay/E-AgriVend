@@ -4,6 +4,7 @@ import Transaction from '../models/Transaction.js';
 import Return from '../models/Return.js';
 import Message from '../models/Message.js';
 import Rating from '../models/Rating.js';
+import Report from '../models/Report.js';  
 import { protect, admin } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -1623,13 +1624,59 @@ router.get('/reports/custom', protect, admin, async (req, res) => {
 router.post('/reports/save', protect, admin, async (req, res) => {
   console.log('💾 POST /api/admin/reports/save - by:', req.user?.email);
   try {
-    const { controlNumber, title, type, dateRange, summary, transactions, productRanking } = req.body;
-    
-    // You can save to a Report collection if you have one
-    // For now, just acknowledge
+    const { 
+      controlNumber, 
+      title, 
+      type, 
+      dateRange, 
+      transactionSource,
+      summary, 
+      transactions, 
+      productRanking 
+    } = req.body;
+
+    // Check if report with this control number already exists
+    const existingReport = await Report.findOne({ controlNumber });
+    if (existingReport) {
+      return res.status(400).json({
+        success: false,
+        error: 'Report with this control number already exists'
+      });
+    }
+
+    const newReport = new Report({
+      controlNumber,
+      title,
+      type,
+      dateRange: {
+        start: new Date(dateRange.start),
+        end: new Date(dateRange.end)
+      },
+      transactionSource: transactionSource || 'all',
+      summary: {
+        totalTransactions: summary?.totalTransactions || 0,
+        totalQuantity: summary?.totalQuantity || 0,
+        totalSales: summary?.totalSales || 0,
+        averageOrderValue: summary?.averageOrderValue || 0
+      },
+      transactions: transactions || [],
+      productRanking: productRanking || [],
+      generatedBy: {
+        name: `${req.user.firstName} ${req.user.lastName}`,
+        userId: req.user._id
+      },
+      generatedAt: new Date(),
+      status: 'generated'
+    });
+
+    await newReport.save();
+
+    console.log(`✅ Report saved: ${controlNumber}`);
+
     res.json({
       success: true,
-      message: 'Report saved successfully'
+      message: 'Report saved successfully',
+      data: newReport
     });
   } catch (error) {
     console.error('Error saving report:', error);
@@ -1641,11 +1688,29 @@ router.post('/reports/save', protect, admin, async (req, res) => {
 router.get('/reports/history', protect, admin, async (req, res) => {
   console.log('📋 GET /api/admin/reports/history - by:', req.user?.email);
   try {
-    // If you have a Report model, fetch from database
-    // For now, return empty array (frontend uses localStorage)
+    const { limit = 50, type, startDate, endDate } = req.query;
+    
+    let query = {};
+    
+    if (type) {
+      query.type = type;
+    }
+    
+    if (startDate && endDate) {
+      query.generatedAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+    
+    // Fetch reports from database
+    const reports = await Report.find(query)
+      .sort({ generatedAt: -1 })
+      .limit(parseInt(limit));
+    
     res.json({
       success: true,
-      data: []
+      data: reports
     });
   } catch (error) {
     console.error('Error fetching report history:', error);
@@ -1653,4 +1718,115 @@ router.get('/reports/history', protect, admin, async (req, res) => {
   }
 });
 
-export default router;
+// ===== GET SINGLE REPORT BY CONTROL NUMBER =====
+router.get('/reports/:controlNumber', protect, admin, async (req, res) => {
+  console.log('📄 GET /api/admin/reports/:controlNumber - by:', req.user?.email);
+  try {
+    const report = await Report.findOne({ 
+      controlNumber: req.params.controlNumber 
+    }).populate('generatedBy.userId', 'firstName lastName email');
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        error: 'Report not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: report
+    });
+  } catch (error) {
+    console.error('Error fetching report:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch report' });
+  }
+});
+
+// ===== DELETE REPORT =====
+router.delete('/reports/:controlNumber', protect, admin, async (req, res) => {
+  console.log('🗑️ DELETE /api/admin/reports/:controlNumber - by:', req.user?.email);
+  try {
+    const report = await Report.findOneAndDelete({ 
+      controlNumber: req.params.controlNumber 
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        error: 'Report not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Report deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting report:', error);
+    res.status(500).json({ success: false, error: 'Failed to delete report' });
+  }
+});
+
+// ===== GET REPORT STATS =====
+router.get('/reports/stats', protect, admin, async (req, res) => {
+  console.log('📊 GET /api/admin/reports/stats - by:', req.user?.email);
+  try {
+    const totalReports = await Report.countDocuments();
+    const totalGenerated = await Report.countDocuments({ status: 'generated' });
+    const totalArchived = await Report.countDocuments({ status: 'archived' });
+    
+    // Get reports by type
+    const dailyCount = await Report.countDocuments({ type: 'daily' });
+    const weeklyCount = await Report.countDocuments({ type: 'weekly' });
+    const monthlyCount = await Report.countDocuments({ type: 'monthly' });
+    const customCount = await Report.countDocuments({ type: 'custom' });
+
+    res.json({
+      success: true,
+      data: {
+        totalReports,
+        totalGenerated,
+        totalArchived,
+        byType: {
+          daily: dailyCount,
+          weekly: weeklyCount,
+          monthly: monthlyCount,
+          custom: customCount
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching report stats:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch stats' });
+  }
+});
+
+// ===== ARCHIVE REPORT =====
+router.patch('/reports/:controlNumber/archive', protect, admin, async (req, res) => {
+  console.log('📦 PATCH /api/admin/reports/:controlNumber/archive - by:', req.user?.email);
+  try {
+    const report = await Report.findOne({ 
+      controlNumber: req.params.controlNumber 
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        error: 'Report not found'
+      });
+    }
+
+    report.status = 'archived';
+    await report.save();
+
+    res.json({
+      success: true,
+      message: 'Report archived successfully',
+      data: report
+    });
+  } catch (error) {
+    console.error('Error archiving report:', error);
+    res.status(500).json({ success: false, error: 'Failed to archive report' });
+  }
+});

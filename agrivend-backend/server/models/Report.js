@@ -76,6 +76,7 @@ const reportSchema = new mongoose.Schema({
 reportSchema.index({ controlNumber: 1 });
 reportSchema.index({ generatedAt: -1 });
 reportSchema.index({ type: 1 });
+reportSchema.index({ status: 1 });
 
 const Report = mongoose.model('Report', reportSchema);
 export default Report;
