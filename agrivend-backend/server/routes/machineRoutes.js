@@ -46,6 +46,16 @@ router.get('/data', protect, async (req, res) => {
             doorStatus: 'Closed',
             securityStatus: 'Safe',
             lastUpdate: new Date()
+          },
+          cash: {
+            coins: { onePeso: 0, fivePeso: 0, tenPeso: 0, twentyPeso: 0 },
+            bills: { twenty: 0, fifty: 0, hundred: 0, twoHundred: 0 },
+            total: 0
+          },
+          calibration: {
+            storage1: { unit: 'kg', status: 'Stable' },
+            storage2: { unit: 'kg', status: 'Stable' },
+            dispense: { unit: 'kg', status: 'Stable' }
           }
         }
       });
@@ -57,7 +67,9 @@ router.get('/data', protect, async (req, res) => {
         storage1: machine.storage1,
         storage2: machine.storage2,
         battery: machine.battery,
-        machineStatus: machine.machineStatus
+        machineStatus: machine.machineStatus,
+        cash: machine.cash,
+        calibration: machine.calibration
       }
     });
   } catch (error) {
@@ -69,7 +81,12 @@ router.get('/data', protect, async (req, res) => {
 // ==================== UPDATE MACHINE DATA (from Arduino/ESP32) ====================
 router.post('/update', async (req, res) => {
   try {
-    const { storage1Weight, storage2Weight, batteryPercentage, batteryVoltage, temperature, doorStatus } = req.body;
+    const { 
+      storage1Weight, storage2Weight, 
+      batteryPercentage, batteryVoltage, 
+      temperature, doorStatus,
+      coinInserted, billInserted 
+    } = req.body;
     
     let machine = await Machine.findOne();
     
@@ -109,6 +126,52 @@ router.post('/update', async (req, res) => {
     if (doorStatus !== undefined) machine.machineStatus.doorStatus = doorStatus;
     machine.machineStatus.lastUpdate = new Date();
     
+    // Handle coin insertion
+    if (coinInserted !== undefined) {
+      const coinMap = {
+        1: 'onePeso',
+        5: 'fivePeso', 
+        10: 'tenPeso',
+        20: 'twentyPeso'
+      };
+      const key = coinMap[coinInserted];
+      if (key && machine.cash && machine.cash.coins) {
+        machine.cash.coins[key] = (machine.cash.coins[key] || 0) + 1;
+        machine.cash.lastUpdated = new Date();
+      }
+    }
+    
+    // Handle bill insertion
+    if (billInserted !== undefined) {
+      const billMap = {
+        20: 'twenty',
+        50: 'fifty',
+        100: 'hundred',
+        200: 'twoHundred'
+      };
+      const key = billMap[billInserted];
+      if (key && machine.cash && machine.cash.bills) {
+        machine.cash.bills[key] = (machine.cash.bills[key] || 0) + 1;
+        machine.cash.lastUpdated = new Date();
+      }
+    }
+    
+    // Add sensor history
+    if (!machine.sensorHistory) machine.sensorHistory = [];
+    machine.sensorHistory.push({
+      storage1Weight: machine.storage1.currentWeight,
+      storage2Weight: machine.storage2.currentWeight,
+      batteryPercentage: machine.battery.percentage,
+      temperature: machine.machineStatus.temperature,
+      doorStatus: machine.machineStatus.doorStatus,
+      timestamp: new Date()
+    });
+    
+    // Keep only last 1000 records
+    if (machine.sensorHistory.length > 1000) {
+      machine.sensorHistory = machine.sensorHistory.slice(-1000);
+    }
+    
     await machine.save();
     
     // Emit socket event for real-time updates
@@ -118,7 +181,8 @@ router.post('/update', async (req, res) => {
         storage1: machine.storage1,
         storage2: machine.storage2,
         battery: machine.battery,
-        machineStatus: machine.machineStatus
+        machineStatus: machine.machineStatus,
+        cash: machine.cash
       });
       
       // Check for low stock alerts
@@ -154,7 +218,8 @@ router.post('/update', async (req, res) => {
         storage1: machine.storage1,
         storage2: machine.storage2,
         battery: machine.battery,
-        machineStatus: machine.machineStatus
+        machineStatus: machine.machineStatus,
+        cash: machine.cash
       }
     });
   } catch (error) {
@@ -206,7 +271,8 @@ router.post('/refill', protect, staff, async (req, res) => {
         storage1: machine.storage1,
         storage2: machine.storage2,
         battery: machine.battery,
-        machineStatus: machine.machineStatus
+        machineStatus: machine.machineStatus,
+        cash: machine.cash
       });
     }
     
@@ -236,10 +302,10 @@ router.put('/product/:storageId', protect, staff, async (req, res) => {
     
     if (storageId === '1') {
       if (name) machine.storage1.name = name;
-      if (pricePerKg) machine.storage1.pricePerKg = pricePerKg;
+      if (pricePerKg) machine.storage1.pricePerKg = parseFloat(pricePerKg);
     } else if (storageId === '2') {
       if (name) machine.storage2.name = name;
-      if (pricePerKg) machine.storage2.pricePerKg = pricePerKg;
+      if (pricePerKg) machine.storage2.pricePerKg = parseFloat(pricePerKg);
     } else {
       return res.status(400).json({ success: false, error: 'Invalid storage ID' });
     }
@@ -266,7 +332,8 @@ router.put('/product/:storageId', protect, staff, async (req, res) => {
         storage1: machine.storage1,
         storage2: machine.storage2,
         battery: machine.battery,
-        machineStatus: machine.machineStatus
+        machineStatus: machine.machineStatus,
+        cash: machine.cash
       });
     }
     
@@ -335,12 +402,235 @@ router.get('/stats', protect, admin, async (req, res) => {
         avgTemperature: machine.machineStatus.temperature,
         doorStatus: machine.machineStatus.doorStatus,
         securityStatus: machine.machineStatus.securityStatus,
+        totalCash: machine.cash?.total || 0,
         lastUpdate: machine.machineStatus.lastUpdate
       }
     });
   } catch (error) {
     console.error('Error fetching machine stats:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch stats' });
+  }
+});
+
+// ==================== COLLECT CASH ====================
+router.post('/collect-cash', protect, staff, async (req, res) => {
+  try {
+    const { collectedBy, notes } = req.body;
+    
+    let machine = await Machine.findOne();
+    
+    if (!machine) {
+      return res.status(404).json({ success: false, error: 'Machine data not found' });
+    }
+    
+    const amount = machine.cash?.total || 0;
+    
+    if (amount === 0) {
+      return res.status(400).json({ success: false, error: 'No cash to collect' });
+    }
+    
+    // Record collection in history
+    if (!machine.cash) machine.cash = { coins: {}, bills: {}, total: 0, history: [] };
+    if (!machine.cash.history) machine.cash.history = [];
+    
+    machine.cash.history.push({
+      collectedBy: collectedBy || 'Staff',
+      amount: amount,
+      timestamp: new Date(),
+      notes: notes || ''
+    });
+    
+    // Reset cash counts
+    machine.cash.coins = { onePeso: 0, fivePeso: 0, tenPeso: 0, twentyPeso: 0 };
+    machine.cash.bills = { twenty: 0, fifty: 0, hundred: 0, twoHundred: 0 };
+    machine.cash.total = 0;
+    machine.cash.lastUpdated = new Date();
+    
+    await machine.save();
+    
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('cash_collected', {
+        collectedBy: collectedBy || 'Staff',
+        amount: amount,
+        timestamp: new Date()
+      });
+      io.emit('machine_data_updated', {
+        storage1: machine.storage1,
+        storage2: machine.storage2,
+        battery: machine.battery,
+        machineStatus: machine.machineStatus,
+        cash: machine.cash
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: `Cash collected: ₱${amount.toFixed(2)}`,
+      data: {
+        amount: amount,
+        collectedBy: collectedBy || 'Staff',
+        timestamp: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Error collecting cash:', error);
+    res.status(500).json({ success: false, error: 'Failed to collect cash' });
+  }
+});
+
+// ==================== GET CASH HISTORY ====================
+router.get('/cash-history', protect, admin, async (req, res) => {
+  try {
+    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    
+    if (!machine || !machine.cash?.history) {
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: machine.cash.history
+    });
+  } catch (error) {
+    console.error('Error fetching cash history:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch cash history' });
+  }
+});
+
+// ==================== CALIBRATE SCALE ====================
+router.post('/calibrate/:scaleName', protect, staff, async (req, res) => {
+  try {
+    const { scaleName } = req.params;
+    const { rawValue, calibratedValue } = req.body;
+    
+    let machine = await Machine.findOne();
+    
+    if (!machine) {
+      machine = new Machine();
+    }
+    
+    const validScales = ['storage1', 'storage2', 'dispense'];
+    if (!validScales.includes(scaleName)) {
+      return res.status(400).json({ success: false, error: 'Invalid scale name' });
+    }
+    
+    // Initialize calibration if not exists
+    if (!machine.calibration) machine.calibration = {};
+    if (!machine.calibration[scaleName]) {
+      machine.calibration[scaleName] = { unit: 'kg', status: 'Stable' };
+    }
+    
+    machine.calibration[scaleName].rawValue = rawValue || 0;
+    machine.calibration[scaleName].calibratedValue = calibratedValue || 0;
+    machine.calibration[scaleName].status = 'Calibrated';
+    machine.calibration[scaleName].lastCalibrated = new Date();
+    
+    await machine.save();
+    
+    res.json({
+      success: true,
+      message: `${scaleName} calibrated successfully`,
+      data: machine.calibration[scaleName]
+    });
+  } catch (error) {
+    console.error('Error calibrating scale:', error);
+    res.status(500).json({ success: false, error: 'Failed to calibrate scale' });
+  }
+});
+
+// ==================== ZERO SCALE ====================
+router.post('/zero/:scaleName', protect, staff, async (req, res) => {
+  try {
+    const { scaleName } = req.params;
+    
+    let machine = await Machine.findOne();
+    
+    if (!machine) {
+      machine = new Machine();
+    }
+    
+    const validScales = ['storage1', 'storage2', 'dispense'];
+    if (!validScales.includes(scaleName)) {
+      return res.status(400).json({ success: false, error: 'Invalid scale name' });
+    }
+    
+    // Initialize calibration if not exists
+    if (!machine.calibration) machine.calibration = {};
+    if (!machine.calibration[scaleName]) {
+      machine.calibration[scaleName] = { unit: 'kg', status: 'Stable' };
+    }
+    
+    machine.calibration[scaleName].rawValue = 0;
+    machine.calibration[scaleName].calibratedValue = 0;
+    machine.calibration[scaleName].status = 'Zeroed';
+    machine.calibration[scaleName].lastZeroed = new Date();
+    
+    await machine.save();
+    
+    res.json({
+      success: true,
+      message: `${scaleName} zeroed successfully`,
+      data: machine.calibration[scaleName]
+    });
+  } catch (error) {
+    console.error('Error zeroing scale:', error);
+    res.status(500).json({ success: false, error: 'Failed to zero scale' });
+  }
+});
+
+// ==================== GET CALIBRATION STATUS ====================
+router.get('/calibration', protect, admin, async (req, res) => {
+  try {
+    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    
+    if (!machine || !machine.calibration) {
+      return res.json({
+        success: true,
+        data: {
+          storage1: { unit: 'kg', status: 'Stable' },
+          storage2: { unit: 'kg', status: 'Stable' },
+          dispense: { unit: 'kg', status: 'Stable' }
+        }
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: machine.calibration
+    });
+  } catch (error) {
+    console.error('Error fetching calibration status:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch calibration status' });
+  }
+});
+
+// ==================== GET CASH SUMMARY ====================
+router.get('/cash-summary', protect, admin, async (req, res) => {
+  try {
+    const machine = await Machine.findOne().sort({ createdAt: -1 });
+    
+    if (!machine || !machine.cash) {
+      return res.json({
+        success: true,
+        data: {
+          coins: { onePeso: 0, fivePeso: 0, tenPeso: 0, twentyPeso: 0 },
+          bills: { twenty: 0, fifty: 0, hundred: 0, twoHundred: 0 },
+          total: 0
+        }
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: machine.cash
+    });
+  } catch (error) {
+    console.error('Error fetching cash summary:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch cash summary' });
   }
 });
 
