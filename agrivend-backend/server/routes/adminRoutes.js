@@ -1830,3 +1830,5 @@ router.patch('/reports/:controlNumber/archive', protect, admin, async (req, res)
     res.status(500).json({ success: false, error: 'Failed to archive report' });
   }
 });
+
+export default router;
