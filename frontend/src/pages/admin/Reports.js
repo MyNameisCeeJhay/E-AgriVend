@@ -1293,42 +1293,43 @@ const AdminReports = () => {
     </div>
   );
 };
-// In Reports.js, update the saveToHistory function
-const saveToHistory = async (report) => {
+// ===== SAVE REPORT TO DATABASE =====
+const saveReportToDatabase = async (reportData) => {
   try {
-    // Save to backend database
-    const response = await axios.post(`${API_URL}/admin/reports/save`, report, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    const token = localStorage.getItem('token');
+    const response = await axios.post(`${API_URL}/admin/reports/save`, reportData, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
     });
     
     if (response.data.success) {
-      // Also update localStorage for quick access
-      const newHistory = [report, ...reportHistory];
-      setReportHistory(newHistory);
-      localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
+      console.log('✅ Report saved to database:', response.data.data);
+      return response.data.data;
     }
+    return null;
   } catch (error) {
-    console.error('Error saving report to database:', error);
-    // Fallback to localStorage only
-    const newHistory = [report, ...reportHistory];
-    setReportHistory(newHistory);
-    localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
+    console.error('❌ Error saving report to database:', error);
+    return null;
   }
 };
 
-// Update fetchReportHistory to get from backend
+// ===== FETCH REPORT HISTORY FROM DATABASE =====
 const fetchReportHistory = async () => {
   try {
+    const token = localStorage.getItem('token');
     const response = await axios.get(`${API_URL}/admin/reports/history`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
     });
     
     if (response.data.success) {
-      setReportHistory(response.data.data);
-      localStorage.setItem('agrivend_report_history', JSON.stringify(response.data.data));
+      const reports = response.data.data || [];
+      setReportHistory(reports);
+      // Also update localStorage for quick access
+      localStorage.setItem('agrivend_report_history', JSON.stringify(reports));
+      return reports;
     }
+    return [];
   } catch (error) {
-    console.error('Error fetching report history:', error);
+    console.error('❌ Error fetching report history:', error);
     // Fallback to localStorage
     const savedHistory = localStorage.getItem('agrivend_report_history');
     if (savedHistory) {
@@ -1338,6 +1339,144 @@ const fetchReportHistory = async () => {
         console.error('Error loading report history:', e);
       }
     }
+    return [];
   }
 };
+
+// ===== UPDATE generateReport function =====
+const generateReport = async () => {
+  setLoading(true);
+  try {
+    let url = '';
+    let params = {};
+    
+    switch(reportType) {
+      case 'daily':
+        url = `${API_URL}/admin/reports/daily`;
+        params = { date: dateRange.startDate };
+        break;
+      case 'weekly':
+        url = `${API_URL}/admin/reports/weekly`;
+        const date = new Date(dateRange.startDate);
+        params = { week: getWeekNumber(date), year: date.getFullYear() };
+        break;
+      case 'monthly':
+        url = `${API_URL}/admin/reports/monthly`;
+        const monthDate = new Date(dateRange.startDate);
+        params = { month: monthDate.getMonth() + 1, year: monthDate.getFullYear() };
+        break;
+      case 'custom':
+        url = `${API_URL}/admin/reports/custom`;
+        params = { startDate: dateRange.startDate, endDate: dateRange.endDate };
+        break;
+    }
+    
+    const token = localStorage.getItem('token');
+    const response = await axios.get(url, { 
+      params,
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    
+    let data = response.data.data;
+    if (data && data.transactions) {
+      if (transactionSource === 'manual') {
+        data.transactions = data.transactions.filter(t => isManualTransaction(t));
+        data.summary = calculateFilteredSummary(data.transactions);
+      } else if (transactionSource === 'machine') {
+        data.transactions = data.transactions.filter(t => isMachineTransaction(t));
+        data.summary = calculateFilteredSummary(data.transactions);
+      } else {
+        data.summary = calculateFilteredSummary(data.transactions);
+      }
+      
+      if (data.transactions.length > 0) {
+        calculateProductRanking(data.transactions);
+      } else {
+        setProductRanking([]);
+        setBestSellingProduct(null);
+      }
+      
+      const controlNumber = generateControlNumber();
+      const reportTitle = getReportTitle();
+      
+      // Prepare report data for database
+      const reportEntry = {
+        controlNumber,
+        title: reportTitle,
+        type: reportType,
+        dateRange: {
+          start: dateRange.startDate,
+          end: reportType === 'custom' ? dateRange.endDate : dateRange.startDate
+        },
+        transactionSource: transactionSource,
+        summary: {
+          totalTransactions: data.summary?.totalTransactions || 0,
+          totalQuantity: data.summary?.totalQuantity || 0,
+          totalSales: data.summary?.totalSales || 0,
+          averageOrderValue: data.summary?.averageOrderValue || 0
+        },
+        transactions: data.transactions.map(t => ({
+          transactionId: t.transactionId || t._id?.slice(-8),
+          createdAt: t.createdAt,
+          riceType: t.riceType,
+          productName: t.productName,
+          quantityKg: t.quantityKg,
+          amountPaid: t.amountPaid,
+          totalAmount: t.amountPaid || t.totalAmount,
+          source: getTransactionSourceText(t),
+          paymentMethod: t.paymentMethod || 'CASH'
+        })),
+        productRanking: productRanking.map(p => ({
+          name: p.name,
+          quantity: p.quantity,
+          revenue: p.revenue,
+          count: p.count,
+          avgPrice: p.avgPrice
+        })),
+        generatedBy: {
+          name: `${user?.firstName || 'Admin'} ${user?.lastName || 'User'}`,
+          userId: user?._id
+        },
+        generatedAt: new Date().toISOString()
+      };
+      
+      // Save to database
+      const savedReport = await saveReportToDatabase(reportEntry);
+      
+      // Also save to localStorage for quick access
+      if (savedReport) {
+        const newHistory = [savedReport, ...reportHistory];
+        setReportHistory(newHistory);
+        localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
+      }
+      
+      const report = {
+        ...data,
+        controlNumber,
+        generatedBy: reportEntry.generatedBy.name,
+        generatedAt: reportEntry.generatedAt,
+        reportTitle,
+        dateRange: reportEntry.dateRange
+      };
+      
+      setGeneratedReport(report);
+      setShowReportModal(true);
+      setReportData(data);
+      showNotification('success', `Report generated! Control #: ${controlNumber}`);
+    }
+  } catch (error) {
+    console.error('Error generating report:', error);
+    showNotification('error', 'Failed to generate report');
+  } finally {
+    setLoading(false);
+  }
+};
+
+// ===== UPDATE useEffect to fetch history on load =====
+useEffect(() => {
+  fetchSalesSummary();
+  fetchChartData('daily');
+  fetchReportHistory(); // Add this
+}, []);
+
 export default AdminReports;

@@ -1703,10 +1703,12 @@ router.get('/reports/history', protect, admin, async (req, res) => {
       };
     }
     
-    // Fetch reports from database
     const reports = await Report.find(query)
       .sort({ generatedAt: -1 })
+      .populate('generatedBy.userId', 'firstName lastName email')
       .limit(parseInt(limit));
+    
+    console.log(`✅ Found ${reports.length} reports in database`);
     
     res.json({
       success: true,

@@ -72,11 +72,12 @@ const reportSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes
+// Indexes for efficient queries
 reportSchema.index({ controlNumber: 1 });
 reportSchema.index({ generatedAt: -1 });
 reportSchema.index({ type: 1 });
 reportSchema.index({ status: 1 });
+reportSchema.index({ 'generatedBy.userId': 1 });
 
 const Report = mongoose.model('Report', reportSchema);
 export default Report;
