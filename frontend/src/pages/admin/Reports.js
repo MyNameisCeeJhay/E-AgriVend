@@ -3,8 +3,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import './Reports.css';
 
-//const API_URL = 'https://e-agrivend.onrender.com/api';
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://e-agrivend.onrender.com/api';
+
 
 const AdminReports = () => {
   const { user } = useAuth();
