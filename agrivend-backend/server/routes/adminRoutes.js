@@ -1380,5 +1380,277 @@ router.post('/users/bulk/status', protect, admin, async (req, res) => {
     });
   }
 });
+// ===== REPORT ROUTES =====
+router.get('/reports/daily', protect, admin, async (req, res) => {
+  console.log('📅 GET /api/admin/reports/daily - by:', req.user?.email);
+  try {
+    const { date } = req.query;
+    const targetDate = date ? parseLocalDate(date) : new Date();
+    const startDate = new Date(targetDate);
+    startDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(targetDate);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const transactions = await Transaction.find({
+      createdAt: { $gte: startDate, $lte: endDate },
+      status: 'COMPLETED'
+    }).sort({ createdAt: -1 });
+    
+    const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    
+    // Hourly data for chart
+    const hourlyData = {};
+    for (let i = 0; i < 24; i++) {
+      hourlyData[i] = 0;
+    }
+    
+    transactions.forEach(t => {
+      const hour = new Date(t.createdAt).getHours();
+      hourlyData[hour] += t.amountPaid;
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalSales,
+          totalQuantity,
+          averageOrderValue: transactions.length > 0 ? totalSales / transactions.length : 0
+        },
+        transactions,
+        chartData: Object.entries(hourlyData).map(([hour, sales]) => ({
+          label: `${hour}:00`,
+          sales
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error generating daily report:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report' });
+  }
+});
+
+router.get('/reports/weekly', protect, admin, async (req, res) => {
+  console.log('📆 GET /api/admin/reports/weekly - by:', req.user?.email);
+  try {
+    const { week, year, date } = req.query;
+    const currentYear = year ? parseInt(year, 10) : new Date().getFullYear();
+    let startDate;
+    
+    if (date) {
+      const parsedDate = parseLocalDate(date) || new Date(date);
+      const weekStart = new Date(parsedDate);
+      const dayOfWeek = weekStart.getDay() === 0 ? 7 : weekStart.getDay();
+      weekStart.setDate(weekStart.getDate() + 1 - dayOfWeek);
+      weekStart.setHours(0, 0, 0, 0);
+      startDate = weekStart;
+    } else {
+      const currentWeek = week ? parseInt(week, 10) : getIsoWeekNumber(new Date());
+      startDate = getDateOfISOWeek(currentWeek, currentYear);
+      startDate.setHours(0, 0, 0, 0);
+    }
+    
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const transactions = await Transaction.find({
+      createdAt: { $gte: startDate, $lte: endDate },
+      status: 'COMPLETED'
+    }).sort({ createdAt: -1 });
+    
+    const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dailyData = {};
+    dayNames.forEach(day => { dailyData[day] = 0; });
+    
+    transactions.forEach(t => {
+      const day = dayNames[new Date(t.createdAt).getDay()];
+      dailyData[day] += t.amountPaid;
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalSales,
+          totalQuantity,
+          averageOrderValue: transactions.length > 0 ? totalSales / transactions.length : 0
+        },
+        transactions,
+        chartData: Object.entries(dailyData).map(([day, sales]) => ({
+          label: day.slice(0, 3),
+          sales
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error generating weekly report:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report' });
+  }
+});
+
+router.get('/reports/monthly', protect, admin, async (req, res) => {
+  console.log('📊 GET /api/admin/reports/monthly - by:', req.user?.email);
+  try {
+    const { month, year } = req.query;
+    const currentYear = year || new Date().getFullYear();
+    const currentMonth = parseInt(month) || new Date().getMonth() + 1;
+    
+    const startDate = new Date(currentYear, currentMonth - 1, 1);
+    startDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(currentYear, currentMonth, 0);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const transactions = await Transaction.find({
+      createdAt: { $gte: startDate, $lte: endDate },
+      status: 'COMPLETED'
+    }).sort({ createdAt: -1 });
+    
+    const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    
+    const weeklyData = {
+      'Week 1': 0,
+      'Week 2': 0,
+      'Week 3': 0,
+      'Week 4': 0,
+      'Week 5': 0
+    };
+    
+    transactions.forEach(t => {
+      const day = new Date(t.createdAt).getDate();
+      let week = 'Week 1';
+      if (day <= 7) week = 'Week 1';
+      else if (day <= 14) week = 'Week 2';
+      else if (day <= 21) week = 'Week 3';
+      else if (day <= 28) week = 'Week 4';
+      else week = 'Week 5';
+      
+      weeklyData[week] += t.amountPaid;
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalSales,
+          totalQuantity,
+          averageOrderValue: transactions.length > 0 ? totalSales / transactions.length : 0
+        },
+        transactions,
+        chartData: Object.entries(weeklyData).map(([week, sales]) => ({
+          label: week,
+          sales
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error generating monthly report:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report' });
+  }
+});
+
+router.get('/reports/custom', protect, admin, async (req, res) => {
+  console.log('📅 GET /api/admin/reports/custom - by:', req.user?.email);
+  try {
+    const { startDate, endDate } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Start date and end date are required' 
+      });
+    }
+    
+    const start = parseLocalDate(startDate);
+    const end = parseLocalDate(endDate);
+    if (!start || !end) {
+      return res.status(400).json({ success: false, error: 'Invalid start date or end date' });
+    }
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    
+    const transactions = await Transaction.find({
+      createdAt: { $gte: start, $lte: end },
+      status: 'COMPLETED'
+    }).sort({ createdAt: -1 });
+    
+    const totalSales = transactions.reduce((sum, t) => sum + t.amountPaid, 0);
+    const totalQuantity = transactions.reduce((sum, t) => sum + t.quantityKg, 0);
+    
+    const dailyData = {};
+    transactions.forEach(t => {
+      const dateKey = new Date(t.createdAt).toLocaleDateString('en-US');
+      dailyData[dateKey] = (dailyData[dateKey] || 0) + t.amountPaid;
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalTransactions: transactions.length,
+          totalSales,
+          totalQuantity,
+          averageOrderValue: transactions.length > 0 ? totalSales / transactions.length : 0,
+          dateRange: { startDate, endDate }
+        },
+        transactions,
+        chartData: Object.entries(dailyData).map(([date, sales]) => ({
+          label: date,
+          sales
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error generating custom report:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report' });
+  }
+});
+
+// Get report history from localStorage is handled on frontend
+// But if you want to save reports to database, add this:
+
+// ===== SAVE GENERATED REPORT =====
+router.post('/reports/save', protect, admin, async (req, res) => {
+  console.log('💾 POST /api/admin/reports/save - by:', req.user?.email);
+  try {
+    const { controlNumber, title, type, dateRange, summary, transactions, productRanking } = req.body;
+    
+    // You can save to a Report collection if you have one
+    // For now, just acknowledge
+    res.json({
+      success: true,
+      message: 'Report saved successfully'
+    });
+  } catch (error) {
+    console.error('Error saving report:', error);
+    res.status(500).json({ success: false, error: 'Failed to save report' });
+  }
+});
+
+// ===== GET REPORT HISTORY =====
+router.get('/reports/history', protect, admin, async (req, res) => {
+  console.log('📋 GET /api/admin/reports/history - by:', req.user?.email);
+  try {
+    // If you have a Report model, fetch from database
+    // For now, return empty array (frontend uses localStorage)
+    res.json({
+      success: true,
+      data: []
+    });
+  } catch (error) {
+    console.error('Error fetching report history:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch report history' });
+  }
+});
 
 export default router;
