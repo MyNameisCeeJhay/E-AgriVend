@@ -4,7 +4,7 @@ const reportSchema = new mongoose.Schema({
   controlNumber: {
     type: String,
     required: true,
-    unique: true
+    unique: true  // ← This already creates the index
   },
   title: {
     type: String,
@@ -73,7 +73,7 @@ const reportSchema = new mongoose.Schema({
 });
 
 // Indexes for efficient queries
-reportSchema.index({ controlNumber: 1 });
+// REMOVED: reportSchema.index({ controlNumber: 1 }); // ← REMOVE THIS - already defined above
 reportSchema.index({ generatedAt: -1 });
 reportSchema.index({ type: 1 });
 reportSchema.index({ status: 1 });

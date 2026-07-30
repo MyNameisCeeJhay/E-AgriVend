@@ -4,7 +4,7 @@ const transactionSchema = new mongoose.Schema({
   transactionId: {
     type: String,
     required: true,
-    unique: true
+    unique: true  // ← This already creates the index
   },
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -57,8 +57,8 @@ const transactionSchema = new mongoose.Schema({
 });
 
 // Indexes for efficient queries
+// REMOVED: transactionSchema.index({ transactionId: 1 }); // ← REMOVE THIS - already defined above
 transactionSchema.index({ user: 1, createdAt: -1 });
-transactionSchema.index({ transactionId: 1 });
 transactionSchema.index({ createdAt: -1 });
 transactionSchema.index({ productName: 1 });
 transactionSchema.index({ recordedBy: 1 });
