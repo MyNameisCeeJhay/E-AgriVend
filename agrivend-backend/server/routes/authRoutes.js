@@ -4,20 +4,19 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
-// ===== TEST ROUTE (Add this to verify routes are loading) =====
+// ===== TEST ROUTE =====
 router.get('/test', (req, res) => {
-  console.log('✅ AUTH TEST ROUTE HIT!');
+  console.log('✅ TEST ROUTE HIT!');
   res.json({ 
     success: true, 
-    message: 'Auth routes are working!',
+    message: 'Auth is working!',
     timestamp: new Date().toISOString()
   });
 });
 
 // ===== LOGIN ROUTE =====
 router.post('/login', async (req, res) => {
-  console.log('🔑 POST /api/auth/login - Request received');
-  console.log('Email:', req.body.email);
+  console.log('🔑 LOGIN ATTEMPT:', req.body.email);
   
   try {
     const { email, password } = req.body;
@@ -25,13 +24,13 @@ router.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Please provide email and password' 
+        error: 'Email and password required' 
       });
     }
 
     const user = await User.findOne({ email });
     if (!user) {
-      console.log('❌ User not found:', email);
+      console.log('❌ User not found');
       return res.status(401).json({ 
         success: false, 
         error: 'Invalid credentials' 
@@ -40,17 +39,10 @@ router.post('/login', async (req, res) => {
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      console.log('❌ Password mismatch for:', email);
+      console.log('❌ Password mismatch');
       return res.status(401).json({ 
         success: false, 
         error: 'Invalid credentials' 
-      });
-    }
-
-    if (!user.isActive) {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Account is deactivated' 
       });
     }
 
@@ -60,8 +52,6 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('✅ Login successful for:', email);
-
     res.json({
       success: true,
       token,
@@ -70,37 +60,34 @@ router.post('/login', async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        phone: user.phone,
-        address: user.address,
         role: user.role
       }
     });
 
   } catch (error) {
-    console.error('❌ Login error:', error);
+    console.error('Login error:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Server error during login' 
+      error: 'Server error' 
     });
   }
 });
 
 // ===== REGISTER ROUTE =====
 router.post('/register', async (req, res) => {
-  console.log('📝 POST /api/auth/register - Request received');
-  
+  console.log('📝 REGISTER ATTEMPT');
   try {
-    const { email, password, firstName, lastName, phone, address } = req.body;
+    const { email, password, firstName, lastName } = req.body;
 
     if (!email || !password || !firstName || !lastName) {
       return res.status(400).json({ 
         success: false, 
-        error: 'All fields are required' 
+        error: 'All fields required' 
       });
     }
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    const existing = await User.findOne({ email });
+    if (existing) {
       return res.status(400).json({ 
         success: false, 
         error: 'Email already registered' 
@@ -112,8 +99,6 @@ router.post('/register', async (req, res) => {
       password,
       firstName,
       lastName,
-      phone: phone || '',
-      address: address || '',
       role: 'customer'
     });
 
@@ -133,65 +118,17 @@ router.post('/register', async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        phone: user.phone,
-        address: user.address,
         role: user.role
       }
     });
 
   } catch (error) {
-    console.error('❌ Register error:', error);
+    console.error('Register error:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Server error during registration' 
+      error: 'Server error' 
     });
   }
 });
 
-// ===== GET CURRENT USER =====
-router.get('/me', async (req, res) => {
-  console.log('👤 GET /api/auth/me - Request received');
-  
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'No token provided' 
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    const user = await User.findById(decoded.id).select('-password');
-
-    if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'User not found' 
-      });
-    }
-
-    res.json({
-      success: true,
-      user: {
-        id: user._id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        phone: user.phone,
-        address: user.address,
-        role: user.role,
-        termsAccepted: user.termsAccepted,
-        createdAt: user.createdAt
-      }
-    });
-  } catch (error) {
-    console.error('❌ Auth error:', error);
-    res.status(401).json({ 
-      success: false, 
-      error: 'Invalid token' 
-    });
-  }
-});
-
-export default router;  // ← MUST BE AT THE END
+export default router;
