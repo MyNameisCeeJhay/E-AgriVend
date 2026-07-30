@@ -1,6 +1,6 @@
 const API_URL = 'https://e-agrivend.onrender.com/api';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSocket } from '../../contexts/SocketContext';
 import axios from 'axios';
 import './StaffTransactions.css';
@@ -33,26 +33,110 @@ const StaffTransactions = () => {
     paymentMethod: 'CASH'
   });
 
-  // ===== FETCH TRANSACTIONS WITH FILTERS =====
-  const fetchTransactions = useCallback(async (page = 1) => {
+  useEffect(() => {
+    fetchProducts();
+    fetchTransactions();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      setLoadingProducts(true);
+      const token = localStorage.getItem('token');
+      
+      // Fetch active products from the correct endpoint
+      const response = await axios.get(`${API_URL}/products/active`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setProducts(response.data.data);
+        console.log('Products loaded:', response.data.data);
+      } else {
+        setProducts([]);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      setProducts([]);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  const fetchAllProductsForManagement = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/products`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setProducts(response.data.data);
+        console.log('All products loaded for management:', response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching all products:', error);
+    }
+  };
+
+  const saveProductsToDatabase = async (updatedProducts) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_URL}/products/bulk`, {
+        products: updatedProducts
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Refresh products after save
+      await fetchProducts();
+      await fetchAllProductsForManagement();
+      
+      // Broadcast product update to all connected clients
+      if (socket) {
+        socket.emit('products_updated');
+        console.log('Product update broadcasted to all clients');
+      }
+    } catch (error) {
+      console.error('Error saving products:', error);
+      showNotification('error', 'Failed to save products to database');
+    }
+  };
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('new_transaction', () => {
+        fetchTransactions();
+        showNotification('success', 'New transaction added');
+      });
+      
+      socket.on('products_updated', () => {
+        fetchProducts();
+        fetchAllProductsForManagement();
+        showNotification('info', 'Product list has been updated');
+      });
+      
+      return () => {
+        socket.off('new_transaction');
+        socket.off('products_updated');
+      };
+    }
+  }, [socket, pagination.page, filters]);
+
+  const activeProducts = products.filter(p => !p.isArchived);
+
+  const fetchTransactions = async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      const params = {
-        page: page,
-        limit: pagination.limit,
-      };
-      
-      // Only add filters if they have values
-      if (filters.startDate) params.startDate = filters.startDate;
-      if (filters.endDate) params.endDate = filters.endDate;
-      if (filters.search) params.search = filters.search;
-      
-      console.log('Fetching transactions with params:', params);
-      
       const response = await axios.get(`${API_URL}/transactions`, {
-        params: params,
+        params: {
+          page: pagination.page,
+          limit: pagination.limit,
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+          search: filters.search
+        },
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -71,121 +155,7 @@ const StaffTransactions = () => {
     } finally {
       setLoading(false);
     }
-  }, [filters, pagination.limit]);
-
-  // ===== APPLY FILTERS =====
-  const applyFilters = () => {
-    setPagination(prev => ({ ...prev, page: 1 }));
-    fetchTransactions(1);
   };
-
-  // ===== CLEAR FILTERS =====
-  const clearFilters = () => {
-    setFilters({ startDate: '', endDate: '', search: '' });
-    setPagination(prev => ({ ...prev, page: 1 }));
-    // Fetch immediately after clearing
-    setTimeout(() => {
-      fetchTransactions(1);
-    }, 100);
-  };
-
-  // ===== FETCH PRODUCTS =====
-  const fetchProducts = async () => {
-    try {
-      setLoadingProducts(true);
-      const token = localStorage.getItem('token');
-      
-      const response = await axios.get(`${API_URL}/products/active`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        setProducts(response.data.data);
-      } else {
-        setProducts([]);
-      }
-    } catch (error) {
-      console.error('Error fetching products:', error);
-      setProducts([]);
-    } finally {
-      setLoadingProducts(false);
-    }
-  };
-
-  // ===== FETCH ALL PRODUCTS =====
-  const fetchAllProductsForManagement = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/products`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        setProducts(response.data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching all products:', error);
-    }
-  };
-
-  // ===== INITIAL LOAD =====
-  useEffect(() => {
-    fetchProducts();
-    fetchTransactions(1);
-  }, []);
-
-  // ===== PAGINATION EFFECT =====
-  useEffect(() => {
-    if (pagination.page > 1) {
-      fetchTransactions(pagination.page);
-    }
-  }, [pagination.page]);
-
-  // ===== SOCKET EVENTS =====
-  useEffect(() => {
-    if (socket) {
-      socket.on('new_transaction', () => {
-        fetchTransactions(1);
-        showNotification('success', 'New transaction added');
-      });
-      
-      socket.on('products_updated', () => {
-        fetchProducts();
-        fetchAllProductsForManagement();
-        showNotification('info', 'Product list has been updated');
-      });
-      
-      return () => {
-        socket.off('new_transaction');
-        socket.off('products_updated');
-      };
-    }
-  }, [socket]);
-
-  // ===== SAVE PRODUCTS =====
-  const saveProductsToDatabase = async (updatedProducts) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post(`${API_URL}/products/bulk`, {
-        products: updatedProducts
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      await fetchProducts();
-      await fetchAllProductsForManagement();
-      
-      if (socket) {
-        socket.emit('products_updated');
-      }
-    } catch (error) {
-      console.error('Error saving products:', error);
-      showNotification('error', 'Failed to save products to database');
-    }
-  };
-
-  // ===== OTHER FUNCTIONS =====
-  const activeProducts = products.filter(p => !p.isArchived);
 
   const generateTransactionId = () => {
     const date = new Date();
@@ -330,6 +300,8 @@ const StaffTransactions = () => {
         paymentMethod: newTransaction.paymentMethod || 'CASH'
       };
       
+      console.log('Sending transaction:', transactionData);
+      
       const response = await axios.post(`${API_URL}/transactions`, transactionData, {
         headers: { 
           Authorization: `Bearer ${token}`,
@@ -348,7 +320,7 @@ const StaffTransactions = () => {
           totalAmount: '',
           paymentMethod: 'CASH'
         });
-        fetchTransactions(1);
+        fetchTransactions();
       } else {
         showNotification('error', response.data.error || 'Failed to add transaction');
       }
@@ -441,6 +413,7 @@ const StaffTransactions = () => {
     return transaction.productName || transaction.riceType || 'Unknown';
   };
 
+  // Open manage products modal
   const openManageProducts = async () => {
     setEditingProduct(null);
     setNewProduct({ name: '', price: '' });
@@ -492,35 +465,34 @@ const StaffTransactions = () => {
       {showFilters && (
         <div className="filters-panel">
           <div className="filters-grid">
-            <div className="filter-group">
-              <label>Start Date</label>
-              <input 
-                type="date" 
-                value={filters.startDate} 
-                onChange={(e) => setFilters({...filters, startDate: e.target.value})} 
-              />
-            </div>
-            <div className="filter-group">
-              <label>End Date</label>
-              <input 
-                type="date" 
-                value={filters.endDate} 
-                onChange={(e) => setFilters({...filters, endDate: e.target.value})} 
-              />
-            </div>
-            <div className="filter-group">
-              <label>Search</label>
-              <input 
-                type="text" 
-                placeholder="Search by ID or Product..." 
-                value={filters.search} 
-                onChange={(e) => setFilters({...filters, search: e.target.value})} 
-              />
-            </div>
-            <div className="filter-actions">
-              <button className="btn-apply" onClick={applyFilters}>Apply</button>
-              <button className="btn-clear" onClick={clearFilters}>Clear</button>
-            </div>
+            <input 
+              type="date" 
+              value={filters.startDate} 
+              onChange={(e) => setFilters({...filters, startDate: e.target.value})} 
+              placeholder="Start Date" 
+            />
+            <input 
+              type="date" 
+              value={filters.endDate} 
+              onChange={(e) => setFilters({...filters, endDate: e.target.value})} 
+              placeholder="End Date" 
+            />
+            <input 
+              type="text" 
+              placeholder="Search by Transaction ID or Product..." 
+              value={filters.search} 
+              onChange={(e) => setFilters({...filters, search: e.target.value})} 
+            />
+            <button className="btn-apply" onClick={fetchTransactions}>Apply</button>
+            <button 
+              className="btn-clear" 
+              onClick={() => { 
+                setFilters({ startDate: '', endDate: '', search: '' }); 
+                fetchTransactions(); 
+              }}
+            >
+              Clear
+            </button>
           </div>
         </div>
       )}
