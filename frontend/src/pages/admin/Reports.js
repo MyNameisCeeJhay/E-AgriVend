@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import './Reports.css';
 
 const API_URL = 'https://e-agrivend.onrender.com/api';
-
 
 const AdminReports = () => {
   const { user } = useAuth();
@@ -32,12 +31,12 @@ const AdminReports = () => {
   const [viewingHistoryReport, setViewingHistoryReport] = useState(null);
   const [showViewModal, setShowViewModal] = useState(false);
   const [generatedReport, setGeneratedReport] = useState(null);
-  const reportContentRef = React.useRef(null);
+  const reportContentRef = useRef(null);
 
   // Generate control number
   const generateControlNumber = () => {
     const prefix = 'AGR';
-    const date = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const random = Math.random().toString(36).substring(2, 8).toUpperCase();
     return `${prefix}-${date}-${random}`;
   };
@@ -59,6 +58,54 @@ const AdminReports = () => {
     const newHistory = [report, ...reportHistory];
     setReportHistory(newHistory);
     localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
+  };
+
+  // ===== SAVE REPORT TO DATABASE =====
+  const saveReportToDatabase = async (reportData) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(`${API_URL}/admin/reports/save`, reportData, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+
+      if (response.data.success) {
+        console.log('✅ Report saved to database:', response.data.data);
+        return response.data.data;
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Error saving report to database:', error);
+      return null;
+    }
+  };
+
+  // ===== FETCH REPORT HISTORY FROM DATABASE =====
+  const fetchReportHistory = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/admin/reports/history`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+
+      if (response.data.success) {
+        const reports = response.data.data || [];
+        setReportHistory(reports);
+        localStorage.setItem('agrivend_report_history', JSON.stringify(reports));
+        return reports;
+      }
+      return [];
+    } catch (error) {
+      console.error('❌ Error fetching report history:', error);
+      const savedHistory = localStorage.getItem('agrivend_report_history');
+      if (savedHistory) {
+        try {
+          setReportHistory(JSON.parse(savedHistory));
+        } catch (e) {
+          console.error('Error loading report history:', e);
+        }
+      }
+      return [];
+    }
   };
 
   const isMachineTransaction = (transaction) => {
@@ -123,6 +170,7 @@ const AdminReports = () => {
   useEffect(() => {
     fetchSalesSummary();
     fetchChartData('daily');
+    fetchReportHistory();
   }, []);
 
   useEffect(() => {
@@ -146,12 +194,12 @@ const AdminReports = () => {
 
   const calculateProductRanking = (transactions) => {
     const productSales = {};
-    
+
     transactions.forEach(t => {
       const productName = t.riceType || t.productName || 'Unknown Grain';
       const quantity = t.quantityKg || 0;
       const revenue = t.amountPaid || t.totalAmount || 0;
-      
+
       if (!productSales[productName]) {
         productSales[productName] = { quantity: 0, revenue: 0, count: 0 };
       }
@@ -159,7 +207,7 @@ const AdminReports = () => {
       productSales[productName].revenue += revenue;
       productSales[productName].count += 1;
     });
-    
+
     const ranking = Object.entries(productSales).map(([name, data]) => ({
       name,
       quantity: data.quantity,
@@ -167,7 +215,7 @@ const AdminReports = () => {
       count: data.count,
       avgPrice: data.revenue / data.quantity
     }));
-    
+
     ranking.sort((a, b) => b.quantity - a.quantity);
     setProductRanking(ranking);
     setBestSellingProduct(ranking.length > 0 ? ranking[0] : null);
@@ -177,11 +225,11 @@ const AdminReports = () => {
     try {
       let url = '';
       let params = {};
-      
+
       const today = new Date();
       const year = today.getFullYear();
       const month = today.getMonth() + 1;
-      
+
       if (type === 'daily') {
         url = `${API_URL}/admin/reports/daily`;
         params = { date: today.toISOString().split('T')[0] };
@@ -195,43 +243,43 @@ const AdminReports = () => {
       } else {
         return;
       }
-      
+
       const response = await axios.get(url, { params });
-      
+
       if (response.data.success && response.data.data) {
         const data = response.data.data;
         let processedChartData = [];
-        
+
         if (type === 'daily' && data.chartData) {
           const hoursData = {};
           for (let i = 0; i < 24; i++) {
             const hourLabel = i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i-12} PM`;
             hoursData[hourLabel] = 0;
           }
-          
+
           data.transactions?.forEach(t => {
             const hour = new Date(t.createdAt).getHours();
             const hourLabel = hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour-12} PM`;
             hoursData[hourLabel] += t.amountPaid || t.totalAmount || 0;
           });
-          
+
           processedChartData = Object.entries(hoursData).map(([label, sales]) => ({ label, sales }));
         } else if (type === 'weekly' && data.chartData) {
           const daysOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
           const daysData = {};
           daysOrder.forEach(day => { daysData[day] = 0; });
-          
+
           data.transactions?.forEach(t => {
             const dayIndex = new Date(t.createdAt).getDay();
             const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const day = dayNames[dayIndex];
             daysData[day] += t.amountPaid || t.totalAmount || 0;
           });
-          
+
           processedChartData = daysOrder.map(day => ({ label: day, sales: daysData[day] || 0 }));
         } else if (type === 'monthly' && data.chartData) {
           const weeksData = { 'Week 1': 0, 'Week 2': 0, 'Week 3': 0, 'Week 4': 0, 'Week 5': 0 };
-          
+
           data.transactions?.forEach(t => {
             const day = new Date(t.createdAt).getDate();
             let week = 'Week 1';
@@ -240,17 +288,17 @@ const AdminReports = () => {
             else if (day <= 21) week = 'Week 3';
             else if (day <= 28) week = 'Week 4';
             else week = 'Week 5';
-            
+
             weeksData[week] += t.amountPaid || t.totalAmount || 0;
           });
-          
+
           processedChartData = Object.entries(weeksData).map(([label, sales]) => ({ label, sales }));
         }
-        
+
         if (data.transactions && data.transactions.length > 0) {
           calculateProductRanking(data.transactions);
         }
-        
+
         const nonZeroData = processedChartData.filter(item => item.sales > 0);
         setChartData(nonZeroData.length > 0 ? nonZeroData : processedChartData);
       } else {
@@ -311,8 +359,8 @@ const AdminReports = () => {
     try {
       let url = '';
       let params = {};
-      
-      switch(reportType) {
+
+      switch (reportType) {
         case 'daily':
           url = `${API_URL}/admin/reports/daily`;
           params = { date: dateRange.startDate };
@@ -332,18 +380,15 @@ const AdminReports = () => {
           params = { startDate: dateRange.startDate, endDate: dateRange.endDate };
           break;
       }
-      
+
       const token = localStorage.getItem('token');
-      const response = await axios.get(url, { 
+      const response = await axios.get(url, {
         params,
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
-      
+
       let data = response.data.data;
       if (data && data.transactions) {
-        const machineCount = data.transactions.filter(t => isMachineTransaction(t)).length;
-        const manualCount = data.transactions.filter(t => isManualTransaction(t)).length;
-        
         if (transactionSource === 'manual') {
           data.transactions = data.transactions.filter(t => isManualTransaction(t));
           data.summary = calculateFilteredSummary(data.transactions);
@@ -353,43 +398,77 @@ const AdminReports = () => {
         } else {
           data.summary = calculateFilteredSummary(data.transactions);
         }
-        
+
         if (data.transactions.length > 0) {
           calculateProductRanking(data.transactions);
         } else {
           setProductRanking([]);
           setBestSellingProduct(null);
         }
-        
-        // Generate control number
+
         const controlNumber = generateControlNumber();
         const reportTitle = getReportTitle();
+
+        // Prepare report data for database
         const reportEntry = {
           controlNumber,
           title: reportTitle,
-          generatedBy: `${user?.firstName || 'Admin'} ${user?.lastName || 'User'}`,
-          generatedAt: new Date().toISOString(),
           type: reportType,
-          source: transactionSource,
-          totalTransactions: data.summary?.totalTransactions || 0,
-          totalSales: data.summary?.totalSales || 0
+          dateRange: {
+            start: dateRange.startDate,
+            end: reportType === 'custom' ? dateRange.endDate : dateRange.startDate
+          },
+          transactionSource: transactionSource,
+          summary: {
+            totalTransactions: data.summary?.totalTransactions || 0,
+            totalQuantity: data.summary?.totalQuantity || 0,
+            totalSales: data.summary?.totalSales || 0,
+            averageOrderValue: data.summary?.averageOrderValue || 0
+          },
+          transactions: data.transactions.map(t => ({
+            transactionId: t.transactionId || t._id?.slice(-8),
+            createdAt: t.createdAt,
+            riceType: t.riceType,
+            productName: t.productName,
+            quantityKg: t.quantityKg,
+            amountPaid: t.amountPaid,
+            totalAmount: t.amountPaid || t.totalAmount,
+            source: getTransactionSourceText(t),
+            paymentMethod: t.paymentMethod || 'CASH'
+          })),
+          productRanking: productRanking.map(p => ({
+            name: p.name,
+            quantity: p.quantity,
+            revenue: p.revenue,
+            count: p.count,
+            avgPrice: p.avgPrice
+          })),
+          generatedBy: {
+            name: `${user?.firstName || 'Admin'} ${user?.lastName || 'User'}`,
+            userId: user?._id
+          },
+          generatedAt: new Date().toISOString()
         };
-        
-        // Save to history
-        saveToHistory(reportEntry);
-        
+
+        // Save to database
+        const savedReport = await saveReportToDatabase(reportEntry);
+
+        // Also save to localStorage for quick access
+        if (savedReport) {
+          const newHistory = [savedReport, ...reportHistory];
+          setReportHistory(newHistory);
+          localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
+        }
+
         const report = {
           ...data,
           controlNumber,
-          generatedBy: reportEntry.generatedBy,
+          generatedBy: reportEntry.generatedBy.name,
           generatedAt: reportEntry.generatedAt,
           reportTitle,
-          dateRange: {
-            start: dateRange.startDate,
-            end: dateRange.endDate
-          }
+          dateRange: reportEntry.dateRange
         };
-        
+
         setGeneratedReport(report);
         setShowReportModal(true);
         setReportData(data);
@@ -438,10 +517,10 @@ const AdminReports = () => {
   };
 
   const getReportTitle = () => {
-    switch(reportType) {
+    switch (reportType) {
       case 'daily': return `Daily Sales Report - ${formatDate(dateRange.startDate)}`;
       case 'weekly': return `Weekly Sales Report - Week of ${formatDate(dateRange.startDate)}`;
-      case 'monthly': 
+      case 'monthly':
         const date = new Date(dateRange.startDate);
         return `Monthly Sales Report - ${date.toLocaleString('default', { month: 'long' })} ${date.getFullYear()}`;
       case 'custom': return `Custom Sales Report - ${formatDate(dateRange.startDate)} to ${formatDate(dateRange.endDate)}`;
@@ -450,7 +529,7 @@ const AdminReports = () => {
   };
 
   const getSourceText = () => {
-    switch(transactionSource) {
+    switch (transactionSource) {
       case 'manual': return 'Manual Sales Only';
       case 'machine': return 'Machine Sales Only';
       default: return 'All Sales';
@@ -467,24 +546,20 @@ const AdminReports = () => {
     setShowViewModal(true);
   };
 
-  // ===== CLOSE VIEW MODAL =====
   const handleCloseViewModal = () => {
     setShowViewModal(false);
     setViewingHistoryReport(null);
   };
 
-  // ===== PRINT HISTORY REPORT =====
   const handlePrintHistoryReport = () => {
     if (!viewingHistoryReport) return;
-    
-    // Create a printable version of the report
+
     const printWindow = window.open('', '_blank', 'width=1200,height=800');
-    
     const reportTitle = viewingHistoryReport.title || 'Sales Report';
     const controlNumber = viewingHistoryReport.controlNumber || 'N/A';
     const generatedBy = viewingHistoryReport.generatedBy || 'Admin';
     const generatedAt = viewingHistoryReport.generatedAt || new Date().toISOString();
-    
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -613,15 +688,14 @@ const AdminReports = () => {
     printWindow.document.close();
   };
 
-  // ===== DOWNLOAD HISTORY REPORT =====
   const handleDownloadHistoryReport = () => {
     if (!viewingHistoryReport) return;
-    
+
     const reportTitle = viewingHistoryReport.title || 'Sales Report';
     const controlNumber = viewingHistoryReport.controlNumber || 'N/A';
     const generatedBy = viewingHistoryReport.generatedBy || 'Admin';
     const generatedAt = viewingHistoryReport.generatedAt || new Date().toISOString();
-    
+
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -741,7 +815,7 @@ const AdminReports = () => {
         </body>
       </html>
     `;
-    
+
     const blob = new Blob([htmlContent], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -751,19 +825,18 @@ const AdminReports = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
+
     showNotification('success', 'Report downloaded successfully!');
   };
 
-  // ===== PRINT FUNCTION =====
   const handlePrintReport = () => {
     if (!generatedReport) return;
-    
+
     const reportElement = document.getElementById('report-content');
     if (!reportElement) return;
-    
+
     const printWindow = window.open('', '_blank', 'width=1200,height=800');
-    
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -828,13 +901,12 @@ const AdminReports = () => {
     printWindow.document.close();
   };
 
-  // ===== DOWNLOAD FUNCTION =====
   const handleDownloadReport = () => {
     if (!generatedReport) return;
-    
+
     const reportElement = document.getElementById('report-content');
     if (!reportElement) return;
-    
+
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -890,7 +962,7 @@ const AdminReports = () => {
         </body>
       </html>
     `;
-    
+
     const blob = new Blob([htmlContent], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -900,77 +972,11 @@ const AdminReports = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
+
     showNotification('success', 'Report downloaded successfully!');
   };
 
   const maxSales = chartData.length > 0 ? Math.max(...chartData.map(d => d.sales || 0), 1) : 1;
-
-  // ===== RENDER VIEW HISTORY REPORT MODAL =====
-  const renderViewReportModal = () => {
-    if (!showViewModal || !viewingHistoryReport) return null;
-
-    return (
-      <div className="history-view-modal" onClick={handleCloseViewModal}>
-        <div className="history-view-content" onClick={(e) => e.stopPropagation()}>
-          <div className="history-view-header">
-            <h2>Report Details</h2>
-            <div className="history-view-actions">
-              <button className="btn-primary" onClick={handlePrintHistoryReport}>Print</button>
-              <button className="btn-secondary" onClick={handleDownloadHistoryReport}>Download</button>
-              <button className="history-view-close" onClick={handleCloseViewModal}>×</button>
-            </div>
-          </div>
-          <div className="history-view-body">
-            <div className="history-view-info">
-              <div className="view-info-row">
-                <span className="view-label">Control Number</span>
-                <span className="view-value">{viewingHistoryReport.controlNumber}</span>
-              </div>
-              <div className="view-info-row">
-                <span className="view-label">Report Title</span>
-                <span className="view-value">{viewingHistoryReport.title}</span>
-              </div>
-              <div className="view-info-row">
-                <span className="view-label">Generated By</span>
-                <span className="view-value">{viewingHistoryReport.generatedBy}</span>
-              </div>
-              <div className="view-info-row">
-                <span className="view-label">Date Generated</span>
-                <span className="view-value">{formatDateTime(viewingHistoryReport.generatedAt)}</span>
-              </div>
-              <div className="view-info-row">
-                <span className="view-label">Report Type</span>
-                <span className="view-value">{viewingHistoryReport.type?.toUpperCase() || 'N/A'}</span>
-              </div>
-              <div className="view-info-row">
-                <span className="view-label">Transaction Source</span>
-                <span className="view-value">
-                  {viewingHistoryReport.source === 'manual' ? 'Manual Sales Only' :
-                   viewingHistoryReport.source === 'machine' ? 'Machine Sales Only' : 'All Sales'}
-                </span>
-              </div>
-              <div className="view-info-row">
-                <span className="view-label">Total Transactions</span>
-                <span className="view-value">{viewingHistoryReport.totalTransactions || 0}</span>
-              </div>
-              <div className="view-info-row">
-                <span className="view-label">Total Quantity</span>
-                <span className="view-value">{(viewingHistoryReport.totalQuantity || 0).toFixed(2)} kg</span>
-              </div>
-              <div className="view-info-row">
-                <span className="view-label">Total Sales</span>
-                <span className="view-value total">{formatCurrency(viewingHistoryReport.totalSales || 0)}</span>
-              </div>
-            </div>
-          </div>
-          <div className="history-view-footer">
-            <button className="btn-secondary" onClick={handleCloseViewModal}>Close</button>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="admin-page-container">
@@ -1038,7 +1044,66 @@ const AdminReports = () => {
       )}
 
       {/* View History Report Modal */}
-      {renderViewReportModal()}
+      {showViewModal && viewingHistoryReport && (
+        <div className="history-view-modal" onClick={handleCloseViewModal}>
+          <div className="history-view-content" onClick={(e) => e.stopPropagation()}>
+            <div className="history-view-header">
+              <h2>Report Details</h2>
+              <div className="history-view-actions">
+                <button className="btn-primary" onClick={handlePrintHistoryReport}>Print</button>
+                <button className="btn-secondary" onClick={handleDownloadHistoryReport}>Download</button>
+                <button className="history-view-close" onClick={handleCloseViewModal}>×</button>
+              </div>
+            </div>
+            <div className="history-view-body">
+              <div className="history-view-info">
+                <div className="view-info-row">
+                  <span className="view-label">Control Number</span>
+                  <span className="view-value">{viewingHistoryReport.controlNumber}</span>
+                </div>
+                <div className="view-info-row">
+                  <span className="view-label">Report Title</span>
+                  <span className="view-value">{viewingHistoryReport.title}</span>
+                </div>
+                <div className="view-info-row">
+                  <span className="view-label">Generated By</span>
+                  <span className="view-value">{viewingHistoryReport.generatedBy}</span>
+                </div>
+                <div className="view-info-row">
+                  <span className="view-label">Date Generated</span>
+                  <span className="view-value">{formatDateTime(viewingHistoryReport.generatedAt)}</span>
+                </div>
+                <div className="view-info-row">
+                  <span className="view-label">Report Type</span>
+                  <span className="view-value">{viewingHistoryReport.type?.toUpperCase() || 'N/A'}</span>
+                </div>
+                <div className="view-info-row">
+                  <span className="view-label">Transaction Source</span>
+                  <span className="view-value">
+                    {viewingHistoryReport.source === 'manual' ? 'Manual Sales Only' :
+                     viewingHistoryReport.source === 'machine' ? 'Machine Sales Only' : 'All Sales'}
+                  </span>
+                </div>
+                <div className="view-info-row">
+                  <span className="view-label">Total Transactions</span>
+                  <span className="view-value">{viewingHistoryReport.totalTransactions || 0}</span>
+                </div>
+                <div className="view-info-row">
+                  <span className="view-label">Total Quantity</span>
+                  <span className="view-value">{(viewingHistoryReport.totalQuantity || 0).toFixed(2)} kg</span>
+                </div>
+                <div className="view-info-row">
+                  <span className="view-label">Total Sales</span>
+                  <span className="view-value total">{formatCurrency(viewingHistoryReport.totalSales || 0)}</span>
+                </div>
+              </div>
+            </div>
+            <div className="history-view-footer">
+              <button className="btn-secondary" onClick={handleCloseViewModal}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Report Modal */}
       {showReportModal && generatedReport && (
@@ -1293,190 +1358,5 @@ const AdminReports = () => {
     </div>
   );
 };
-// ===== SAVE REPORT TO DATABASE =====
-const saveReportToDatabase = async (reportData) => {
-  try {
-    const token = localStorage.getItem('token');
-    const response = await axios.post(`${API_URL}/admin/reports/save`, reportData, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-    
-    if (response.data.success) {
-      console.log('✅ Report saved to database:', response.data.data);
-      return response.data.data;
-    }
-    return null;
-  } catch (error) {
-    console.error('❌ Error saving report to database:', error);
-    return null;
-  }
-};
-
-// ===== FETCH REPORT HISTORY FROM DATABASE =====
-const fetchReportHistory = async () => {
-  try {
-    const token = localStorage.getItem('token');
-    const response = await axios.get(`${API_URL}/admin/reports/history`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-    
-    if (response.data.success) {
-      const reports = response.data.data || [];
-      setReportHistory(reports);
-      // Also update localStorage for quick access
-      localStorage.setItem('agrivend_report_history', JSON.stringify(reports));
-      return reports;
-    }
-    return [];
-  } catch (error) {
-    console.error('❌ Error fetching report history:', error);
-    // Fallback to localStorage
-    const savedHistory = localStorage.getItem('agrivend_report_history');
-    if (savedHistory) {
-      try {
-        setReportHistory(JSON.parse(savedHistory));
-      } catch (e) {
-        console.error('Error loading report history:', e);
-      }
-    }
-    return [];
-  }
-};
-
-// ===== UPDATE generateReport function =====
-const generateReport = async () => {
-  setLoading(true);
-  try {
-    let url = '';
-    let params = {};
-    
-    switch(reportType) {
-      case 'daily':
-        url = `${API_URL}/admin/reports/daily`;
-        params = { date: dateRange.startDate };
-        break;
-      case 'weekly':
-        url = `${API_URL}/admin/reports/weekly`;
-        const date = new Date(dateRange.startDate);
-        params = { week: getWeekNumber(date), year: date.getFullYear() };
-        break;
-      case 'monthly':
-        url = `${API_URL}/admin/reports/monthly`;
-        const monthDate = new Date(dateRange.startDate);
-        params = { month: monthDate.getMonth() + 1, year: monthDate.getFullYear() };
-        break;
-      case 'custom':
-        url = `${API_URL}/admin/reports/custom`;
-        params = { startDate: dateRange.startDate, endDate: dateRange.endDate };
-        break;
-    }
-    
-    const token = localStorage.getItem('token');
-    const response = await axios.get(url, { 
-      params,
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-    
-    let data = response.data.data;
-    if (data && data.transactions) {
-      if (transactionSource === 'manual') {
-        data.transactions = data.transactions.filter(t => isManualTransaction(t));
-        data.summary = calculateFilteredSummary(data.transactions);
-      } else if (transactionSource === 'machine') {
-        data.transactions = data.transactions.filter(t => isMachineTransaction(t));
-        data.summary = calculateFilteredSummary(data.transactions);
-      } else {
-        data.summary = calculateFilteredSummary(data.transactions);
-      }
-      
-      if (data.transactions.length > 0) {
-        calculateProductRanking(data.transactions);
-      } else {
-        setProductRanking([]);
-        setBestSellingProduct(null);
-      }
-      
-      const controlNumber = generateControlNumber();
-      const reportTitle = getReportTitle();
-      
-      // Prepare report data for database
-      const reportEntry = {
-        controlNumber,
-        title: reportTitle,
-        type: reportType,
-        dateRange: {
-          start: dateRange.startDate,
-          end: reportType === 'custom' ? dateRange.endDate : dateRange.startDate
-        },
-        transactionSource: transactionSource,
-        summary: {
-          totalTransactions: data.summary?.totalTransactions || 0,
-          totalQuantity: data.summary?.totalQuantity || 0,
-          totalSales: data.summary?.totalSales || 0,
-          averageOrderValue: data.summary?.averageOrderValue || 0
-        },
-        transactions: data.transactions.map(t => ({
-          transactionId: t.transactionId || t._id?.slice(-8),
-          createdAt: t.createdAt,
-          riceType: t.riceType,
-          productName: t.productName,
-          quantityKg: t.quantityKg,
-          amountPaid: t.amountPaid,
-          totalAmount: t.amountPaid || t.totalAmount,
-          source: getTransactionSourceText(t),
-          paymentMethod: t.paymentMethod || 'CASH'
-        })),
-        productRanking: productRanking.map(p => ({
-          name: p.name,
-          quantity: p.quantity,
-          revenue: p.revenue,
-          count: p.count,
-          avgPrice: p.avgPrice
-        })),
-        generatedBy: {
-          name: `${user?.firstName || 'Admin'} ${user?.lastName || 'User'}`,
-          userId: user?._id
-        },
-        generatedAt: new Date().toISOString()
-      };
-      
-      // Save to database
-      const savedReport = await saveReportToDatabase(reportEntry);
-      
-      // Also save to localStorage for quick access
-      if (savedReport) {
-        const newHistory = [savedReport, ...reportHistory];
-        setReportHistory(newHistory);
-        localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
-      }
-      
-      const report = {
-        ...data,
-        controlNumber,
-        generatedBy: reportEntry.generatedBy.name,
-        generatedAt: reportEntry.generatedAt,
-        reportTitle,
-        dateRange: reportEntry.dateRange
-      };
-      
-      setGeneratedReport(report);
-      setShowReportModal(true);
-      setReportData(data);
-      showNotification('success', `Report generated! Control #: ${controlNumber}`);
-    }
-  } catch (error) {
-    console.error('Error generating report:', error);
-    showNotification('error', 'Failed to generate report');
-  } finally {
-    setLoading(false);
-  }
-};
-
-// ===== UPDATE useEffect to fetch history on load =====
-useEffect(() => {
-  fetchSalesSummary();
-  fetchChartData('daily');
-  fetchReportHistory(); // Add this
-}, []);
 
 export default AdminReports;
