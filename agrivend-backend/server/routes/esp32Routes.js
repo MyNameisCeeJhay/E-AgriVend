@@ -1,351 +1,120 @@
 import express from 'express';
 import Transaction from '../models/Transaction.js';
 import Machine from '../models/Machine.js';
-import Product from '../models/Product.js';
 import mongoose from 'mongoose';
 
 const router = express.Router();
 
 // ============================================
-// DIRECT DATABASE FETCH - NO deviceId NEEDED
+// HELPER FUNCTIONS
 // ============================================
 
-// MAIN ENDPOINT - Get machine data directly from database
-router.get('/latest', async (req, res) => {
-  try {
-    // Get the machine with data (find one that has weight > 0 or just the first)
-    let machine = await Machine.findOne({ "storage1.currentWeight": { $gt: 0 } });
-    
-    if (!machine) {
-      machine = await Machine.findOne({});
-    }
-    
-    if (!machine) {
-      console.log('No machine found in database');
-      return res.json({
-        success: true,
-        storage1: { currentWeight: 0, percentage: 0, status: 'Empty', pricePerKg: 135, name: 'Pedigree' },
-        storage2: { currentWeight: 0, percentage: 0, status: 'Empty', pricePerKg: 165, name: 'AOZI' },
-        batteryPercentage: 100,
-        doorStatus: 'Closed',
-        temperature: 25,
-        totalStock: 0
-      });
-    }
-    
-    console.log('✅ Returning data from database:');
-    console.log('   Pedigree weight:', machine.storage1?.currentWeight);
-    console.log('   AOZI weight:', machine.storage2?.currentWeight);
-    
-    res.json({
-      success: true,
-      storage1: {
-        currentWeight: machine.storage1?.currentWeight || 0,
-        percentage: machine.storage1?.percentage || 0,
-        status: machine.storage1?.status || 'Empty',
-        pricePerKg: machine.storage1?.pricePerKg || 135,
-        name: machine.storage1?.name || 'Pedigree'
+async function getOrCreateMachine() {
+  let machine = await Machine.findOne({});
+  if (!machine) {
+    machine = new Machine({
+      storage1: { 
+        name: 'PEDIGREE', 
+        currentWeight: 0, 
+        maxCapacity: 20, 
+        pricePerKg: 135 
       },
-      storage2: {
-        currentWeight: machine.storage2?.currentWeight || 0,
-        percentage: machine.storage2?.percentage || 0,
-        status: machine.storage2?.status || 'Empty',
-        pricePerKg: machine.storage2?.pricePerKg || 165,
-        name: machine.storage2?.name || 'AOZI'
+      storage2: { 
+        name: 'AOZI', 
+        currentWeight: 0, 
+        maxCapacity: 20, 
+        pricePerKg: 165 
       },
-      batteryPercentage: machine.battery?.percentage || 100,
-      doorStatus: machine.machineStatus?.doorStatus || 'Closed',
-      temperature: machine.machineStatus?.temperature || 25,
-      totalStock: (machine.storage1?.currentWeight || 0) + (machine.storage2?.currentWeight || 0)
+      battery: { percentage: 100, status: 'Good', voltage: 12.6 },
+      machineStatus: { doorStatus: 'Closed', isOnline: false, transactionCount: 0 }
     });
-    
-  } catch (error) {
-    console.error('❌ Error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ESP32 updates data - FINDS AND UPDATES YOUR EXISTING MACHINE
-router.post('/sensors/update', async (req, res) => {
-  console.log('📡 ESP32 Data received');
-  console.log('📦 Body:', req.body);
-  
-  try {
-    const {
-      loadCellLeft,    // Pedigree (Left)
-      loadCellRight,   // AOZI (Right)
-      batteryPercentage,
-      doorStatus,
-      temperature,
-      machineState,
-      transactionCount,
-      machineStatus
-    } = req.body;
-
-    // Find ANY machine document (the one with your data)
-    let machine = await Machine.findOne({});
-    
-    if (!machine) {
-      // Create new if none exists
-      machine = new Machine();
-      console.log('Created new machine document');
-    }
-    
-    // Update weights
-    if (loadCellLeft !== undefined) {
-      machine.storage1.currentWeight = loadCellLeft;
-      machine.storage1.percentage = (loadCellLeft / 20) * 100;
-      machine.storage1.status = loadCellLeft <= 0.05 ? 'Empty' : loadCellLeft < 5 ? 'Low' : 'Normal';
-    }
-    
-    if (loadCellRight !== undefined) {
-      machine.storage2.currentWeight = loadCellRight;
-      machine.storage2.percentage = (loadCellRight / 20) * 100;
-      machine.storage2.status = loadCellRight <= 0.05 ? 'Empty' : loadCellRight < 5 ? 'Low' : 'Normal';
-    }
-    
-    // Update battery
-    if (batteryPercentage !== undefined) {
-      machine.battery.percentage = batteryPercentage;
-      machine.battery.status = batteryPercentage > 70 ? 'Good' : batteryPercentage > 30 ? 'Warning' : 'Critical';
-    }
-    
-    // Update door status
-    if (doorStatus) {
-      machine.machineStatus.doorStatus = doorStatus === 'OPEN' ? 'Open' : 'Closed';
-    }
-    
-    // Update temperature
-    if (temperature !== undefined) {
-      machine.machineStatus.temperature = temperature;
-    }
-    
-    // Update transaction count
-    if (transactionCount !== undefined) {
-      machine.machineStatus.transactionCount = transactionCount;
-    }
-    
-    machine.machineStatus.lastUpdate = new Date();
-    machine.machineStatus.isOnline = true;
-    
     await machine.save();
-    
-    console.log(`✅ Updated machine!`);
-    console.log(`   Pedigree: ${machine.storage1.currentWeight}kg`);
-    console.log(`   AOZI: ${machine.storage2.currentWeight}kg`);
-    
-    res.json({ success: true, message: 'Machine updated' });
-    
-  } catch (error) {
-    console.error('❌ Error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.log('📦 Created new machine document');
   }
+  return machine;
+}
+
+function emitSocketEvent(req, event, data) {
+  try {
+    const io = req.app.get('io');
+    if (io) {
+      io.emit(event, data);
+    }
+  } catch (error) {
+    // Socket not available
+  }
+}
+
+// ============================================
+// TEST ENDPOINT
+// ============================================
+
+router.get('/test', (req, res) => {
+  console.log('📡 ESP32 Test endpoint hit');
+  res.json({
+    success: true,
+    message: 'AGRIVEND ESP32 Routes Working!',
+    deviceId: 'AGRIVEND_001',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // ============================================
-// PRODUCT PRICE MANAGEMENT - UPDATED FOR AOZI & PEDIGREE
+// ESP32 PRICE ENDPOINTS - CORRECT MAPPING
 // ============================================
 
-// Get product prices AND names (for ESP32)
-router.get('/prices', async (req, res) => {
+// Get prices for ESP32
+router.get('/prices/current', async (req, res) => {
   try {
-    const machine = await Machine.findOne({});
+    const machine = await getOrCreateMachine();
     
-    if (!machine) {
-      return res.json({
-        success: true,
-        prices: {
-          aozi: 165,
-          pedigree: 135
-        },
-        products: {
-          aozi_name: 'AOZI',
-          pedigree_name: 'Pedigree'
-        }
-      });
-    }
+    // IMPORTANT MAPPING:
+    // Storage1 = PEDIGREE (Left LCD - 0x26)
+    // Storage2 = AOZI (Right LCD - 0x27)
+    const pedigreePrice = machine.storage1?.pricePerKg || 135;
+    const aoziPrice = machine.storage2?.pricePerKg || 165;
     
+    console.log(`💰 Sending prices to ESP32:`);
+    console.log(`   PEDIGREE (Storage1): PHP ${pedigreePrice}`);
+    console.log(`   AOZI (Storage2): PHP ${aoziPrice}`);
+    
+    // Format: PRICE|AOZI_PRICE|PEDIGREE_PRICE
+    // This matches Arduino parsePriceData() which expects: PRICE|aozi|pedigree
     res.json({
       success: true,
       prices: {
-        aozi: machine.storage2?.pricePerKg || 165,
-        pedigree: machine.storage1?.pricePerKg || 135
+        aozi: aoziPrice,      // Storage2 - AOZI (Right LCD)
+        pedigree: pedigreePrice // Storage1 - PEDIGREE (Left LCD)
       },
       products: {
         aozi_name: machine.storage2?.name || 'AOZI',
-        pedigree_name: machine.storage1?.name || 'Pedigree'
+        pedigree_name: machine.storage1?.name || 'PEDIGREE'
       }
     });
   } catch (error) {
     console.error('❌ Error fetching prices:', error);
-    res.json({
-      success: true,
-      prices: { aozi: 165, pedigree: 135 },
-      products: { aozi_name: 'AOZI', pedigree_name: 'Pedigree' }
-    });
-  }
-});
-
-// Update product prices (from website)
-router.post('/prices/update', async (req, res) => {
-  try {
-    const { aoziPrice, pedigreePrice } = req.body;
-    
-    // Update machine table
-    const machine = await Machine.findOne({});
-    if (machine) {
-      if (aoziPrice !== undefined) machine.storage2.pricePerKg = aoziPrice;
-      if (pedigreePrice !== undefined) machine.storage1.pricePerKg = pedigreePrice;
-      await machine.save();
-    }
-    
-    console.log(`💰 Prices updated - AOZI: PHP ${aoziPrice}, Pedigree: PHP ${pedigreePrice}`);
-    
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('price_updated', {
-        aozi: aoziPrice,
-        pedigree: pedigreePrice
-      });
-      console.log('📡 Price update sent to ESP32 via WebSocket');
-    }
-    
-    res.json({ success: true, message: 'Prices updated successfully' });
-    
-  } catch (error) {
-    console.error('❌ Error updating prices:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Get current prices (for ESP32) - UPDATED FOR AOZI & PEDIGREE
-router.get('/prices/current', async (req, res) => {
-  try {
-    const machine = await Machine.findOne({});
-    
-    res.json({
-      success: true,
-      prices: {
-        aozi: machine?.storage2?.pricePerKg || 165,
-        pedigree: machine?.storage1?.pricePerKg || 135
-      },
-      products: {
-        aozi_name: machine?.storage2?.name || "AOZI",
-        pedigree_name: machine?.storage1?.name || "Pedigree"
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error fetching current prices:', error);
-    res.json({
-      success: true,
-      prices: { aozi: 165, pedigree: 135 },
-      products: { aozi_name: "AOZI", pedigree_name: "Pedigree" }
-    });
-  }
-});
-
-// Force ESP32 to fetch latest prices
-router.post('/prices/force-update', async (req, res) => {
-  try {
-    const machine = await Machine.findOne({});
-    
-    res.json({
-      success: true,
-      prices: {
-        aozi: machine?.storage2?.pricePerKg || 165,
-        pedigree: machine?.storage1?.pricePerKg || 135
-      },
-      products: {
-        aozi_name: machine?.storage2?.name || "AOZI",
-        pedigree_name: machine?.storage1?.name || "Pedigree"
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ============================================
-// UPDATE PRODUCT NAME AND PRICE (from website)
-// ============================================
-router.put('/product/update/:storageId', async (req, res) => {
-  try {
-    const { storageId } = req.params;
-    const { name, pricePerKg } = req.body;
-    
-    console.log(`📝 Updating Storage ${storageId}: Name="${name}", Price=${pricePerKg}`);
-    
-    // Find the machine
-    let machine = await Machine.findOne({});
-    
-    if (!machine) {
-      machine = new Machine();
-    }
-    
-    // Update the correct storage
-    if (storageId === '1') {
-      if (name) machine.storage1.name = name;
-      if (pricePerKg) machine.storage1.pricePerKg = pricePerKg;
-      console.log(`✅ Storage 1 (Pedigree) updated: ${name} @ PHP ${pricePerKg}/kg`);
-    } else if (storageId === '2') {
-      if (name) machine.storage2.name = name;
-      if (pricePerKg) machine.storage2.pricePerKg = pricePerKg;
-      console.log(`✅ Storage 2 (AOZI) updated: ${name} @ PHP ${pricePerKg}/kg`);
-    } else {
-      return res.status(400).json({ success: false, error: 'Invalid storage ID' });
-    }
-    
-    await machine.save();
-    
-    console.log(`✅ Product updated: ${name} @ PHP ${pricePerKg}/kg`);
-    
-    // Emit socket event for real-time update
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('product_updated', {
-        storageId: storageId,
-        name: name,
-        pricePerKg: pricePerKg
-      });
-      console.log('📡 Product update sent to all connected clients');
-    }
-    
-    res.json({
-      success: true,
-      message: 'Product updated successfully',
-      data: storageId === '1' ? machine.storage1 : machine.storage2
-    });
-    
-  } catch (error) {
-    console.error('❌ Error updating product:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ============================================
-// GET PRODUCTS (names and prices) for website
-// ============================================
+// Get product names for ESP32
 router.get('/products/current', async (req, res) => {
   try {
-    const machine = await Machine.findOne({});
-    
-    if (!machine) {
-      return res.json({
-        success: true,
-        storage1: { name: 'Pedigree', pricePerKg: 135 },
-        storage2: { name: 'AOZI', pricePerKg: 165 }
-      });
-    }
+    const machine = await getOrCreateMachine();
     
     res.json({
       success: true,
       storage1: {
-        name: machine.storage1.name || 'Pedigree',
-        pricePerKg: machine.storage1.pricePerKg || 135
+        name: machine.storage1.name || 'PEDIGREE',
+        pricePerKg: machine.storage1.pricePerKg || 135,
+        currentWeight: machine.storage1.currentWeight || 0,
+        status: machine.storage1.status || 'Empty'
       },
       storage2: {
         name: machine.storage2.name || 'AOZI',
-        pricePerKg: machine.storage2.pricePerKg || 165
+        pricePerKg: machine.storage2.pricePerKg || 165,
+        currentWeight: machine.storage2.currentWeight || 0,
+        status: machine.storage2.status || 'Empty'
       }
     });
   } catch (error) {
@@ -355,25 +124,354 @@ router.get('/products/current', async (req, res) => {
 });
 
 // ============================================
-// TRANSACTIONS - UPDATED FOR AOZI & PEDIGREE
+// WEBSITE PRODUCT UPDATE - FIXED MAPPING
 // ============================================
 
-// Transaction confirm from ESP32
-router.post('/transaction/confirm', async (req, res) => {
-  console.log('📝 ESP32 Transaction received:', req.body);
+// Update product from website - CORRECT MAPPING
+router.post('/website/product/update', async (req, res) => {
+  try {
+    const { productId, name, price } = req.body;
+    
+    console.log(`📝 Website updating product:`);
+    console.log(`   ID: ${productId}`);
+    console.log(`   Name: ${name}`);
+    console.log(`   Price: ${price}`);
+    
+    const machine = await getOrCreateMachine();
+    
+    // CORRECT MAPPING:
+    // productId '1' = Storage1 = PEDIGREE (Left LCD)
+    // productId '2' = Storage2 = AOZI (Right LCD)
+    if (productId === '1') {
+      if (name) machine.storage1.name = name.toUpperCase();
+      if (price && price > 0) machine.storage1.pricePerKg = parseFloat(price);
+      console.log(`✅ PEDIGREE (Storage1 - Left LCD) updated: ${machine.storage1.name} @ PHP ${machine.storage1.pricePerKg}`);
+    } else if (productId === '2') {
+      if (name) machine.storage2.name = name.toUpperCase();
+      if (price && price > 0) machine.storage2.pricePerKg = parseFloat(price);
+      console.log(`✅ AOZI (Storage2 - Right LCD) updated: ${machine.storage2.name} @ PHP ${machine.storage2.pricePerKg}`);
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid product ID' });
+    }
+    
+    await machine.save();
+    
+    // Send updated prices to ESP32
+    // Format: PRICE|AOZI_PRICE|PEDIGREE_PRICE
+    const priceCmd = `PRICE|${machine.storage2.pricePerKg}|${machine.storage1.pricePerKg}`;
+    const nameCmd = `NAMES|${machine.storage2.name}|${machine.storage1.name}`;
+    
+    console.log(`📤 ESP32 Commands:`);
+    console.log(`   ${priceCmd}`);
+    console.log(`   ${nameCmd}`);
+    
+    // Emit socket events for real-time updates
+    emitSocketEvent(req, 'product_updated', {
+      storage1: machine.storage1,
+      storage2: machine.storage2
+    });
+    
+    // Return the updated data
+    res.json({
+      success: true,
+      message: 'Product updated successfully',
+      data: {
+        storage1: machine.storage1,
+        storage2: machine.storage2
+      },
+      esp32_commands: {
+        price: priceCmd,
+        names: nameCmd
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error updating product:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
+// WEBSITE GET PRODUCTS
+// ============================================
+
+router.get('/website/products', async (req, res) => {
+  try {
+    const machine = await getOrCreateMachine();
+    
+    res.json({
+      success: true,
+      products: [
+        {
+          id: '1',
+          name: machine.storage1.name || 'PEDIGREE',
+          price: machine.storage1.pricePerKg || 135,
+          currentWeight: machine.storage1.currentWeight || 0,
+          status: machine.storage1.status || 'Empty',
+          storage: 'Storage 1 (Left LCD)',
+          displayName: 'PEDIGREE'
+        },
+        {
+          id: '2',
+          name: machine.storage2.name || 'AOZI',
+          price: machine.storage2.pricePerKg || 165,
+          currentWeight: machine.storage2.currentWeight || 0,
+          status: machine.storage2.status || 'Empty',
+          storage: 'Storage 2 (Right LCD)',
+          displayName: 'AOZI'
+        }
+      ]
+    });
+  } catch (error) {
+    console.error('❌ Error fetching products:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
+// UPDATE PRICE (Website)
+// ============================================
+
+router.post('/prices/update', async (req, res) => {
+  try {
+    const { aoziPrice, pedigreePrice } = req.body;
+    
+    const machine = await getOrCreateMachine();
+    let updated = false;
+    
+    if (aoziPrice !== undefined && aoziPrice !== null) {
+      const price = parseFloat(aoziPrice);
+      if (price > 0) {
+        machine.storage2.pricePerKg = price; // AOZI (Storage2)
+        console.log(`💰 AOZI price updated: PHP ${price}`);
+        updated = true;
+      }
+    }
+    
+    if (pedigreePrice !== undefined && pedigreePrice !== null) {
+      const price = parseFloat(pedigreePrice);
+      if (price > 0) {
+        machine.storage1.pricePerKg = price; // PEDIGREE (Storage1)
+        console.log(`💰 PEDIGREE price updated: PHP ${price}`);
+        updated = true;
+      }
+    }
+    
+    if (updated) {
+      await machine.save();
+      
+      emitSocketEvent(req, 'price_updated', {
+        aozi: machine.storage2.pricePerKg,
+        pedigree: machine.storage1.pricePerKg
+      });
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Prices updated successfully',
+      data: {
+        aozi: machine.storage2.pricePerKg,
+        pedigree: machine.storage1.pricePerKg
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating prices:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Update product name (PUT endpoint)
+router.put('/product/update/:storageId', async (req, res) => {
+  try {
+    const { storageId } = req.params;
+    const { name, pricePerKg } = req.body;
+    
+    console.log(`📝 Updating Storage ${storageId}: Name="${name}", Price=${pricePerKg}`);
+    
+    const machine = await getOrCreateMachine();
+    
+    if (storageId === '1') {
+      // Storage1 = PEDIGREE (Left LCD)
+      if (name) machine.storage1.name = name.toUpperCase();
+      if (pricePerKg !== undefined && pricePerKg !== null) {
+        const price = parseFloat(pricePerKg);
+        if (price > 0) machine.storage1.pricePerKg = price;
+      }
+      console.log(`✅ PEDIGREE (Storage1) updated: ${machine.storage1.name} @ PHP ${machine.storage1.pricePerKg}/kg`);
+    } else if (storageId === '2') {
+      // Storage2 = AOZI (Right LCD)
+      if (name) machine.storage2.name = name.toUpperCase();
+      if (pricePerKg !== undefined && pricePerKg !== null) {
+        const price = parseFloat(pricePerKg);
+        if (price > 0) machine.storage2.pricePerKg = price;
+      }
+      console.log(`✅ AOZI (Storage2) updated: ${machine.storage2.name} @ PHP ${machine.storage2.pricePerKg}/kg`);
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid storage ID' 
+      });
+    }
+    
+    await machine.save();
+    
+    emitSocketEvent(req, 'product_updated', {
+      storageId,
+      name: name,
+      pricePerKg: pricePerKg
+    });
+    
+    res.json({
+      success: true,
+      message: 'Product updated successfully',
+      data: storageId === '1' ? machine.storage1 : machine.storage2
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating product:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// ============================================
+// ESP32 SENSOR UPDATE
+// ============================================
+
+router.post('/sensors/update', async (req, res) => {
+  console.log('📡 ESP32 Sensor Data Received');
   
   try {
-    // Support both field names (riceType from old, productType from new)
-    let productType = req.body.productType || req.body.riceType;
+    const {
+      loadCellLeft,    // PEDIGREE (Left) - Storage1
+      loadCellRight,   // AOZI (Right) - Storage2
+      batteryPercentage,
+      batteryVoltage,
+      doorStatus,
+      temperature,
+      machineState,
+      transactionCount,
+      machineStatus
+    } = req.body;
+
+    console.log(`   LoadCellLeft (PEDIGREE - Storage1): ${loadCellLeft}kg`);
+    console.log(`   LoadCellRight (AOZI - Storage2): ${loadCellRight}kg`);
+    console.log(`   Battery: ${batteryPercentage || batteryVoltage}`);
+    console.log(`   Door: ${doorStatus}`);
+
+    const machine = await getOrCreateMachine();
     
-    if (!productType) {
+    // Update storage1 (PEDIGREE - Left LCD)
+    if (loadCellLeft !== undefined && loadCellLeft !== null) {
+      machine.storage1.currentWeight = parseFloat(loadCellLeft) || 0;
+      const maxCap = machine.storage1.maxCapacity || 20;
+      machine.storage1.percentage = Math.min((parseFloat(loadCellLeft) / maxCap) * 100, 100);
+      machine.storage1.status = parseFloat(loadCellLeft) <= 0.05 ? 'Empty' : 
+                                 parseFloat(loadCellLeft) < 2 ? 'Low' : 'Normal';
+    }
+    
+    // Update storage2 (AOZI - Right LCD)
+    if (loadCellRight !== undefined && loadCellRight !== null) {
+      machine.storage2.currentWeight = parseFloat(loadCellRight) || 0;
+      const maxCap = machine.storage2.maxCapacity || 20;
+      machine.storage2.percentage = Math.min((parseFloat(loadCellRight) / maxCap) * 100, 100);
+      machine.storage2.status = parseFloat(loadCellRight) <= 0.05 ? 'Empty' : 
+                                 parseFloat(loadCellRight) < 2 ? 'Low' : 'Normal';
+    }
+    
+    // Update battery
+    if (batteryPercentage !== undefined && batteryPercentage !== null) {
+      machine.battery.percentage = parseInt(batteryPercentage) || 100;
+      machine.battery.status = machine.battery.percentage > 70 ? 'Good' : 
+                               machine.battery.percentage > 30 ? 'Warning' : 'Critical';
+    }
+    if (batteryVoltage !== undefined && batteryVoltage !== null) {
+      machine.battery.voltage = parseFloat(batteryVoltage) || 12.6;
+    }
+    
+    // Update door status
+    if (doorStatus) {
+      machine.machineStatus.doorStatus = doorStatus === 'OPEN' ? 'Open' : 'Closed';
+    }
+    
+    // Update temperature
+    if (temperature !== undefined && temperature !== null) {
+      machine.machineStatus.temperature = parseFloat(temperature) || 25;
+    }
+    
+    // Update transaction count
+    if (transactionCount !== undefined && transactionCount !== null) {
+      machine.machineStatus.transactionCount = parseInt(transactionCount) || 0;
+    }
+    
+    // Update machine state
+    if (machineState !== undefined && machineState !== null) {
+      machine.machineStatus.machineState = parseInt(machineState) || 0;
+    }
+    
+    machine.machineStatus.lastUpdate = new Date();
+    machine.machineStatus.isOnline = true;
+    machine.updatedAt = new Date();
+    
+    await machine.save();
+    
+    console.log(`✅ Machine updated!`);
+    console.log(`   PEDIGREE (Storage1): ${machine.storage1.currentWeight}kg (${machine.storage1.percentage.toFixed(1)}%)`);
+    console.log(`   AOZI (Storage2): ${machine.storage2.currentWeight}kg (${machine.storage2.percentage.toFixed(1)}%)`);
+    console.log(`   Battery: ${machine.battery.percentage}%`);
+    
+    emitSocketEvent(req, 'sensor_update', {
+      storage1: machine.storage1,
+      storage2: machine.storage2,
+      battery: machine.battery,
+      doorStatus: machine.machineStatus.doorStatus,
+      timestamp: new Date()
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Machine updated successfully' 
+    });
+    
+  } catch (error) {
+    console.error('❌ Error updating sensors:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// ============================================
+// TRANSACTIONS
+// ============================================
+
+router.post('/transaction/confirm', async (req, res) => {
+  console.log('📝 ESP32 Transaction received');
+  
+  try {
+    const { 
+      transactionId, 
+      productType, 
+      quantityKg, 
+      amountPaid, 
+      status,
+      source
+    } = req.body;
+    
+    const product = productType;
+    
+    if (!product) {
       return res.status(400).json({ 
         success: false, 
         error: 'Product type is required' 
       });
     }
-    
-    const { transactionId, quantityKg, amountPaid, status } = req.body;
     
     if (!quantityKg || !amountPaid) {
       return res.status(400).json({ 
@@ -382,38 +480,31 @@ router.post('/transaction/confirm', async (req, res) => {
       });
     }
     
-    let productName;
-    let pricePerKg;
+    // Map product types
+    let productName, pricePerKg;
     
-    // Handle AOZI and PEDIGREE product names
-    if (productType === "AOZI" || productType === "AOZI Dog Food") {
-      productName = "AOZI Dog Food";
+    if (product.toUpperCase() === 'AOZI') {
+      productName = 'AOZI';
       pricePerKg = 165.0;
-    } else if (productType === "PEDIGREE" || productType === "Pedigree Dog Food") {
-      productName = "Pedigree Dog Food";
+    } else if (product.toUpperCase() === 'PEDIGREE') {
+      productName = 'PEDIGREE';
       pricePerKg = 135.0;
-    } 
-    // Fallback for old product names
-    else if (productType === "DINORADO" || productType === "Dinorado Rice") {
-      productName = "Dinorado Rice";
-      pricePerKg = 65.0;
-    } else if (productType === "SINANDOMENG" || productType === "Sinandomeng Rice") {
-      productName = "Sinandomeng Rice";
-      pricePerKg = 52.0;
     } else {
-      productName = productType;
+      productName = product;
       pricePerKg = 135.0;
     }
     
-    // Check for duplicate transaction
-    const existingTransaction = await Transaction.findOne({ transactionId: transactionId });
-    if (existingTransaction) {
-      console.log(`⚠️ Transaction ${transactionId} already exists, skipping...`);
-      return res.json({ 
-        success: true, 
-        message: 'Transaction already exists',
-        alreadyExists: true
-      });
+    // Check for duplicate
+    if (transactionId) {
+      const existing = await Transaction.findOne({ transactionId });
+      if (existing) {
+        console.log(`⚠️ Transaction ${transactionId} already exists`);
+        return res.json({ 
+          success: true, 
+          message: 'Transaction already exists',
+          alreadyExists: true 
+        });
+      }
     }
     
     const transaction = new Transaction({
@@ -423,8 +514,8 @@ router.post('/transaction/confirm', async (req, res) => {
       pricePerKg: pricePerKg,
       amountPaid: parseFloat(amountPaid),
       paymentMethod: 'CASH',
-      status: 'COMPLETED',
-      source: 'machine',
+      status: status || 'COMPLETED',
+      source: source || 'machine',
       notes: `Auto-recorded by vending machine.`
     });
     
@@ -433,154 +524,325 @@ router.post('/transaction/confirm', async (req, res) => {
     console.log(`✅ Transaction saved: ${transaction.transactionId}`);
     console.log(`   Product: ${productName}, ${quantityKg}kg, PHP ${amountPaid}`);
     
-    // Update transaction count in machine
-    const machine = await Machine.findOne({});
-    if (machine) {
-      machine.machineStatus.transactionCount = (machine.machineStatus.transactionCount || 0) + 1;
-      await machine.save();
-    }
+    const machine = await getOrCreateMachine();
+    machine.machineStatus.transactionCount = (machine.machineStatus.transactionCount || 0) + 1;
+    await machine.save();
     
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('new_transaction', {
-        transactionId: transaction.transactionId,
-        productName: transaction.productName,
-        quantityKg: transaction.quantityKg,
-        amountPaid: transaction.amountPaid,
-        source: 'machine'
-      });
-    }
+    emitSocketEvent(req, 'new_transaction', {
+      transactionId: transaction.transactionId,
+      productName: transaction.productName,
+      quantityKg: transaction.quantityKg,
+      amountPaid: transaction.amountPaid,
+      source: 'machine'
+    });
     
     res.json({ 
       success: true, 
-      message: 'Transaction recorded successfully'
+      message: 'Transaction recorded successfully' 
     });
     
   } catch (error) {
     console.error('❌ Transaction error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
-// Get transactions history
+// Get transactions
 router.get('/transactions', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
+    const skip = parseInt(req.query.skip) || 0;
     
     const transactions = await Transaction.find({ source: 'machine' })
       .sort({ createdAt: -1 })
+      .skip(skip)
       .limit(limit);
+    
+    const total = await Transaction.countDocuments({ source: 'machine' });
     
     res.json({
       success: true,
+      total,
       count: transactions.length,
-      transactions: transactions
+      transactions
     });
     
   } catch (error) {
     console.error('❌ Error fetching transactions:', error);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
+});
+
+// ============================================
+// CASH MANAGEMENT
+// ============================================
+
+router.post('/cash/update', async (req, res) => {
+  console.log('💰 Cash data received');
+  
+  try {
+    const { totalCash, coinsValue, billsValue, coins, bills } = req.body;
+    
+    const machine = await getOrCreateMachine();
+    
+    if (!machine.cash) machine.cash = {};
+    
+    machine.cash.totalCollected = parseFloat(totalCash) || 0;
+    machine.cash.coinsValue = parseFloat(coinsValue) || 0;
+    machine.cash.billsValue = parseFloat(billsValue) || 0;
+    
+    if (coins) {
+      machine.cash.coins = {
+        '1': coins['1'] || 0,
+        '5': coins['5'] || 0,
+        '10': coins['10'] || 0,
+        '20': coins['20'] || 0
+      };
+    }
+    
+    if (bills) {
+      machine.cash.bills = {
+        '20': bills['20'] || 0,
+        '50': bills['50'] || 0,
+        '100': bills['100'] || 0,
+        '200': bills['200'] || 0
+      };
+    }
+    
+    machine.cash.lastUpdated = new Date();
+    await machine.save();
+    
+    emitSocketEvent(req, 'cash_updated', {
+      totalCash: machine.cash.totalCollected,
+      timestamp: new Date()
+    });
+    
+    res.json({ success: true, message: 'Cash data updated' });
+    
+  } catch (error) {
+    console.error('❌ Cash update error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+router.post('/cash/collect', async (req, res) => {
+  console.log('💰 Cash collected!');
+  
+  try {
+    const machine = await getOrCreateMachine();
+    
+    const collectedData = {
+      totalCash: machine.cash?.totalCollected || 0,
+      coinsValue: machine.cash?.coinsValue || 0,
+      billsValue: machine.cash?.billsValue || 0,
+      coins: machine.cash?.coins || {},
+      bills: machine.cash?.bills || {},
+      collectedAt: new Date()
+    };
+    
+    if (machine.cash) {
+      machine.cash.totalCollected = 0;
+      machine.cash.coinsValue = 0;
+      machine.cash.billsValue = 0;
+      machine.cash.coins = { '1': 0, '5': 0, '10': 0, '20': 0 };
+      machine.cash.bills = { '20': 0, '50': 0, '100': 0, '200': 0 };
+      machine.cash.lastUpdated = new Date();
+      machine.cash.lastCollected = new Date();
+      await machine.save();
+    }
+    
+    emitSocketEvent(req, 'cash_collected', collectedData);
+    
+    res.json({ 
+      success: true, 
+      message: 'Cash collected and reset',
+      collected: collectedData
+    });
+    
+  } catch (error) {
+    console.error('❌ Cash collection error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// ============================================
+// CALIBRATION
+// ============================================
+
+router.post('/calibration/update', async (req, res) => {
+  console.log('🔧 Calibration data received');
+  
+  try {
+    const { target, factor, rawValue, calibratedValue } = req.body;
+    
+    const machine = await getOrCreateMachine();
+    
+    if (!machine.calibration) machine.calibration = {};
+    
+    if (target === 'STORAGE1') {
+      machine.calibration.storage1 = { factor, rawValue, calibratedValue, updatedAt: new Date() };
+    } else if (target === 'STORAGE2') {
+      machine.calibration.storage2 = { factor, rawValue, calibratedValue, updatedAt: new Date() };
+    } else if (target === 'DISPENSE') {
+      machine.calibration.dispense = { factor, rawValue, calibratedValue, updatedAt: new Date() };
+    }
+    
+    await machine.save();
+    res.json({ success: true, message: 'Calibration data saved' });
+    
+  } catch (error) {
+    console.error('❌ Calibration error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+router.get('/calibration/command/pending', async (req, res) => {
+  try {
+    const machine = await getOrCreateMachine();
+    
+    const pendingCommand = machine.calibration?.pendingCommand || null;
+    
+    if (pendingCommand && machine.calibration) {
+      machine.calibration.pendingCommand = null;
+      await machine.save();
+    }
+    
+    res.json({
+      success: true,
+      command: pendingCommand
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching calibration command:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// ============================================
+// SECURITY
+// ============================================
+
+router.post('/security/alert', async (req, res) => {
+  console.log('🚨 Security Alert:', req.body);
+  
+  const { alertType, deviceId, timestamp } = req.body;
+  
+  emitSocketEvent(req, 'security_alert', {
+    alertType,
+    deviceId,
+    timestamp: new Date(timestamp || Date.now())
+  });
+  
+  try {
+    const machine = await getOrCreateMachine();
+    if (!machine.security) machine.security = { alerts: [] };
+    if (!machine.security.alerts) machine.security.alerts = [];
+    
+    machine.security.alerts.push({
+      type: alertType,
+      timestamp: new Date(timestamp || Date.now())
+    });
+    
+    if (machine.security.alerts.length > 50) {
+      machine.security.alerts = machine.security.alerts.slice(-50);
+    }
+    await machine.save();
+  } catch (error) {
+    console.error('Error saving security alert:', error);
+  }
+  
+  res.json({ success: true });
 });
 
 // ============================================
 // PUBLIC ENDPOINTS
 // ============================================
 
-// Get latest machine data for public dashboard
 router.get('/public/latest', async (req, res) => {
   try {
-    const machine = await Machine.findOne({});
-    
-    if (!machine) {
-      return res.json({
-        success: true,
-        data: {
-          storage1: { currentWeight: 0, percentage: 0, status: 'NO_DATA', name: 'Pedigree' },
-          storage2: { currentWeight: 0, percentage: 0, status: 'NO_DATA', name: 'AOZI' },
-          totalStock: 0,
-          batteryPercentage: 100,
-          doorStatus: 'Closed',
-          machineStatus: 'ACTIVE',
-          lastUpdate: null
-        }
-      });
-    }
+    const machine = await getOrCreateMachine();
     
     res.json({
       success: true,
       data: {
         storage1: {
-          currentWeight: machine.storage1.currentWeight,
-          percentage: machine.storage1.percentage,
-          status: machine.storage1.status,
-          name: machine.storage1.name || 'Pedigree'
+          currentWeight: machine.storage1.currentWeight || 0,
+          percentage: machine.storage1.percentage || 0,
+          status: machine.storage1.status || 'Empty',
+          name: machine.storage1.name || 'PEDIGREE'
         },
         storage2: {
-          currentWeight: machine.storage2.currentWeight,
-          percentage: machine.storage2.percentage,
-          status: machine.storage2.status,
+          currentWeight: machine.storage2.currentWeight || 0,
+          percentage: machine.storage2.percentage || 0,
+          status: machine.storage2.status || 'Empty',
           name: machine.storage2.name || 'AOZI'
         },
         totalStock: (machine.storage1.currentWeight || 0) + (machine.storage2.currentWeight || 0),
-        batteryPercentage: machine.battery.percentage,
-        doorStatus: machine.machineStatus.doorStatus,
-        machineStatus: machine.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE',
-        lastUpdate: machine.machineStatus.lastUpdate
+        batteryPercentage: machine.battery?.percentage || 100,
+        doorStatus: machine.machineStatus?.doorStatus || 'Closed',
+        machineStatus: machine.machineStatus?.isOnline ? 'ONLINE' : 'OFFLINE',
+        lastUpdate: machine.machineStatus?.lastUpdate || null
       }
     });
   } catch (error) {
-    console.error('❌ Error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Get specific storage data
 router.get('/public/storage/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const machine = await Machine.findOne({});
-    const maxLevel = 20;
-    
-    if (!machine) {
-      return res.json({
-        success: true,
-        data: { level: 0, maxLevel, percentage: 0, fillLevel: '0%', status: 'OK', remainingKg: 0, name: id === '1' ? 'Pedigree' : 'AOZI' }
-      });
-    }
+    const machine = await getOrCreateMachine();
     
     const storage = id === '1' ? machine.storage1 : machine.storage2;
     
     res.json({
       success: true,
       data: {
-        level: storage.currentWeight,
-        maxLevel: storage.maxCapacity,
-        percentage: storage.percentage,
-        fillLevel: storage.percentage.toFixed(1) + '%',
-        status: storage.status,
-        remainingKg: storage.currentWeight,
-        name: storage.name || (id === '1' ? 'Pedigree' : 'AOZI')
+        level: storage.currentWeight || 0,
+        maxLevel: storage.maxCapacity || 20,
+        percentage: storage.percentage || 0,
+        fillLevel: (storage.percentage || 0).toFixed(1) + '%',
+        status: storage.status || 'Empty',
+        remainingKg: storage.currentWeight || 0,
+        name: storage.name || (id === '1' ? 'PEDIGREE' : 'AOZI')
       }
     });
   } catch (error) {
-    console.error('❌ Error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Get machine summary
 router.get('/public/summary', async (req, res) => {
   try {
-    const machine = await Machine.findOne({});
+    const machine = await getOrCreateMachine();
     
     res.json({
       success: true,
       data: {
-        totalStock: machine ? (machine.storage1.currentWeight + machine.storage2.currentWeight) : 0,
-        batteryPercentage: machine?.battery.percentage || 100,
-        doorStatus: machine?.machineStatus.doorStatus || 'Closed',
-        machineStatus: machine?.machineStatus.isOnline ? 'ONLINE' : 'OFFLINE'
+        totalStock: (machine.storage1.currentWeight || 0) + (machine.storage2.currentWeight || 0),
+        batteryPercentage: machine.battery?.percentage || 100,
+        doorStatus: machine.machineStatus?.doorStatus || 'Closed',
+        machineStatus: machine.machineStatus?.isOnline ? 'ONLINE' : 'OFFLINE',
+        transactionCount: machine.machineStatus?.transactionCount || 0
       }
     });
   } catch (error) {
@@ -589,58 +851,12 @@ router.get('/public/summary', async (req, res) => {
 });
 
 // ============================================
-// SECURITY & DEBUG
+// STOCK & STATUS
 // ============================================
 
-// Security alert from ESP32
-router.post('/security/alert', async (req, res) => {
-  console.log('🚨 Security alert:', req.body.alertType);
-  
-  const io = req.app.get('io');
-  if (io) io.emit('security_alert', req.body);
-  
-  res.json({ success: true });
-});
-
-// Debug endpoint - Check database contents
-router.get('/debug', async (req, res) => {
-  try {
-    const allMachines = await Machine.find({});
-    
-    console.log('=== DATABASE CONTENTS ===');
-    allMachines.forEach((m, i) => {
-      console.log(`Machine ${i + 1}:`);
-      console.log(`  _id: ${m._id}`);
-      console.log(`  Pedigree: ${m.storage1?.currentWeight}kg @ PHP ${m.storage1?.pricePerKg}`);
-      console.log(`  AOZI: ${m.storage2?.currentWeight}kg @ PHP ${m.storage2?.pricePerKg}`);
-    });
-    
-    res.json({
-      totalMachines: allMachines.length,
-      machines: allMachines.map(m => ({
-        id: m._id,
-        pedigree: { weight: m.storage1?.currentWeight, price: m.storage1?.pricePerKg, name: m.storage1?.name },
-        aozi: { weight: m.storage2?.currentWeight, price: m.storage2?.pricePerKg, name: m.storage2?.name }
-      }))
-    });
-  } catch (error) {
-    res.json({ error: error.message });
-  }
-});
-
-// Stock quick view
 router.get('/stock', async (req, res) => {
   try {
-    const machine = await Machine.findOne({});
-    
-    if (!machine) {
-      return res.json({
-        success: true,
-        aozi: { kg: 0, status: 'NO_DATA', percentage: 0 },
-        pedigree: { kg: 0, status: 'NO_DATA', percentage: 0 },
-        total: 0
-      });
-    }
+    const machine = await getOrCreateMachine();
     
     res.json({
       success: true,
@@ -648,61 +864,82 @@ router.get('/stock', async (req, res) => {
         kg: machine.storage2?.currentWeight || 0,
         status: machine.storage2?.status || 'Empty',
         percentage: machine.storage2?.percentage || 0,
-        name: machine.storage2?.name || 'AOZI'
+        name: machine.storage2?.name || 'AOZI',
+        maxCapacity: machine.storage2?.maxCapacity || 20
       },
       pedigree: {
         kg: machine.storage1?.currentWeight || 0,
         status: machine.storage1?.status || 'Empty',
         percentage: machine.storage1?.percentage || 0,
-        name: machine.storage1?.name || 'Pedigree'
+        name: machine.storage1?.name || 'PEDIGREE',
+        maxCapacity: machine.storage1?.maxCapacity || 20
       },
-      total: (machine.storage1?.currentWeight || 0) + (machine.storage2?.currentWeight || 0)
+      total: (machine.storage1?.currentWeight || 0) + (machine.storage2?.currentWeight || 0),
+      battery: {
+        percentage: machine.battery?.percentage || 100,
+        status: machine.battery?.status || 'Good'
+      }
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Machine status
 router.get('/machine/status', async (req, res) => {
   try {
-    const machine = await Machine.findOne({});
-    res.json({ success: true, data: machine || null });
+    const machine = await getOrCreateMachine();
+    res.json({ 
+      success: true, 
+      data: {
+        isOnline: machine.machineStatus?.isOnline || false,
+        doorStatus: machine.machineStatus?.doorStatus || 'Closed',
+        transactionCount: machine.machineStatus?.transactionCount || 0,
+        lastUpdate: machine.machineStatus?.lastUpdate || null,
+        machineState: machine.machineStatus?.machineState || 0
+      }
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Sensors history
-router.get('/sensors/history', async (req, res) => {
+// ============================================
+// DEBUG
+// ============================================
+
+router.get('/debug', async (req, res) => {
   try {
-    const machine = await Machine.findOne({});
-    res.json({ success: true, data: machine || null });
+    const machines = await Machine.find({});
+    
+    console.log('=== DATABASE CONTENTS ===');
+    machines.forEach((m, i) => {
+      console.log(`Machine ${i + 1}:`);
+      console.log(`  PEDIGREE (Storage1): ${m.storage1?.currentWeight}kg @ PHP ${m.storage1?.pricePerKg} - Name: ${m.storage1?.name}`);
+      console.log(`  AOZI (Storage2): ${m.storage2?.currentWeight}kg @ PHP ${m.storage2?.pricePerKg} - Name: ${m.storage2?.name}`);
+      console.log(`  Battery: ${m.battery?.percentage}%`);
+    });
+    
+    res.json({
+      totalMachines: machines.length,
+      machines: machines.map(m => ({
+        id: m._id,
+        storage1: { 
+          name: m.storage1?.name,
+          weight: m.storage1?.currentWeight, 
+          price: m.storage1?.pricePerKg
+        },
+        storage2: { 
+          name: m.storage2?.name,
+          weight: m.storage2?.currentWeight, 
+          price: m.storage2?.pricePerKg
+        },
+        battery: m.battery?.percentage,
+        online: m.machineStatus?.isOnline
+      }))
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ error: error.message });
   }
-});
-
-// TEST endpoint
-router.get('/test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'ESP32 Routes working with AOZI & PEDIGREE!',
-    endpoints: [
-      'GET /api/esp32/latest - Get machine data from database',
-      'POST /api/esp32/sensors/update - Update machine weights',
-      'GET /api/esp32/prices - Get product prices (AOZI/PEDIGREE)',
-      'POST /api/esp32/prices/update - Update product prices',
-      'GET /api/esp32/prices/current - Get current prices for ESP32',
-      'POST /api/esp32/transaction/confirm - Send transaction',
-      'GET /api/esp32/transactions - Get transactions',
-      'GET /api/esp32/public/latest - Public dashboard',
-      'GET /api/esp32/public/storage/:id - Public storage view',
-      'GET /api/esp32/public/summary - Public summary',
-      'GET /api/esp32/debug - Debug database contents',
-      'GET /api/esp32/stock - Quick stock view'
-    ]
-  });
 });
 
 export default router;
