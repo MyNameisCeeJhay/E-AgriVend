@@ -409,7 +409,7 @@ const AdminReports = () => {
         const controlNumber = generateControlNumber();
         const reportTitle = getReportTitle();
 
-        // Prepare report data for database
+        // Prepare report data - FIX: Convert generatedBy to string properly
         const reportEntry = {
           controlNumber,
           title: reportTitle,
@@ -463,7 +463,7 @@ const AdminReports = () => {
         const report = {
           ...data,
           controlNumber,
-          generatedBy: reportEntry.generatedBy.name,
+          generatedBy: `${user?.firstName || 'Admin'} ${user?.lastName || 'User'}`, // Convert to string
           generatedAt: reportEntry.generatedAt,
           reportTitle,
           dateRange: reportEntry.dateRange
@@ -505,6 +505,7 @@ const AdminReports = () => {
   };
 
   const formatDateTime = (dateString) => {
+    if (!dateString) return 'N/A';
     const date = new Date(dateString);
     return date.toLocaleString('en-US', {
       month: 'short',
@@ -542,7 +543,14 @@ const AdminReports = () => {
 
   // ===== VIEW HISTORY REPORT =====
   const handleViewHistoryReport = (report) => {
-    setViewingHistoryReport(report);
+    // FIX: Convert generatedBy to string if it's an object
+    const fixedReport = {
+      ...report,
+      generatedBy: typeof report.generatedBy === 'object' 
+        ? report.generatedBy.name || 'Admin' 
+        : report.generatedBy || 'Admin'
+    };
+    setViewingHistoryReport(fixedReport);
     setShowViewModal(true);
   };
 
@@ -557,7 +565,9 @@ const AdminReports = () => {
     const printWindow = window.open('', '_blank', 'width=1200,height=800');
     const reportTitle = viewingHistoryReport.title || 'Sales Report';
     const controlNumber = viewingHistoryReport.controlNumber || 'N/A';
-    const generatedBy = viewingHistoryReport.generatedBy || 'Admin';
+    const generatedBy = typeof viewingHistoryReport.generatedBy === 'object'
+      ? viewingHistoryReport.generatedBy.name || 'Admin'
+      : viewingHistoryReport.generatedBy || 'Admin';
     const generatedAt = viewingHistoryReport.generatedAt || new Date().toISOString();
 
     printWindow.document.write(`
@@ -693,7 +703,9 @@ const AdminReports = () => {
 
     const reportTitle = viewingHistoryReport.title || 'Sales Report';
     const controlNumber = viewingHistoryReport.controlNumber || 'N/A';
-    const generatedBy = viewingHistoryReport.generatedBy || 'Admin';
+    const generatedBy = typeof viewingHistoryReport.generatedBy === 'object'
+      ? viewingHistoryReport.generatedBy.name || 'Admin'
+      : viewingHistoryReport.generatedBy || 'Admin';
     const generatedAt = viewingHistoryReport.generatedAt || new Date().toISOString();
 
     const htmlContent = `
@@ -1014,24 +1026,31 @@ const AdminReports = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {reportHistory.map((report, index) => (
-                      <tr key={index}>
-                        <td className="control-number-cell">{report.controlNumber}</td>
-                        <td>{report.title}</td>
-                        <td>{report.generatedBy}</td>
-                        <td>{formatDateTime(report.generatedAt)}</td>
-                        <td>{report.totalTransactions}</td>
-                        <td>{formatCurrency(report.totalSales)}</td>
-                        <td>
-                          <button 
-                            className="btn-view-history"
-                            onClick={() => handleViewHistoryReport(report)}
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {reportHistory.map((report, index) => {
+                      // FIX: Convert generatedBy to string if it's an object
+                      const generatedByStr = typeof report.generatedBy === 'object'
+                        ? report.generatedBy.name || 'Admin'
+                        : report.generatedBy || 'Admin';
+                      
+                      return (
+                        <tr key={index}>
+                          <td className="control-number-cell">{report.controlNumber}</td>
+                          <td>{report.title}</td>
+                          <td>{generatedByStr}</td>
+                          <td>{formatDateTime(report.generatedAt)}</td>
+                          <td>{report.totalTransactions}</td>
+                          <td>{formatCurrency(report.totalSales)}</td>
+                          <td>
+                            <button 
+                              className="btn-view-history"
+                              onClick={() => handleViewHistoryReport(report)}
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -1067,7 +1086,11 @@ const AdminReports = () => {
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Generated By</span>
-                  <span className="view-value">{viewingHistoryReport.generatedBy}</span>
+                  <span className="view-value">
+                    {typeof viewingHistoryReport.generatedBy === 'object'
+                      ? viewingHistoryReport.generatedBy.name || 'Admin'
+                      : viewingHistoryReport.generatedBy || 'Admin'}
+                  </span>
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Date Generated</span>

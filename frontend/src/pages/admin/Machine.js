@@ -15,6 +15,21 @@ const AdminMachine = () => {
   const [collectingCash, setCollectingCash] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
   
+  // ===== GPS STATE =====
+  const [gpsData, setGpsData] = useState({
+    latitude: null,
+    longitude: null,
+    altitude: null,
+    speed: null,
+    timestamp: null,
+    isConnected: false,
+    locating: false,
+    usingBrowserGPS: false
+  });
+  const [gpsError, setGpsError] = useState(null);
+  const [gpsLocating, setGpsLocating] = useState(false);
+  const [locationHistory, setLocationHistory] = useState([]);
+  
   // Coin & Bill Monitoring
   const [coinCounts, setCoinCounts] = useState({
     onePeso: 0,
@@ -107,6 +122,132 @@ const AdminMachine = () => {
   const isMounted = useRef(true);
   const intervalRef = useRef(null);
 
+  // ===== GPS FUNCTIONS =====
+
+  // Get location on button click
+  const locateMachine = useCallback(async () => {
+    setGpsLocating(true);
+    setGpsError(null);
+    
+    try {
+      // Try to get GPS from backend first
+      const token = localStorage.getItem('token');
+      
+      try {
+        const response = await axios.get(`${API_URL}/machine/gps`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (response.data.success && response.data.data?.latitude) {
+          const data = response.data.data;
+          setGpsData({
+            latitude: data.latitude,
+            longitude: data.longitude,
+            altitude: data.altitude || null,
+            speed: data.speed || null,
+            timestamp: data.timestamp || new Date().toISOString(),
+            isConnected: true,
+            locating: false,
+            usingBrowserGPS: false
+          });
+          
+          // Add to location history
+          if (data.latitude && data.longitude) {
+            setLocationHistory(prev => {
+              const newEntry = {
+                latitude: data.latitude,
+                longitude: data.longitude,
+                timestamp: data.timestamp || new Date().toISOString()
+              };
+              const updated = [newEntry, ...prev];
+              return updated.slice(0, 50);
+            });
+          }
+          
+          showNotification('success', 'Location found!');
+          setGpsLocating(false);
+          return;
+        }
+      } catch (error) {
+        console.log('Backend GPS not available, using browser GPS');
+      }
+      
+      // Fallback to browser GPS
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const newGpsData = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              altitude: position.coords.altitude,
+              speed: position.coords.speed,
+              timestamp: new Date().toISOString(),
+              isConnected: true,
+              locating: false,
+              usingBrowserGPS: true
+            };
+            
+            setGpsData(newGpsData);
+            setGpsError(null);
+            
+            // Add to location history
+            if (position.coords.latitude && position.coords.longitude) {
+              setLocationHistory(prev => {
+                const newEntry = {
+                  latitude: position.coords.latitude,
+                  longitude: position.coords.longitude,
+                  timestamp: new Date().toISOString()
+                };
+                const updated = [newEntry, ...prev];
+                return updated.slice(0, 50);
+              });
+            }
+            
+            showNotification('success', 'Location found using browser GPS!');
+            setGpsLocating(false);
+          },
+          (error) => {
+            console.warn('Browser geolocation error:', error);
+            setGpsError('Unable to get location - ' + error.message);
+            setGpsData(prev => ({
+              ...prev,
+              isConnected: false,
+              locating: false
+            }));
+            setGpsLocating(false);
+            showNotification('error', 'Failed to get location');
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          }
+        );
+      } else {
+        setGpsError('Geolocation not supported by this browser');
+        setGpsLocating(false);
+        showNotification('error', 'Geolocation not supported');
+      }
+    } catch (error) {
+      console.error('Error locating machine:', error);
+      setGpsError('Failed to get location');
+      setGpsLocating(false);
+      showNotification('error', 'Failed to get location');
+    }
+  }, []);
+
+  // Open map with current location
+  const openMap = useCallback(() => {
+    const { latitude, longitude } = gpsData;
+    if (latitude && longitude) {
+      window.open(`https://www.google.com/maps?q=${latitude},${longitude}`, '_blank');
+    } else {
+      showNotification('error', 'No GPS location available. Click "Locate Machine" first.');
+    }
+  }, [gpsData]);
+
+  // ===== END GPS FUNCTIONS =====
+
   // Calculate total cash
   const calculateTotalCash = useCallback(() => {
     const coinTotal = 
@@ -128,18 +269,6 @@ const AdminMachine = () => {
     calculateTotalCash();
   }, [coinCounts, billCounts, calculateTotalCash]);
 
-  // Helper function to safely parse date
-  const parseDate = (dateValue) => {
-    if (!dateValue) return new Date();
-    try {
-      const date = new Date(dateValue);
-      if (isNaN(date.getTime())) return new Date();
-      return date;
-    } catch (error) {
-      return new Date();
-    }
-  };
-
   // Fetch machine data from backend
   const fetchMachineData = useCallback(async () => {
     if (!isMounted.current) return;
@@ -156,7 +285,7 @@ const AdminMachine = () => {
       if (response.data.success) {
         const data = response.data.data;
         
-        // Update Storage 1 (Pedigree)
+        // Update Storage 1
         if (data.storage1) {
           const weight = data.storage1.currentWeight || 0;
           const percentage = (weight / 20) * 100;
@@ -170,7 +299,6 @@ const AdminMachine = () => {
             isLow: weight < 10
           }));
           
-          // Update calibration
           setCalibration(prev => ({
             ...prev,
             storage1: {
@@ -181,7 +309,7 @@ const AdminMachine = () => {
           }));
         }
         
-        // Update Storage 2 (Aozi)
+        // Update Storage 2
         if (data.storage2) {
           const weight = data.storage2.currentWeight || 0;
           const percentage = (weight / 20) * 100;
@@ -195,7 +323,6 @@ const AdminMachine = () => {
             isLow: weight < 10
           }));
           
-          // Update calibration
           setCalibration(prev => ({
             ...prev,
             storage2: {
@@ -228,11 +355,10 @@ const AdminMachine = () => {
           }));
         }
         
-        console.log('✅ Machine data loaded');
+        console.log('Machine data loaded');
       }
     } catch (error) {
       console.error('Error fetching machine data:', error);
-      // Set demo data if API fails
       if (isMounted.current) {
         setStorage1(prev => ({ ...prev, currentWeight: 15.5, percentage: 77.5, status: 'Normal' }));
         setStorage2(prev => ({ ...prev, currentWeight: 8.2, percentage: 41, status: 'Low' }));
@@ -250,7 +376,7 @@ const AdminMachine = () => {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  // Collect Cash - Reset all coin and bill counts to zero
+  // Collect Cash
   const handleCollectCash = () => {
     if (totalCash === 0) {
       showNotification('warning', 'No cash to collect');
@@ -259,7 +385,6 @@ const AdminMachine = () => {
     
     setCollectingCash(true);
     
-    // Reset all counts to zero
     setCoinCounts({
       onePeso: 0,
       fivePeso: 0,
@@ -274,10 +399,8 @@ const AdminMachine = () => {
       twoHundred: 0
     });
     
-    // Show success notification with collected amount
     showNotification('success', `✅ Cash collected: ${formatCurrency(totalCash)}`);
     
-    // Emit socket event for cash collection
     if (socket) {
       socket.emit('cash_collected', {
         collectedBy: user?.firstName + ' ' + user?.lastName || 'Staff',
@@ -293,7 +416,6 @@ const AdminMachine = () => {
   const handleCalibrate = (scaleName) => {
     setCalibrating(true);
     
-    // Simulate calibration process
     setTimeout(() => {
       setCalibration(prev => {
         const updated = { ...prev };
@@ -363,21 +485,19 @@ const AdminMachine = () => {
     }, 1000);
   };
 
-  // Auto load on component mount and auto-refresh
+  // Auto load on component mount
   useEffect(() => {
     isMounted.current = true;
     
-    // Initial fetch
     fetchMachineData();
     
-    // Auto-refresh every 30 seconds
     intervalRef.current = setInterval(() => {
       if (isMounted.current) {
         fetchMachineData();
       }
     }, 30000);
     
-    // Socket listeners for real-time updates
+    // Socket listeners
     if (socket) {
       socket.on('machine_data_updated', (data) => {
         if (!isMounted.current) return;
@@ -432,7 +552,6 @@ const AdminMachine = () => {
         showNotification('warning', `Low battery alert: Battery at ${data.percentage}%`);
       });
       
-      // Coin/Bill insert events
       socket.on('coin_inserted', (data) => {
         const coinMap = {
           1: 'onePeso',
@@ -466,6 +585,33 @@ const AdminMachine = () => {
           showNotification('success', `Bill inserted: ₱${data.value}`);
         }
       });
+      
+      socket.on('gps_update', (data) => {
+        if (!isMounted.current) return;
+        setGpsData(prev => ({
+          ...prev,
+          latitude: data.latitude,
+          longitude: data.longitude,
+          altitude: data.altitude,
+          speed: data.speed,
+          timestamp: data.timestamp || new Date().toISOString(),
+          isConnected: true,
+          usingBrowserGPS: false
+        }));
+        setGpsError(null);
+        
+        if (data.latitude && data.longitude) {
+          setLocationHistory(prev => {
+            const newEntry = {
+              latitude: data.latitude,
+              longitude: data.longitude,
+              timestamp: data.timestamp || new Date().toISOString()
+            };
+            const updated = [newEntry, ...prev];
+            return updated.slice(0, 50);
+          });
+        }
+      });
     }
     
     return () => {
@@ -479,6 +625,7 @@ const AdminMachine = () => {
         socket.off('low_battery_alert');
         socket.off('coin_inserted');
         socket.off('bill_inserted');
+        socket.off('gps_update');
       }
     };
   }, [socket, fetchMachineData]);
@@ -524,7 +671,6 @@ const AdminMachine = () => {
         setShowEditModal(false);
         setEditingStorage(null);
         
-        // Refresh data after update
         fetchMachineData();
       } else {
         showNotification('error', response.data?.error || 'Failed to save product');
@@ -592,9 +738,120 @@ const AdminMachine = () => {
           <h1>Machine Monitoring</h1>
           <p>Monitor storage levels, battery status, and manage products</p>
         </div>
-        <div className={`machine-status ${machineStatus.isOnline ? 'online' : 'offline'}`}>
-          <span className="status-dot"></span>
+        <div className="machine-status-badge">
+          <span className={`status-dot ${machineStatus.isOnline ? 'online' : 'offline'}`}></span>
           {machineStatus.isOnline ? 'Online' : 'Offline'}
+        </div>
+      </div>
+
+      {/* ===== GPS TRACKING SECTION - SIMPLIFIED ===== */}
+      <div className="gps-section">
+        <div className="gps-card">
+          <div className="gps-header">
+            <div>
+              <h2>GPS Location</h2>
+              <p className="gps-subtitle">
+                Click the button below to locate the machine
+              </p>
+            </div>
+            <div className="gps-controls">
+              <button 
+                className="btn-gps-locate"
+                onClick={locateMachine}
+                disabled={gpsLocating}
+              >
+                {gpsLocating ? (
+                  <>
+                    <span className="spinner-small"></span>
+                    Locating...
+                  </>
+                ) : (
+                  'Locate Machine'
+                )}
+              </button>
+              <button 
+                className="btn-gps-map"
+                onClick={openMap}
+                disabled={!gpsData.latitude || !gpsData.longitude}
+              >
+                View on Map
+              </button>
+            </div>
+          </div>
+
+          <div className="gps-content">
+            {/* GPS Status */}
+            <div className="gps-status">
+              <div className={`gps-connection ${gpsData.isConnected ? 'connected' : 'disconnected'}`}>
+                <span className="status-dot"></span>
+                {gpsData.isConnected ? 'GPS Connected' : 'GPS Not Located'}
+              </div>
+              {gpsData.usingBrowserGPS && (
+                <div className="gps-source">
+                  Source: <strong>Browser GPS</strong>
+                </div>
+              )}
+            </div>
+
+            {/* GPS Coordinates */}
+            <div className="gps-coordinates">
+              <div className="coordinate-item">
+                <span className="coordinate-label">Latitude</span>
+                <span className="coordinate-value">
+                  {gpsData.latitude ? gpsData.latitude.toFixed(6) : '—'}
+                </span>
+              </div>
+              <div className="coordinate-item">
+                <span className="coordinate-label">Longitude</span>
+                <span className="coordinate-value">
+                  {gpsData.longitude ? gpsData.longitude.toFixed(6) : '—'}
+                </span>
+              </div>
+              <div className="coordinate-item">
+                <span className="coordinate-label">Altitude</span>
+                <span className="coordinate-value">
+                  {gpsData.altitude ? `${gpsData.altitude.toFixed(1)}m` : '—'}
+                </span>
+              </div>
+              <div className="coordinate-item">
+                <span className="coordinate-label">Speed</span>
+                <span className="coordinate-value">
+                  {gpsData.speed ? `${gpsData.speed.toFixed(1)} km/h` : '0 km/h'}
+                </span>
+              </div>
+            </div>
+
+            {/* GPS Error */}
+            {gpsError && (
+              <div className="gps-error">
+                {gpsError}
+              </div>
+            )}
+
+            {/* Last Updated */}
+            <div className="gps-timestamp">
+              Last located: {gpsData.timestamp ? new Date(gpsData.timestamp).toLocaleString() : 'Never'}
+            </div>
+
+            {/* Location History */}
+            {locationHistory.length > 0 && (
+              <div className="gps-history">
+                <h4>Location History ({locationHistory.length} records)</h4>
+                <div className="history-list">
+                  {locationHistory.slice(0, 5).map((loc, index) => (
+                    <div key={index} className="history-item">
+                      <span className="history-coords">
+                        {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)}
+                      </span>
+                      <span className="history-time">
+                        {new Date(loc.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -626,7 +883,7 @@ const AdminMachine = () => {
         </div>
       </div>
 
-      {/* Coin & Bill Monitoring Section */}
+      {/* Cash Monitoring Section */}
       <div className="cash-monitoring-section">
         <div className="cash-header">
           <div>
@@ -719,7 +976,7 @@ const AdminMachine = () => {
         </div>
       </div>
 
-      {/* Storage 1 & 2 Grid */}
+      {/* Storage Grid */}
       <div className="storage-grid">
         {/* Storage 1 */}
         <div className="storage-card">
@@ -816,7 +1073,7 @@ const AdminMachine = () => {
         </div>
       </div>
 
-      {/* Battery Monitoring Section */}
+      {/* Battery Section */}
       <div className="battery-section">
         <div className="battery-card">
           <div className="battery-header">
@@ -879,7 +1136,7 @@ const AdminMachine = () => {
         </div>
       </div>
 
-      {/* ===== CALIBRATION SECTION ===== */}
+      {/* Calibration Section */}
       <div className="calibration-section">
         <div className="calibration-header">
           <h2>Load Cell Calibration</h2>
