@@ -789,9 +789,9 @@ const StaffTransactions = () => {
                   </div>
 
                   <div className="info-note">
-                    <p>📌 <strong>Note:</strong> Products added here will be available in the transaction dropdown.</p>
-                    <p>📦 <strong>Archive:</strong> Archive products to remove them from the dropdown without deleting them.</p>
-                    <p>🗑️ <strong>Delete:</strong> Deleted products are permanently removed from the system.</p>
+                    <p><strong>Note:</strong> Products added here will be available in the transaction dropdown.</p>
+                    <p><strong>Archive:</strong> Archive products to remove them from the dropdown without deleting them.</p>
+                    <p><strong>Delete:</strong> Deleted products are permanently removed from the system.</p>
                   </div>
                 </>
               )}

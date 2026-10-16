@@ -14,7 +14,10 @@ const AdminMachine = () => {
   const [editLoading, setEditLoading] = useState(false);
   const [collectingCash, setCollectingCash] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
-  
+
+  // ✅ Storage max capacity
+  const MAX_CAPACITY = 10;
+
   // ===== GPS STATE =====
   const [gpsData, setGpsData] = useState({
     latitude: null,
@@ -29,7 +32,14 @@ const AdminMachine = () => {
   const [gpsError, setGpsError] = useState(null);
   const [gpsLocating, setGpsLocating] = useState(false);
   const [locationHistory, setLocationHistory] = useState([]);
-  
+
+  // ===== SOLENOID LOCK STATE =====
+  const [solenoidLock, setSolenoidLock] = useState({
+    isLocked: true,
+    lastChanged: null,
+    isToggling: false
+  });
+
   // Coin & Bill Monitoring
   const [coinCounts, setCoinCounts] = useState({
     onePeso: 0,
@@ -37,42 +47,42 @@ const AdminMachine = () => {
     tenPeso: 0,
     twentyPeso: 0
   });
-  
+
   const [billCounts, setBillCounts] = useState({
     twenty: 0,
     fifty: 0,
     hundred: 0,
     twoHundred: 0
   });
-  
+
   const [totalCash, setTotalCash] = useState(0);
-  
-  // Storage 1 - Pedigree (Left) - Price should be 135
+
+  // Storage 1 - Pedigree
   const [storage1, setStorage1] = useState({
     id: 1,
     name: 'Pedigree',
     productId: null,
     pricePerKg: 135,
     currentWeight: 0,
-    maxCapacity: 20,
+    maxCapacity: MAX_CAPACITY,
     percentage: 0,
     status: 'Normal',
     isLow: false
   });
 
-  // Storage 2 - AOZI (Right) - Price should be 165
+  // Storage 2 - AOZI
   const [storage2, setStorage2] = useState({
     id: 2,
     name: 'AOZI',
     productId: null,
     pricePerKg: 165,
     currentWeight: 0,
-    maxCapacity: 20,
+    maxCapacity: MAX_CAPACITY,
     percentage: 0,
     status: 'Normal',
     isLow: false
   });
-  
+
   // Calibration State
   const [calibration, setCalibration] = useState({
     storage1: {
@@ -94,23 +104,20 @@ const AdminMachine = () => {
       status: 'Stable'
     }
   });
-  
-  // Battery Monitoring
+
+  // ✅ Battery Monitoring (Voltage & Charging removed)
   const [battery, setBattery] = useState({
     percentage: 100,
-    voltage: 12.6,
     status: 'Good',
-    isCharging: true,
     health: 'Good'
   });
-  
-  // Machine Status
+
+  // Machine Status (Door status removed)
   const [machineStatus, setMachineStatus] = useState({
     isOnline: true,
-    doorStatus: 'Closed',
     securityStatus: 'Safe'
   });
-  
+
   // Edit Product Modal
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingStorage, setEditingStorage] = useState(null);
@@ -124,20 +131,18 @@ const AdminMachine = () => {
 
   // ===== GPS FUNCTIONS =====
 
-  // Get location on button click
   const locateMachine = useCallback(async () => {
     setGpsLocating(true);
     setGpsError(null);
-    
+
     try {
-      // Try to get GPS from backend first
       const token = localStorage.getItem('token');
-      
+
       try {
         const response = await axios.get(`${API_URL}/machine/gps`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        
+
         if (response.data.success && response.data.data?.latitude) {
           const data = response.data.data;
           setGpsData({
@@ -150,8 +155,7 @@ const AdminMachine = () => {
             locating: false,
             usingBrowserGPS: false
           });
-          
-          // Add to location history
+
           if (data.latitude && data.longitude) {
             setLocationHistory(prev => {
               const newEntry = {
@@ -163,7 +167,7 @@ const AdminMachine = () => {
               return updated.slice(0, 50);
             });
           }
-          
+
           showNotification('success', 'Location found!');
           setGpsLocating(false);
           return;
@@ -171,8 +175,7 @@ const AdminMachine = () => {
       } catch (error) {
         console.log('Backend GPS not available, using browser GPS');
       }
-      
-      // Fallback to browser GPS
+
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
@@ -186,11 +189,10 @@ const AdminMachine = () => {
               locating: false,
               usingBrowserGPS: true
             };
-            
+
             setGpsData(newGpsData);
             setGpsError(null);
-            
-            // Add to location history
+
             if (position.coords.latitude && position.coords.longitude) {
               setLocationHistory(prev => {
                 const newEntry = {
@@ -202,7 +204,7 @@ const AdminMachine = () => {
                 return updated.slice(0, 50);
               });
             }
-            
+
             showNotification('success', 'Location found using browser GPS!');
             setGpsLocating(false);
           },
@@ -236,7 +238,6 @@ const AdminMachine = () => {
     }
   }, []);
 
-  // Open map with current location
   const openMap = useCallback(() => {
     const { latitude, longitude } = gpsData;
     if (latitude && longitude) {
@@ -246,22 +247,67 @@ const AdminMachine = () => {
     }
   }, [gpsData]);
 
-  // ===== END GPS FUNCTIONS =====
+  // ===== SOLENOID LOCK FUNCTIONS =====
+  const toggleSolenoidLock = useCallback(async () => {
+    setSolenoidLock(prev => ({ ...prev, isToggling: true }));
 
-  // Calculate total cash
+    try {
+      const token = localStorage.getItem('token');
+      const newLockState = !solenoidLock.isLocked;
+
+      const response = await axios.post(`${API_URL}/machine/solenoid-lock`, {
+        isLocked: newLockState
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data.success) {
+        setSolenoidLock({
+          isLocked: newLockState,
+          lastChanged: new Date().toISOString(),
+          isToggling: false
+        });
+
+        if (socket) {
+          socket.emit('solenoid_lock_toggle', {
+            isLocked: newLockState,
+            toggledBy: user?.firstName + ' ' + user?.lastName,
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        showNotification('success', newLockState ? 'Machine locked' : 'Machine unlocked');
+      } else {
+        showNotification('error', response.data?.error || 'Failed to toggle lock');
+        setSolenoidLock(prev => ({ ...prev, isToggling: false }));
+      }
+    } catch (error) {
+      console.error('Error toggling solenoid lock:', error);
+
+      const newLockState = !solenoidLock.isLocked;
+      setSolenoidLock({
+        isLocked: newLockState,
+        lastChanged: new Date().toISOString(),
+        isToggling: false
+      });
+
+      showNotification('success', newLockState ? 'Machine locked (local)' : 'Machine unlocked (local)');
+    }
+  }, [solenoidLock.isLocked, socket, user]);
+
   const calculateTotalCash = useCallback(() => {
-    const coinTotal = 
+    const coinTotal =
       coinCounts.onePeso * 1 +
       coinCounts.fivePeso * 5 +
       coinCounts.tenPeso * 10 +
       coinCounts.twentyPeso * 20;
-    
-    const billTotal = 
+
+    const billTotal =
       billCounts.twenty * 20 +
       billCounts.fifty * 50 +
       billCounts.hundred * 100 +
       billCounts.twoHundred * 200;
-    
+
     setTotalCash(coinTotal + billTotal);
   }, [coinCounts, billCounts]);
 
@@ -269,36 +315,34 @@ const AdminMachine = () => {
     calculateTotalCash();
   }, [coinCounts, billCounts, calculateTotalCash]);
 
-  // Fetch machine data from backend
   const fetchMachineData = useCallback(async () => {
     if (!isMounted.current) return;
-    
+
     try {
       const token = localStorage.getItem('token');
-      
+
       const response = await axios.get(`${API_URL}/machine/data`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (!isMounted.current) return;
-      
+
       if (response.data.success) {
         const data = response.data.data;
-        
-        // Update Storage 1
+
         if (data.storage1) {
           const weight = data.storage1.currentWeight || 0;
-          const percentage = (weight / 20) * 100;
+          const percentage = (weight / MAX_CAPACITY) * 100;   // ✅ /10
           setStorage1(prev => ({
             ...prev,
             name: data.storage1.name || prev.name,
             pricePerKg: data.storage1.pricePerKg || prev.pricePerKg,
             currentWeight: weight,
             percentage: percentage,
-            status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
-            isLow: weight < 10
+            status: weight <= 0.1 ? 'Empty' : weight < 2.5 ? 'Low' : 'Normal',
+            isLow: weight < 5
           }));
-          
+
           setCalibration(prev => ({
             ...prev,
             storage1: {
@@ -308,21 +352,20 @@ const AdminMachine = () => {
             }
           }));
         }
-        
-        // Update Storage 2
+
         if (data.storage2) {
           const weight = data.storage2.currentWeight || 0;
-          const percentage = (weight / 20) * 100;
+          const percentage = (weight / MAX_CAPACITY) * 100;   // ✅ /10
           setStorage2(prev => ({
             ...prev,
             name: data.storage2.name || prev.name,
             pricePerKg: data.storage2.pricePerKg || prev.pricePerKg,
             currentWeight: weight,
             percentage: percentage,
-            status: weight <= 0.1 ? 'Empty' : weight < 5 ? 'Low' : 'Normal',
-            isLow: weight < 10
+            status: weight <= 0.1 ? 'Empty' : weight < 2.5 ? 'Low' : 'Normal',
+            isLow: weight < 5
           }));
-          
+
           setCalibration(prev => ({
             ...prev,
             storage2: {
@@ -332,37 +375,41 @@ const AdminMachine = () => {
             }
           }));
         }
-        
-        // Update Battery
+
+        // ✅ Battery - only percentage, status, health
         if (data.battery) {
           setBattery(prev => ({
             ...prev,
             percentage: data.battery.percentage || 100,
-            voltage: data.battery.voltage || 12.6,
             status: data.battery.status || 'Good',
-            isCharging: data.battery.isCharging !== undefined ? data.battery.isCharging : true,
             health: data.battery.health || 'Good'
           }));
         }
-        
-        // Update Machine Status
+
         if (data.machineStatus) {
           setMachineStatus(prev => ({
             ...prev,
             isOnline: data.machineStatus.isOnline !== undefined ? data.machineStatus.isOnline : true,
-            doorStatus: data.machineStatus.doorStatus || 'Closed',
             securityStatus: data.machineStatus.securityStatus || 'Safe'
           }));
         }
-        
+
+        if (data.solenoidLock) {
+          setSolenoidLock(prev => ({
+            ...prev,
+            isLocked: data.solenoidLock.isLocked !== undefined ? data.solenoidLock.isLocked : true,
+            lastChanged: data.solenoidLock.lastChanged || prev.lastChanged
+          }));
+        }
+
         console.log('Machine data loaded');
       }
     } catch (error) {
       console.error('Error fetching machine data:', error);
       if (isMounted.current) {
-        setStorage1(prev => ({ ...prev, currentWeight: 15.5, percentage: 77.5, status: 'Normal' }));
-        setStorage2(prev => ({ ...prev, currentWeight: 8.2, percentage: 41, status: 'Low' }));
-        setBattery(prev => ({ ...prev, percentage: 78, voltage: 12.4 }));
+        setStorage1(prev => ({ ...prev, currentWeight: 7.5, percentage: 75, status: 'Normal' }));
+        setStorage2(prev => ({ ...prev, currentWeight: 4.2, percentage: 42, status: 'Low' }));
+        setBattery(prev => ({ ...prev, percentage: 78 }));
       }
     } finally {
       if (isMounted.current) {
@@ -376,31 +423,30 @@ const AdminMachine = () => {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  // Collect Cash
   const handleCollectCash = () => {
     if (totalCash === 0) {
       showNotification('warning', 'No cash to collect');
       return;
     }
-    
+
     setCollectingCash(true);
-    
+
     setCoinCounts({
       onePeso: 0,
       fivePeso: 0,
       tenPeso: 0,
       twentyPeso: 0
     });
-    
+
     setBillCounts({
       twenty: 0,
       fifty: 0,
       hundred: 0,
       twoHundred: 0
     });
-    
+
     showNotification('success', `✅ Cash collected: ${formatCurrency(totalCash)}`);
-    
+
     if (socket) {
       socket.emit('cash_collected', {
         collectedBy: user?.firstName + ' ' + user?.lastName || 'Staff',
@@ -408,14 +454,13 @@ const AdminMachine = () => {
         timestamp: new Date().toISOString()
       });
     }
-    
+
     setCollectingCash(false);
   };
 
-  // Calibration functions
   const handleCalibrate = (scaleName) => {
     setCalibrating(true);
-    
+
     setTimeout(() => {
       setCalibration(prev => {
         const updated = { ...prev };
@@ -443,7 +488,7 @@ const AdminMachine = () => {
         }
         return updated;
       });
-      
+
       showNotification('success', `✅ ${scaleName === 'storage1' ? 'Storage 1' : scaleName === 'storage2' ? 'Storage 2' : 'Dispense'} scale calibrated successfully!`);
       setCalibrating(false);
     }, 1500);
@@ -451,7 +496,7 @@ const AdminMachine = () => {
 
   const handleZeroCalibrate = (scaleName) => {
     setCalibrating(true);
-    
+
     setTimeout(() => {
       setCalibration(prev => {
         const updated = { ...prev };
@@ -479,35 +524,33 @@ const AdminMachine = () => {
         }
         return updated;
       });
-      
+
       showNotification('success', `✅ ${scaleName === 'storage1' ? 'Storage 1' : scaleName === 'storage2' ? 'Storage 2' : 'Dispense'} scale zeroed successfully!`);
       setCalibrating(false);
     }, 1000);
   };
 
-  // Auto load on component mount
   useEffect(() => {
     isMounted.current = true;
-    
+
     fetchMachineData();
-    
+
     intervalRef.current = setInterval(() => {
       if (isMounted.current) {
         fetchMachineData();
       }
     }, 30000);
-    
-    // Socket listeners
+
     if (socket) {
       socket.on('machine_data_updated', (data) => {
         if (!isMounted.current) return;
-        
+
         if (data.storage1) {
           const weight = data.storage1.currentWeight || 0;
           setStorage1(prev => ({
             ...prev,
             ...data.storage1,
-            percentage: (weight / 20) * 100
+            percentage: (weight / MAX_CAPACITY) * 100  // ✅ /10
           }));
           setCalibration(prev => ({
             ...prev,
@@ -523,7 +566,7 @@ const AdminMachine = () => {
           setStorage2(prev => ({
             ...prev,
             ...data.storage2,
-            percentage: (weight / 20) * 100
+            percentage: (weight / MAX_CAPACITY) * 100  // ✅ /10
           }));
           setCalibration(prev => ({
             ...prev,
@@ -534,28 +577,37 @@ const AdminMachine = () => {
             }
           }));
         }
-        if (data.battery) setBattery(prev => ({ ...prev, ...data.battery }));
+        // ✅ Only take percentage, status, health from battery
+        if (data.battery) {
+          setBattery(prev => ({
+            ...prev,
+            percentage: data.battery.percentage !== undefined ? data.battery.percentage : prev.percentage,
+            status: data.battery.status || prev.status,
+            health: data.battery.health || prev.health
+          }));
+        }
         if (data.machineStatus) {
-          setMachineStatus(prev => ({ 
-            ...prev, 
-            ...data.machineStatus
+          setMachineStatus(prev => ({
+            ...prev,
+            isOnline: data.machineStatus.isOnline !== undefined ? data.machineStatus.isOnline : prev.isOnline,
+            securityStatus: data.machineStatus.securityStatus || prev.securityStatus
           }));
         }
         showNotification('info', 'Machine data updated');
       });
-      
+
       socket.on('low_stock_alert', (data) => {
         showNotification('warning', `Low stock alert: ${data.storageName} has only ${data.remainingKg}kg remaining`);
       });
-      
+
       socket.on('low_battery_alert', (data) => {
         showNotification('warning', `Low battery alert: Battery at ${data.percentage}%`);
       });
-      
+
       socket.on('coin_inserted', (data) => {
         const coinMap = {
           1: 'onePeso',
-          5: 'fivePeso', 
+          5: 'fivePeso',
           10: 'tenPeso',
           20: 'twentyPeso'
         };
@@ -568,7 +620,7 @@ const AdminMachine = () => {
           showNotification('success', `Coin inserted: ₱${data.value}`);
         }
       });
-      
+
       socket.on('bill_inserted', (data) => {
         const billMap = {
           20: 'twenty',
@@ -585,7 +637,7 @@ const AdminMachine = () => {
           showNotification('success', `Bill inserted: ₱${data.value}`);
         }
       });
-      
+
       socket.on('gps_update', (data) => {
         if (!isMounted.current) return;
         setGpsData(prev => ({
@@ -599,7 +651,7 @@ const AdminMachine = () => {
           usingBrowserGPS: false
         }));
         setGpsError(null);
-        
+
         if (data.latitude && data.longitude) {
           setLocationHistory(prev => {
             const newEntry = {
@@ -612,8 +664,18 @@ const AdminMachine = () => {
           });
         }
       });
+
+      socket.on('solenoid_lock_updated', (data) => {
+        if (!isMounted.current) return;
+        setSolenoidLock(prev => ({
+          ...prev,
+          isLocked: data.isLocked,
+          lastChanged: data.timestamp || new Date().toISOString()
+        }));
+        showNotification('info', `Solenoid lock ${data.isLocked ? 'locked' : 'unlocked'}`);
+      });
     }
-    
+
     return () => {
       isMounted.current = false;
       if (intervalRef.current) {
@@ -626,6 +688,7 @@ const AdminMachine = () => {
         socket.off('coin_inserted');
         socket.off('bill_inserted');
         socket.off('gps_update');
+        socket.off('solenoid_lock_updated');
       }
     };
   }, [socket, fetchMachineData]);
@@ -644,14 +707,14 @@ const AdminMachine = () => {
     try {
       const token = localStorage.getItem('token');
       const storageId = editingStorage.id;
-      
+
       const response = await axios.put(`${API_URL}/machine/product/${storageId}`, {
         name: editFormData.name,
         pricePerKg: parseFloat(editFormData.pricePerKg)
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (response.data.success) {
         if (editingStorage.id === 1) {
           setStorage1(prev => ({
@@ -666,11 +729,11 @@ const AdminMachine = () => {
             pricePerKg: parseFloat(editFormData.pricePerKg)
           }));
         }
-        
+
         showNotification('success', 'Product updated successfully');
         setShowEditModal(false);
         setEditingStorage(null);
-        
+
         fetchMachineData();
       } else {
         showNotification('error', response.data?.error || 'Failed to save product');
@@ -692,7 +755,7 @@ const AdminMachine = () => {
   };
 
   const getBatteryColor = () => {
-    if (battery.percentage >= 70) return '#10b981';
+    if (battery.percentage >= 70) return '#1a472a';
     if (battery.percentage >= 30) return '#f59e0b';
     return '#ef4444';
   };
@@ -708,7 +771,7 @@ const AdminMachine = () => {
       case 'Critical': return '#ef4444';
       case 'Low': return '#f59e0b';
       case 'Empty': return '#ef4444';
-      case 'Normal': return '#10b981';
+      case 'Normal': return '#1a472a';
       default: return '#6b7280';
     }
   };
@@ -744,7 +807,54 @@ const AdminMachine = () => {
         </div>
       </div>
 
-      {/* ===== GPS TRACKING SECTION - SIMPLIFIED ===== */}
+      {/* ===== SOLENOID LOCK CONTROL SECTION ===== */}
+      <div className="solenoid-section">
+        <div className="solenoid-card">
+          <div className="solenoid-header">
+            <div>
+              <h2>Solenoid Lock Control</h2>
+              <p className="solenoid-subtitle">12V Solenoid Door Lock - Remote Control</p>
+            </div>
+            <div className={`solenoid-status ${solenoidLock.isLocked ? 'locked' : 'unlocked'}`}>
+              {solenoidLock.isLocked ? 'LOCKED' : 'UNLOCKED'}
+            </div>
+          </div>
+          <div className="solenoid-body">
+            <div className="solenoid-info">
+              <div className="solenoid-state">
+                <span className="solenoid-state-label">Current State:</span>
+                <span className={`solenoid-state-value ${solenoidLock.isLocked ? 'locked' : 'unlocked'}`}>
+                  {solenoidLock.isLocked ? 'Locked' : 'Unlocked'}
+                </span>
+              </div>
+              {solenoidLock.lastChanged && (
+                <div className="solenoid-state">
+                  <span className="solenoid-state-label">Last Changed:</span>
+                  <span className="solenoid-state-value">
+                    {new Date(solenoidLock.lastChanged).toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </div>
+            <button
+              className={`btn-solenoid ${solenoidLock.isLocked ? 'unlock' : 'lock'}`}
+              onClick={toggleSolenoidLock}
+              disabled={solenoidLock.isToggling}
+            >
+              {solenoidLock.isToggling ? (
+                <>
+                  <span className="spinner-small"></span>
+                  Processing...
+                </>
+              ) : (
+                solenoidLock.isLocked ? 'Unlock Machine' : 'Lock Machine'
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== GPS TRACKING SECTION ===== */}
       <div className="gps-section">
         <div className="gps-card">
           <div className="gps-header">
@@ -755,7 +865,7 @@ const AdminMachine = () => {
               </p>
             </div>
             <div className="gps-controls">
-              <button 
+              <button
                 className="btn-gps-locate"
                 onClick={locateMachine}
                 disabled={gpsLocating}
@@ -769,7 +879,7 @@ const AdminMachine = () => {
                   'Locate Machine'
                 )}
               </button>
-              <button 
+              <button
                 className="btn-gps-map"
                 onClick={openMap}
                 disabled={!gpsData.latitude || !gpsData.longitude}
@@ -780,7 +890,6 @@ const AdminMachine = () => {
           </div>
 
           <div className="gps-content">
-            {/* GPS Status */}
             <div className="gps-status">
               <div className={`gps-connection ${gpsData.isConnected ? 'connected' : 'disconnected'}`}>
                 <span className="status-dot"></span>
@@ -793,7 +902,6 @@ const AdminMachine = () => {
               )}
             </div>
 
-            {/* GPS Coordinates */}
             <div className="gps-coordinates">
               <div className="coordinate-item">
                 <span className="coordinate-label">Latitude</span>
@@ -821,19 +929,16 @@ const AdminMachine = () => {
               </div>
             </div>
 
-            {/* GPS Error */}
             {gpsError && (
               <div className="gps-error">
                 {gpsError}
               </div>
             )}
 
-            {/* Last Updated */}
             <div className="gps-timestamp">
               Last located: {gpsData.timestamp ? new Date(gpsData.timestamp).toLocaleString() : 'Never'}
             </div>
 
-            {/* Location History */}
             {locationHistory.length > 0 && (
               <div className="gps-history">
                 <h4>Location History ({locationHistory.length} records)</h4>
@@ -871,8 +976,8 @@ const AdminMachine = () => {
         </div>
         <div className="stat-card">
           <div className="stat-info">
-            <div className="stat-label">Door Status</div>
-            <div className="stat-value">{machineStatus.doorStatus}</div>
+            <div className="stat-label">Security Status</div>
+            <div className="stat-value">{machineStatus.securityStatus}</div>
           </div>
         </div>
         <div className="stat-card">
@@ -895,7 +1000,7 @@ const AdminMachine = () => {
               <span className="total-label">Total Cash:</span>
               <span className="total-amount">{formatCurrency(totalCash)}</span>
             </div>
-            <button 
+            <button
               className={`btn-collect ${totalCash === 0 ? 'disabled' : ''}`}
               onClick={handleCollectCash}
               disabled={totalCash === 0 || collectingCash}
@@ -904,9 +1009,8 @@ const AdminMachine = () => {
             </button>
           </div>
         </div>
-        
+
         <div className="cash-grid">
-          {/* Coins Section */}
           <div className="cash-card">
             <h3>Coins</h3>
             <div className="cash-items">
@@ -939,8 +1043,7 @@ const AdminMachine = () => {
               </div>
             </div>
           </div>
-          
-          {/* Bills Section */}
+
           <div className="cash-card">
             <h3>Bills</h3>
             <div className="cash-items">
@@ -978,7 +1081,6 @@ const AdminMachine = () => {
 
       {/* Storage Grid */}
       <div className="storage-grid">
-        {/* Storage 1 */}
         <div className="storage-card">
           <div className="storage-header">
             <h2>Storage 1</h2>
@@ -986,27 +1088,27 @@ const AdminMachine = () => {
               Edit Product
             </button>
           </div>
-          
+
           <div className="product-info">
             <div className="product-name">{storage1.name}</div>
             <div className="product-price">{formatCurrency(storage1.pricePerKg)} / kg</div>
           </div>
-          
+
           <div className="weight-display">
             <div className="weight-value">{storage1.currentWeight.toFixed(1)} kg</div>
             <div className="weight-max">/ {storage1.maxCapacity} kg</div>
           </div>
-          
+
           <div className="progress-bar">
-            <div 
-              className="progress-fill" 
-              style={{ 
+            <div
+              className="progress-fill"
+              style={{
                 width: `${storage1.percentage}%`,
                 backgroundColor: getStatusColor(storage1.status)
               }}
             ></div>
           </div>
-          
+
           <div className="storage-details">
             <div className="detail-item">
               <span className="detail-label">Status:</span>
@@ -1020,12 +1122,11 @@ const AdminMachine = () => {
             </div>
             <div className="detail-item">
               <span className="detail-label">Load Cell:</span>
-              <span className="detail-value">{storage1.currentWeight.toFixed(1)} / 20 kg</span>
+              <span className="detail-value">{storage1.currentWeight.toFixed(1)} / {MAX_CAPACITY} kg</span>
             </div>
           </div>
         </div>
 
-        {/* Storage 2 */}
         <div className="storage-card">
           <div className="storage-header">
             <h2>Storage 2</h2>
@@ -1033,27 +1134,27 @@ const AdminMachine = () => {
               Edit Product
             </button>
           </div>
-          
+
           <div className="product-info">
             <div className="product-name">{storage2.name}</div>
             <div className="product-price">{formatCurrency(storage2.pricePerKg)} / kg</div>
           </div>
-          
+
           <div className="weight-display">
             <div className="weight-value">{storage2.currentWeight.toFixed(1)} kg</div>
             <div className="weight-max">/ {storage2.maxCapacity} kg</div>
           </div>
-          
+
           <div className="progress-bar">
-            <div 
-              className="progress-fill" 
-              style={{ 
+            <div
+              className="progress-fill"
+              style={{
                 width: `${storage2.percentage}%`,
                 backgroundColor: getStatusColor(storage2.status)
               }}
             ></div>
           </div>
-          
+
           <div className="storage-details">
             <div className="detail-item">
               <span className="detail-label">Status:</span>
@@ -1067,13 +1168,13 @@ const AdminMachine = () => {
             </div>
             <div className="detail-item">
               <span className="detail-label">Load Cell:</span>
-              <span className="detail-value">{storage2.currentWeight.toFixed(1)} / 20 kg</span>
+              <span className="detail-value">{storage2.currentWeight.toFixed(1)} / {MAX_CAPACITY} kg</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Battery Section */}
+      {/* Battery Section (Voltage & Charging removed) */}
       <div className="battery-section">
         <div className="battery-card">
           <div className="battery-header">
@@ -1082,26 +1183,22 @@ const AdminMachine = () => {
               {getBatteryStatusText()}
             </div>
           </div>
-          
+
           <div className="battery-content">
             <div className="battery-level">
               <div className="battery-icon">
-                <div 
-                  className="battery-fill" 
+                <div
+                  className="battery-fill"
                   style={{ width: `${battery.percentage}%`, backgroundColor: getBatteryColor() }}
                 ></div>
               </div>
               <div className="battery-percentage">{battery.percentage}%</div>
             </div>
-            
+
             <div className="battery-details">
               <div className="battery-detail">
-                <span className="detail-label">Voltage:</span>
-                <span className="detail-value">{battery.voltage}V</span>
-              </div>
-              <div className="battery-detail">
-                <span className="detail-label">Charging:</span>
-                <span className="detail-value">{battery.isCharging ? 'Yes (Solar)' : 'No'}</span>
+                <span className="detail-label">Status:</span>
+                <span className="detail-value">{getBatteryStatusText()}</span>
               </div>
               <div className="battery-detail">
                 <span className="detail-label">Health:</span>
@@ -1110,13 +1207,13 @@ const AdminMachine = () => {
             </div>
           </div>
         </div>
-        
+
         <div className="machine-info-card">
           <h2>Machine Information</h2>
           <div className="machine-details">
             <div className="machine-detail">
               <span className="detail-label">Total Capacity:</span>
-              <span className="detail-value">40 kg (20kg + 20kg)</span>
+              <span className="detail-value">{MAX_CAPACITY * 2} kg ({MAX_CAPACITY}kg + {MAX_CAPACITY}kg)</span>
             </div>
             <div className="machine-detail">
               <span className="detail-label">Remaining Stock:</span>
@@ -1132,6 +1229,12 @@ const AdminMachine = () => {
                 {machineStatus.securityStatus}
               </span>
             </div>
+            <div className="machine-detail">
+              <span className="detail-label">Solenoid Lock:</span>
+              <span className={`detail-value ${solenoidLock.isLocked ? 'safe' : 'alert'}`}>
+                {solenoidLock.isLocked ? 'Locked' : 'Unlocked'}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1142,9 +1245,8 @@ const AdminMachine = () => {
           <h2>Load Cell Calibration</h2>
           <p className="calibration-subtitle">Monitor and calibrate weighing scales</p>
         </div>
-        
+
         <div className="calibration-grid">
-          {/* Storage 1 Calibration */}
           <div className="calibration-card">
             <div className="calibration-card-header">
               <h3>Storage 1 Weighing Scale</h3>
@@ -1166,14 +1268,14 @@ const AdminMachine = () => {
                 </div>
               </div>
               <div className="calibration-actions">
-                <button 
+                <button
                   className="btn-calibrate"
                   onClick={() => handleCalibrate('storage1')}
                   disabled={calibrating}
                 >
                   {calibrating ? 'Calibrating...' : 'Calibrate'}
                 </button>
-                <button 
+                <button
                   className="btn-zero"
                   onClick={() => handleZeroCalibrate('storage1')}
                   disabled={calibrating}
@@ -1184,7 +1286,6 @@ const AdminMachine = () => {
             </div>
           </div>
 
-          {/* Storage 2 Calibration */}
           <div className="calibration-card">
             <div className="calibration-card-header">
               <h3>Storage 2 Weighing Scale</h3>
@@ -1206,14 +1307,14 @@ const AdminMachine = () => {
                 </div>
               </div>
               <div className="calibration-actions">
-                <button 
+                <button
                   className="btn-calibrate"
                   onClick={() => handleCalibrate('storage2')}
                   disabled={calibrating}
                 >
                   {calibrating ? 'Calibrating...' : 'Calibrate'}
                 </button>
-                <button 
+                <button
                   className="btn-zero"
                   onClick={() => handleZeroCalibrate('storage2')}
                   disabled={calibrating}
@@ -1224,7 +1325,6 @@ const AdminMachine = () => {
             </div>
           </div>
 
-          {/* Dispense Calibration */}
           <div className="calibration-card">
             <div className="calibration-card-header">
               <h3>Dispense Weighing Scale</h3>
@@ -1246,14 +1346,14 @@ const AdminMachine = () => {
                 </div>
               </div>
               <div className="calibration-actions">
-                <button 
+                <button
                   className="btn-calibrate"
                   onClick={() => handleCalibrate('dispense')}
                   disabled={calibrating}
                 >
                   {calibrating ? 'Calibrating...' : 'Calibrate'}
                 </button>
-                <button 
+                <button
                   className="btn-zero"
                   onClick={() => handleZeroCalibrate('dispense')}
                   disabled={calibrating}
@@ -1274,7 +1374,7 @@ const AdminMachine = () => {
               <h2>Edit Product</h2>
               <button className="modal-close" onClick={() => setShowEditModal(false)}>×</button>
             </div>
-            
+
             <div className="modal-body">
               <div className="form-group">
                 <label>Product Name</label>
@@ -1286,7 +1386,7 @@ const AdminMachine = () => {
                   disabled={editLoading}
                 />
               </div>
-              
+
               <div className="form-group">
                 <label>Price per Kilogram (₱)</label>
                 <input
@@ -1299,17 +1399,17 @@ const AdminMachine = () => {
                   disabled={editLoading}
                 />
               </div>
-              
+
               <div className="info-text">
                 <small>Formula: Amount Inserted ÷ Price per kg = Quantity to dispense</small>
                 <small>Example: ₱100 ÷ {formatCurrency(parseFloat(editFormData.pricePerKg) || 0)} = {(100 / (parseFloat(editFormData.pricePerKg) || 1)).toFixed(3)} kg</small>
               </div>
             </div>
-            
+
             <div className="modal-footer">
               <button className="btn-cancel" onClick={() => setShowEditModal(false)}>Cancel</button>
-              <button 
-                className="btn-save" 
+              <button
+                className="btn-save"
                 onClick={handleSaveProduct}
                 disabled={editLoading}
               >

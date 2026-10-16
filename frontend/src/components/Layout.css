@@ -1,4 +1,4 @@
-/* Layout.css - Fixed for all devices */
+/* Layout.css - Connects Navbar + Sidebar + Content */
 * {
   margin: 0;
   padding: 0;
@@ -6,43 +6,42 @@
 }
 
 .layout {
-  display: flex;
-  flex-direction: column;
   min-height: 100vh;
   width: 100%;
   overflow-x: hidden;
+  background: #f1f5f9;
 }
 
+/* ===== MAIN CONTENT ===== */
 .main-content {
-  flex: 1;
-  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: #f8fafc;
-  min-height: calc(100vh - 70px);
-  margin-top: 70px;
+  margin-top: 68px;
+  min-height: calc(100vh - 68px);
+  background: #f1f5f9;
   width: 100%;
   overflow-x: auto;
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* DESKTOP (1024px and above) - Sidebar open affects margin */
+/* Desktop: sidebar pushes content when OPEN */
 @media (min-width: 1024px) {
-  .main-content {
-    margin-left: 280px;
-    width: calc(100% - 280px);
+  .main-content.sidebar-open {
+    margin-left: 260px;
+    width: calc(100% - 260px);
   }
-  
+
   .main-content.sidebar-closed {
     margin-left: 0;
     width: 100%;
   }
 }
 
-/* TABLET & MOBILE (below 1024px) - No margin shift */
+/* Mobile / Tablet: sidebar overlays content, no margin shift */
 @media (max-width: 1023px) {
   .main-content {
     margin-left: 0;
     width: 100%;
   }
-  
+
   .main-content.sidebar-open,
   .main-content.sidebar-closed {
     margin-left: 0;
@@ -56,32 +55,35 @@
   width: 100%;
 }
 
-/* Tablet */
+/* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .main-content {
     margin-top: 60px;
     min-height: calc(100vh - 60px);
   }
-  
+
   .main-container {
     padding: 1.25rem;
   }
 }
 
-/* Mobile */
 @media (max-width: 480px) {
   .main-content {
-    margin-top: 55px;
-    min-height: calc(100vh - 55px);
+    margin-top: 56px;
+    min-height: calc(100vh - 56px);
   }
-  
+
   .main-container {
     padding: 1rem;
   }
 }
 
-/* Small Mobile */
-@media (max-width: 320px) {
+@media (max-width: 360px) {
+  .main-content {
+    margin-top: 54px;
+    min-height: calc(100vh - 54px);
+  }
+
   .main-container {
     padding: 0.75rem;
   }

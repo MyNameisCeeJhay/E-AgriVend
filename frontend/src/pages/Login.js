@@ -4,9 +4,6 @@ import axios from 'axios';
 import './Login.css';
 
 const API_URL = 'https://e-agrivend.onrender.com/api';
-//const API_URL = 'http://localhost:5000/api';
-// For local development, uncomment below:
-// const API_URL = 'http://localhost:5000/api';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -15,7 +12,6 @@ const Login = () => {
   const [localError, setLocalError] = useState('');
   const { login, error: authError } = useAuth();
 
-  // Forgot Password States
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -37,10 +33,8 @@ const Login = () => {
     }
   });
 
-  // OTP input refs
   const otpInputs = useRef([]);
 
-  // Auto reload after successful password reset
   useEffect(() => {
     let reloadTimer;
     if (resetMessage && resetMessage.includes('successfully')) {
@@ -65,55 +59,48 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
     setLocalError('');
-    
+
     if (!email || !password) {
       setLocalError('Please enter both email and password');
       setLoading(false);
       return;
     }
-    
+
     const result = await login(email, password);
-    
+
     if (!result.success) {
       setLocalError(result.error);
     }
-    
+
     setLoading(false);
   };
 
-  // Handle OTP input change
   const handleOtpChange = (index, value) => {
     if (value && !/^\d*$/.test(value)) return;
-    
     const newOtp = [...otp];
     newOtp[index] = value.slice(-1);
     setOtp(newOtp);
-    
     if (value && index < 5) {
       otpInputs.current[index + 1].focus();
     }
   };
 
-  // Handle OTP key down
   const handleOtpKeyDown = (index, e) => {
     if (e.key === 'Backspace' && !otp[index] && index > 0) {
       otpInputs.current[index - 1].focus();
     }
   };
 
-  // Handle OTP paste
   const handleOtpPaste = (e) => {
     e.preventDefault();
     const pastedData = e.clipboardData.getData('text');
     const pastedNumbers = pastedData.replace(/\D/g, '').slice(0, 6);
-    
     if (pastedNumbers) {
       const newOtp = [...otp];
       for (let i = 0; i < pastedNumbers.length; i++) {
         newOtp[i] = pastedNumbers[i];
       }
       setOtp(newOtp);
-      
       const lastFilledIndex = Math.min(pastedNumbers.length - 1, 5);
       if (lastFilledIndex >= 0 && lastFilledIndex < 6) {
         otpInputs.current[lastFilledIndex].focus();
@@ -121,19 +108,14 @@ const Login = () => {
     }
   };
 
-  // Get combined OTP value as STRING (not array)
-  const getOtpValue = () => {
-    return otp.join(''); // Returns string like "123456"
-  };
+  const getOtpValue = () => otp.join('');
 
   const handleSendOTP = async (e) => {
     e.preventDefault();
-    
     if (!resetEmail) {
       setResetError('Please enter your email address');
       return;
     }
-
     setResetLoading(true);
     setResetError('');
     setResetMessage('');
@@ -144,11 +126,9 @@ const Login = () => {
         email: resetEmail
       }, {
         timeout: 30000,
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
-      
+
       if (response.data.success) {
         setResetMessage('OTP sent to your email address. Please check your inbox.');
         setOtpSent(true);
@@ -156,7 +136,6 @@ const Login = () => {
       } else {
         setResetError(response.data?.error || 'Failed to send OTP');
       }
-      
     } catch (error) {
       console.error('Error sending OTP:', error);
       if (error.response) {
@@ -175,27 +154,20 @@ const Login = () => {
     setResetLoading(true);
     setResetError('');
     setResetMessage('');
-
     try {
       const response = await axios.post(`${API_URL}/auth/resend-otp`, {
         email: resetEmail
-      }, {
-        timeout: 30000
-      });
-      
+      }, { timeout: 30000 });
+
       if (response.data && response.data.success) {
         setResetMessage('New OTP sent to your email address.');
         setOtp(['', '', '', '', '', '']);
-        
         setTimeout(() => {
-          if (otpInputs.current[0]) {
-            otpInputs.current[0].focus();
-          }
+          if (otpInputs.current[0]) otpInputs.current[0].focus();
         }, 100);
       } else {
         setResetError(response.data?.error || 'Failed to resend OTP');
       }
-      
     } catch (error) {
       console.error('Error resending OTP:', error);
       setResetError('Failed to resend OTP. Please try again.');
@@ -205,107 +177,72 @@ const Login = () => {
   };
 
   const handleResetPassword = async (e) => {
-  e.preventDefault();
-  
-  const otpValue = getOtpValue();
-  console.log('🔑 Submitting OTP:', otpValue);
-  console.log('📧 Email:', resetEmail);
-  console.log('🔒 New Password length:', newPassword.length);
-  
-  if (otpValue.length !== 6) {
-    setResetError('Please enter the complete 6-digit OTP');
-    return;
-  }
-  
-  if (newPassword !== confirmPassword) {
-    setResetError('Passwords do not match');
-    return;
-  }
-  
-  if (!passwordStrength.isStrong) {
-    const missing = [];
-    if (!passwordStrength.requirements.minLength) missing.push('8+ characters');
-    if (!passwordStrength.requirements.hasUpperCase) missing.push('uppercase letter');
-    if (!passwordStrength.requirements.hasLowerCase) missing.push('lowercase letter');
-    if (!passwordStrength.requirements.hasNumbers) missing.push('number');
-    if (!passwordStrength.requirements.hasSpecialChar) missing.push('special character');
-    setResetError(`Password must contain: ${missing.join(', ')}`);
-    return;
-  }
-  
-  setResetLoading(true);
-  setResetError('');
-  setResetMessage('');
+    e.preventDefault();
+    const otpValue = getOtpValue();
 
-  try {
-    const requestData = {
-      email: resetEmail,
-      otp: otpValue,
-      newPassword: newPassword
-    };
-    
-    console.log('📤 Sending reset request:', { 
-      email: requestData.email, 
-      otp: requestData.otp,
-      passwordLength: requestData.newPassword.length 
-    });
-    
-    const response = await axios.post(`${API_URL}/auth/reset-password`, requestData, {
-      timeout: 30000,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    console.log('✅ Reset response:', response.data);
-    
-    if (response.data && response.data.success) {
-      setResetMessage('Password reset successful! Redirecting to login...');
-      
-      // Auto redirect after 2 seconds
-      setTimeout(() => {
-        setShowForgotPassword(false);
-        setResetStep(1);
-        setResetEmail('');
-        setOtp(['', '', '', '', '', '']);
-        setNewPassword('');
-        setConfirmPassword('');
-        setResetMessage('');
-        setOtpSent(false);
-        setResetError('');
-      }, 2000);
-    } else {
-      setResetError(response.data?.error || 'Failed to reset password');
+    if (otpValue.length !== 6) {
+      setResetError('Please enter the complete 6-digit OTP');
+      return;
     }
-    
-  } catch (error) {
-    console.error('❌ Error resetting password:', error);
-    
-    if (error.response) {
-      // Server responded with error
-      console.error('Server error data:', error.response.data);
-      console.error('Server error status:', error.response.status);
-      
-      const errorMessage = error.response.data?.error || error.response.data?.message || 'Server error';
-      setResetError(errorMessage);
-      
-      // Log specific error details
-      if (error.response.data?.requirements) {
-        console.log('Missing requirements:', error.response.data.requirements);
-      }
-    } else if (error.request) {
-      console.error('No response received');
-      setResetError('Cannot connect to server. Please check your connection.');
-    } else {
-      console.error('Error:', error.message);
-      setResetError('An error occurred. Please try again.');
+    if (newPassword !== confirmPassword) {
+      setResetError('Passwords do not match');
+      return;
     }
-  } finally {
-    setResetLoading(false);
-  }
-};
+    if (!passwordStrength.isStrong) {
+      const missing = [];
+      if (!passwordStrength.requirements.minLength) missing.push('8+ characters');
+      if (!passwordStrength.requirements.hasUpperCase) missing.push('uppercase letter');
+      if (!passwordStrength.requirements.hasLowerCase) missing.push('lowercase letter');
+      if (!passwordStrength.requirements.hasNumbers) missing.push('number');
+      if (!passwordStrength.requirements.hasSpecialChar) missing.push('special character');
+      setResetError(`Password must contain: ${missing.join(', ')}`);
+      return;
+    }
 
-  // Check password strength
+    setResetLoading(true);
+    setResetError('');
+    setResetMessage('');
+
+    try {
+      const response = await axios.post(`${API_URL}/auth/reset-password`, {
+        email: resetEmail,
+        otp: otpValue,
+        newPassword: newPassword
+      }, {
+        timeout: 30000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (response.data && response.data.success) {
+        setResetMessage('Password reset successful! Redirecting to login...');
+        setTimeout(() => {
+          setShowForgotPassword(false);
+          setResetStep(1);
+          setResetEmail('');
+          setOtp(['', '', '', '', '', '']);
+          setNewPassword('');
+          setConfirmPassword('');
+          setResetMessage('');
+          setOtpSent(false);
+          setResetError('');
+        }, 2000);
+      } else {
+        setResetError(response.data?.error || 'Failed to reset password');
+      }
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      if (error.response) {
+        setResetError(error.response.data?.error || error.response.data?.message || 'Server error');
+      } else if (error.request) {
+        setResetError('Cannot connect to server. Please check your connection.');
+      } else {
+        setResetError('An error occurred. Please try again.');
+      }
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const checkPasswordStrength = (pwd) => {
     const requirements = {
       minLength: pwd.length >= 8,
@@ -314,13 +251,8 @@ const Login = () => {
       hasNumbers: /\d/.test(pwd),
       hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(pwd)
     };
-    
     const isStrong = Object.values(requirements).every(Boolean);
-    
-    setPasswordStrength({
-      isStrong,
-      requirements
-    });
+    setPasswordStrength({ isStrong, requirements });
   };
 
   const handleNewPasswordChange = (e) => {
@@ -332,44 +264,35 @@ const Login = () => {
   const displayError = localError || authError;
 
   return (
-    <div 
-      className="login-container"
-      style={{
-        backgroundImage: `url('/assets/images/AgBackground.jpg')`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat'
-      }}
-    >
-      <div className="login-overlay"></div>
+    <div className="login-container">
       <div className="login-grid">
         {/* Left Side - Brand Area */}
         <div className="login-brand">
-          <div className="brand-content">
-            <div className="brand-logo">
-              <h1 className="brand-name">AGRIVEND</h1>
+          <div className="login-brand-content">
+            <div className="login-brand-logo">
+              <h1 className="login-brand-name">AGRIVEND</h1>
             </div>
-            <p className="brand-tagline">Solar Powered Grain Vending Machine</p>
-            <div className="brand-features">
-              <div className="feature-item">
-                <span className="feature-check">✓</span>
+            <p className="login-brand-tagline">Solar Powered Grain Vending Machine</p>
+            <div className="login-brand-features">
+              <div className="login-feature-item">
+                <span className="login-feature-check">✓</span>
                 <span>Automated Vending Machine</span>
               </div>
-              <div className="feature-item">
-                <span className="feature-check">✓</span>
+              <div className="login-feature-item">
+                <span className="login-feature-check">✓</span>
                 <span>Real-time Inventory Tracking</span>
               </div>
-              <div className="feature-item">
-                <span className="feature-check">✓</span>
+              <div className="login-feature-item">
+                <span className="login-feature-check">✓</span>
                 <span>Secure Payment Processing</span>
               </div>
-              <div className="feature-item">
-                <span className="feature-check">✓</span>
+              <div className="login-feature-item">
+                <span className="login-feature-check">✓</span>
                 <span>Enterprise Management Dashboard</span>
               </div>
             </div>
-            <div className="brand-footer">
-              <p className="authorized-text">Authorized Personnel Only</p>
+            <div className="login-brand-footer">
+              <p className="login-authorized-text">Authorized Personnel Only</p>
             </div>
           </div>
         </div>
@@ -381,13 +304,13 @@ const Login = () => {
               <h2 className="form-title">Welcome Back</h2>
               <p className="form-subtitle">Sign in to your administrator / staff account</p>
             </div>
-            
+
             {displayError && !showForgotPassword && (
               <div className="alert-message error">
                 <span>{displayError}</span>
               </div>
             )}
-            
+
             {!showForgotPassword ? (
               <form className="login-form" onSubmit={handleSubmit}>
                 <div className="input-group">
@@ -402,7 +325,7 @@ const Login = () => {
                     disabled={loading}
                   />
                 </div>
-                
+
                 <div className="input-group">
                   <label className="input-label">Password</label>
                   <input
@@ -442,7 +365,7 @@ const Login = () => {
                     <p className="reset-description">
                       Enter your email address to receive a verification code
                     </p>
-                    
+
                     <div className="input-group">
                       <label className="input-label">Email Address</label>
                       <input
@@ -476,7 +399,7 @@ const Login = () => {
                       >
                         {resetLoading ? 'Sending...' : 'Send OTP'}
                       </button>
-                      
+
                       <button
                         type="button"
                         onClick={() => {
@@ -498,7 +421,7 @@ const Login = () => {
                     <p className="reset-description">
                       Enter the OTP sent to <strong>{resetEmail}</strong>
                     </p>
-                    
+
                     <div className="otp-section">
                       <label className="input-label">Verification Code</label>
                       <div className="otp-input-group">
@@ -603,7 +526,7 @@ const Login = () => {
                       >
                         {resetLoading ? 'Resetting...' : 'Reset Password'}
                       </button>
-                      
+
                       <button
                         type="button"
                         onClick={() => {

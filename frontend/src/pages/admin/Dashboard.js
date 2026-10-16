@@ -101,18 +101,106 @@ const AdminDashboard = () => {
     }
   }, [notification]);
 
+  // ===== Extract product name from any possible shape =====
+  const getProductName = (t) => {
+    if (!t) return 'N/A';
+
+    const direct =
+      t.riceType ||
+      t.productName ||
+      t.product ||
+      t.grainType ||
+      t.grainName ||
+      t.itemName ||
+      t.name ||
+      t.variety ||
+      t.productType ||
+      t.description;
+    if (typeof direct === 'string' && direct.trim() && !/^[a-f0-9]{24}$/i.test(direct)) return direct;
+
+    if (t.product && typeof t.product === 'object') {
+      const n = t.product.name || t.product.productName || t.product.riceType || t.product.title;
+      if (n) return n;
+    }
+    if (t.riceType && typeof t.riceType === 'object') {
+      const n = t.riceType.name || t.riceType.productName || t.riceType.title;
+      if (n) return n;
+    }
+    if (t.productId && typeof t.productId === 'object') {
+      const n = t.productId.name || t.productId.productName || t.productId.riceType || t.productId.title;
+      if (n) return n;
+    }
+    if (t.inventory && typeof t.inventory === 'object') {
+      const n = t.inventory.riceType || t.inventory.productName || t.inventory.name;
+      if (n) return n;
+    }
+    if (t.storage && typeof t.storage === 'object') {
+      const n = t.storage.riceType || t.storage.productName || t.storage.name;
+      if (n) return n;
+    }
+
+    const keys = Object.keys(t);
+    for (const k of keys) {
+      if (/product|rice|grain|item|variety|name/i.test(k) &&
+          typeof t[k] === 'string' &&
+          t[k].trim() &&
+          t[k].length < 60 &&
+          !/^[a-f0-9]{24}$/i.test(t[k])) {
+        return t[k];
+      }
+    }
+
+    return 'N/A';
+  };
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+
+      // Fetch stats + full transaction list (with products)
       const [dashboardRes, transactionsRes] = await Promise.all([
         axios.get(`${API_URL}/admin/dashboard/stats`),
-        axios.get(`${API_URL}/admin/transactions/recent?limit=5`)
+        // ✅ USE THE SAME ENDPOINT AS THE TRANSACTIONS PAGE — it returns full data
+        axios.get(`${API_URL}/transactions/all`, { params: { limit: 5 } })
       ]);
       
       setStats(dashboardRes.data.data);
-      setRecentTransactions(transactionsRes.data.data || []);
+      
+      // Normalize the response (Transactions page uses response.data.data)
+      let transactions = transactionsRes.data.data || transactionsRes.data || [];
+      if (!Array.isArray(transactions)) transactions = [];
+
+      // Only take the 5 most recent
+      transactions = transactions.slice(0, 5);
+
+      if (transactions.length > 0) {
+        console.log('✅ Dashboard transactions loaded:', transactions.length);
+        console.log('Sample transaction keys:', Object.keys(transactions[0]));
+        console.log('Sample product name:', getProductName(transactions[0]));
+      }
+
+      const processedTransactions = transactions.map(t => ({
+        ...t,
+        productDisplayName: getProductName(t)
+      }));
+
+      setRecentTransactions(processedTransactions);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+      // Fallback — try the /admin/transactions/recent endpoint
+      try {
+        const fallbackRes = await axios.get(`${API_URL}/admin/transactions/recent?limit=5`);
+        const fallbackData = fallbackRes.data.data || fallbackRes.data || [];
+        if (Array.isArray(fallbackData)) {
+          const processed = fallbackData.map(t => ({
+            ...t,
+            productDisplayName: getProductName(t)
+          }));
+          setRecentTransactions(processed);
+        }
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError);
+      }
     } finally {
       setLoading(false);
     }
@@ -156,7 +244,6 @@ const AdminDashboard = () => {
 
   return (
     <div className="admin-page-container">
-      {/* Notification Toast */}
       {notification && (
         <div className={`notification-toast ${notification.type}`}>
           <span className="notification-message">{notification.message}</span>
@@ -164,22 +251,25 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* Page Header - Welcome Section */}
       <div className="page-header">
-        <div className="welcome-section">
-          <span className="welcome-badge">Admin Dashboard</span>
-          <h1 className="page-title">
-            {getGreeting()}, <span>{user?.firstName || 'Admin'}</span>
-          </h1>
-          <p className="page-description">
-            Here's what's happening with your vending machine business today
-          </p>
-          <span className="welcome-date">{formatDateFull()}</span>
-        </div>
-       
-      </div>
+  <div className="welcome-section">
+    <span className="welcome-badge">Admin Dashboard</span>
+    <h1 className="page-title">
+      {getGreeting()}, <span>{user?.firstName || 'Admin'}</span>
+    </h1>
+    <p className="page-description">
+      Here's what's happening with your vending machine business today
+    </p>
+    <span className="welcome-date">{formatDateFull()}</span>
+  </div>
 
-      {/* Stats Grid */}
+  {/* ✅ Text-only brand block (no box) */}
+  <div className="brand-block">
+    <h2 className="brand-name">AGRIVEND</h2>
+    <p className="brand-tagline">Solar Powered Grain Vending Machine</p>
+  </div>
+</div>
+
       <div className="stats-grid">
         <div className="stat-card green">
           <div className="stat-content">
@@ -230,7 +320,6 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* Recent Transactions */}
       <div className="table-card">
         <div className="card-header">
           <div className="card-title">
@@ -273,14 +362,14 @@ const AdminDashboard = () => {
               </thead>
               <tbody>
                 {recentTransactions.map((transaction) => (
-                  <tr key={transaction._id}>
+                  <tr key={transaction._id || transaction.id}>
                     <td>
                       <span className="transaction-id">
-                        {transaction.transactionId || transaction._id.slice(-8)}
+                        {transaction.transactionId || transaction._id?.slice(-8) || 'N/A'}
                       </span>
                     </td>
                     <td>{formatDate(transaction.createdAt)}</td>
-                    <td>{transaction.productName || transaction.riceType || 'N/A'}</td>
+                    <td>{transaction.productDisplayName || getProductName(transaction) || 'N/A'}</td>
                     <td>{transaction.quantityKg || transaction.quantity || 0} kg</td>
                     <td className="amount-cell">
                       {formatCurrency(transaction.totalAmount || transaction.amountPaid || 0)}
@@ -298,7 +387,6 @@ const AdminDashboard = () => {
         )}
       </div>
 
-      {/* Quick Actions */}
       <div className="quick-actions">
         <div 
           className="quick-action-card"

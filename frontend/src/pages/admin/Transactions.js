@@ -497,7 +497,6 @@ const AdminTransactions = () => {
               />
             </div>
             <div className="filter-group filter-actions">
-              <label>&nbsp;</label>
               <button className="btn-apply" onClick={fetchTransactions}>
                 Apply Filters
               </button>

@@ -12,7 +12,7 @@ const Navbar = ({ sidebarOpen, onToggleSidebar }) => {
   const { socket } = useSocket();
   const navigate = useNavigate();
   const dropdownRef = useRef(null);
-  
+
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -28,7 +28,6 @@ const Navbar = ({ sidebarOpen, onToggleSidebar }) => {
 
   const handleLogout = () => {
     setIsLoggingOut(true);
-    // Small delay to show loading state
     setTimeout(() => {
       logout();
     }, 500);
@@ -62,28 +61,28 @@ const Navbar = ({ sidebarOpen, onToggleSidebar }) => {
     <nav className="navbar">
       <div className="navbar-container">
         <div className="navbar-left">
-          <button 
-            className="menu-toggle"
+          <button
+            className={`menu-toggle ${sidebarOpen ? 'active' : ''}`}
             onClick={handleToggleSidebar}
             aria-label="Toggle menu"
+            type="button"
           >
             <span className="menu-icon">☰</span>
           </button>
-          
+
           <Link to={getDashboardPath()} className="navbar-logo">
-            <span className="logo-text">AgriVend</span>
-            <span className={getRoleBadgeClass()}>{getUserRoleDisplay()}</span>
+          
           </Link>
         </div>
 
         <div className="navbar-actions">
           {isCustomer && (
             <div className="notification-wrapper" ref={dropdownRef}>
-              <button 
+              <button
                 className="notification-btn"
                 onClick={() => setShowNotifications(!showNotifications)}
               >
-                <span className="notification-icon">🔔</span>
+                <span className="notification-icon"></span>
                 {unreadCount > 0 && (
                   <span className="notification-badge">{unreadCount}</span>
                 )}
@@ -115,9 +114,7 @@ const Navbar = ({ sidebarOpen, onToggleSidebar }) => {
                           <div className="notification-content">
                             <div className="notification-title">{notification.title}</div>
                             <div className="notification-message">{notification.message}</div>
-                            <div className="notification-time">
-                              {/* Time formatting */}
-                            </div>
+                            <div className="notification-time"></div>
                           </div>
                           {!notification.read && <span className="unread-dot" />}
                         </div>
@@ -127,12 +124,8 @@ const Navbar = ({ sidebarOpen, onToggleSidebar }) => {
 
                   {notifications.length > 0 && (
                     <div className="notifications-footer">
-                      <button className="mark-read-btn">
-                        Mark all read
-                      </button>
-                      <button className="clear-btn">
-                        Clear all
-                      </button>
+                      <button className="mark-read-btn">Mark all read</button>
+                      <button className="clear-btn">Clear all</button>
                     </div>
                   )}
                 </div>
@@ -148,12 +141,10 @@ const Navbar = ({ sidebarOpen, onToggleSidebar }) => {
               <span className="user-name-small">
                 {user?.firstName} {user?.lastName}
               </span>
-              <span className="user-role-small">
-                {getUserRoleDisplay()}
-              </span>
+              <span className="user-role-small">{getUserRoleDisplay()}</span>
             </div>
-            <button 
-              onClick={handleLogout} 
+            <button
+              onClick={handleLogout}
               className={`logout-btn ${isLoggingOut ? 'loading' : ''}`}
               disabled={isLoggingOut}
             >

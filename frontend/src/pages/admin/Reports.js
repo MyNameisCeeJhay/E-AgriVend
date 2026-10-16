@@ -53,14 +53,12 @@ const AdminReports = () => {
     }
   }, []);
 
-  // Save report history to localStorage
   const saveToHistory = (report) => {
     const newHistory = [report, ...reportHistory];
     setReportHistory(newHistory);
     localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
   };
 
-  // ===== SAVE REPORT TO DATABASE =====
   const saveReportToDatabase = async (reportData) => {
     try {
       const token = localStorage.getItem('token');
@@ -79,7 +77,6 @@ const AdminReports = () => {
     }
   };
 
-  // ===== FETCH REPORT HISTORY FROM DATABASE =====
   const fetchReportHistory = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -108,6 +105,81 @@ const AdminReports = () => {
     }
   };
 
+  const looksLikeId = (value) => {
+    if (!value || typeof value !== 'string') return false;
+    if (/^[a-f0-9]{24}$/i.test(value)) return true;
+    if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value)) return true;
+    return false;
+  };
+
+  // ===== REPORT HELPERS =====
+  const getReportTotalTransactions = (report) => {
+    if (!report) return 0;
+    if (report.summary?.totalTransactions !== undefined) return report.summary.totalTransactions;
+    if (report.totalTransactions !== undefined) return report.totalTransactions;
+    return 0;
+  };
+
+  const getReportTotalSales = (report) => {
+    if (!report) return 0;
+    if (report.summary?.totalSales !== undefined) return report.summary.totalSales;
+    if (report.totalSales !== undefined) return report.totalSales;
+    return 0;
+  };
+
+  const getReportTotalQuantity = (report) => {
+    if (!report) return 0;
+    if (report.summary?.totalQuantity !== undefined) return report.summary.totalQuantity;
+    if (report.totalQuantity !== undefined) return report.totalQuantity;
+    return 0;
+  };
+
+  const getReportTransactions = (report) => {
+    if (!report) return [];
+    if (Array.isArray(report.transactions)) return report.transactions;
+    return [];
+  };
+
+  const getReportSource = (report) => {
+    if (!report) return 'all';
+    return report.transactionSource || report.source || 'all';
+  };
+
+  const getReportGeneratedBy = (report) => {
+    if (!report) return 'Admin';
+    const gb = report.generatedBy;
+    if (typeof gb === 'object' && gb !== null) {
+      return gb.name || `${gb.firstName || ''} ${gb.lastName || ''}`.trim() || 'Admin';
+    }
+    return gb || 'Admin';
+  };
+
+  // Compute best selling product from a report's transactions
+  const computeBestSellingFromReport = (report) => {
+    if (!report) return null;
+    if (report.productRanking && report.productRanking.length > 0) {
+      return report.productRanking[0];
+    }
+    const transactions = getReportTransactions(report);
+    if (transactions.length === 0) return null;
+
+    const productSales = {};
+    transactions.forEach(t => {
+      const name = t.riceType || t.productName || 'Unknown Grain';
+      const qty = t.quantityKg || 0;
+      const revenue = t.amountPaid || t.totalAmount || 0;
+      if (!productSales[name]) {
+        productSales[name] = { name, quantity: 0, revenue: 0, count: 0 };
+      }
+      productSales[name].quantity += qty;
+      productSales[name].revenue += revenue;
+      productSales[name].count += 1;
+    });
+
+    const ranking = Object.values(productSales).sort((a, b) => b.quantity - a.quantity);
+    return ranking[0] || null;
+  };
+
   const isMachineTransaction = (transaction) => {
     if (!transaction) return false;
     if (transaction.source === 'machine') return true;
@@ -130,40 +202,76 @@ const AdminReports = () => {
   const isManualTransaction = (transaction) => {
     if (!transaction) return false;
     if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
-      if (transaction.recordedBy.firstName || transaction.recordedBy.lastName) {
+      if (transaction.recordedBy.firstName || transaction.recordedBy.lastName ||
+          transaction.recordedBy.username || transaction.recordedBy.email) {
         return true;
       }
     }
     if (transaction.user && typeof transaction.user === 'object') {
-      if (transaction.user.firstName || transaction.user.lastName) {
+      if (transaction.user.firstName || transaction.user.lastName ||
+          transaction.user.username || transaction.user.email) {
         return true;
       }
     }
     if (transaction.recordedBy && typeof transaction.recordedBy === 'string') {
       const lower = transaction.recordedBy.toLowerCase();
-      if (lower !== 'machine' && lower !== 'system' && lower !== 'null' && transaction.recordedBy.length > 2) {
+      if (lower !== 'machine' && lower !== 'system' && lower !== 'null' &&
+          transaction.recordedBy.length > 2 && !looksLikeId(transaction.recordedBy)) {
         return true;
       }
+    }
+    if (transaction.recordedByName || transaction.staffName || transaction.cashierName) {
+      return true;
     }
     return false;
   };
 
   const getTransactionSourceText = (transaction) => {
-    if (isManualTransaction(transaction)) {
-      if (transaction.recordedBy?.firstName) {
-        return `${transaction.recordedBy.firstName} ${transaction.recordedBy.lastName || ''}`.trim();
-      }
-      if (transaction.user?.firstName) {
-        return `${transaction.user.firstName} ${transaction.user.lastName || ''}`.trim();
-      }
-      if (typeof transaction.recordedBy === 'string') {
-        return transaction.recordedBy;
-      }
-      return 'Staff';
+    if (!transaction) return 'System';
+
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'object') {
+      const first = transaction.recordedBy.firstName || '';
+      const last = transaction.recordedBy.lastName || '';
+      const fullName = `${first} ${last}`.trim();
+      if (fullName) return fullName;
+      if (transaction.recordedBy.username) return transaction.recordedBy.username;
+      if (transaction.recordedBy.email) return transaction.recordedBy.email;
+      if (transaction.recordedBy.name) return transaction.recordedBy.name;
     }
-    if (isMachineTransaction(transaction)) {
+
+    if (transaction.user && typeof transaction.user === 'object') {
+      const first = transaction.user.firstName || '';
+      const last = transaction.user.lastName || '';
+      const fullName = `${first} ${last}`.trim();
+      if (fullName) return fullName;
+      if (transaction.user.username) return transaction.user.username;
+      if (transaction.user.email) return transaction.user.email;
+      if (transaction.user.name) return transaction.user.name;
+    }
+
+    if (transaction.recordedByName) return transaction.recordedByName;
+    if (transaction.staffName) return transaction.staffName;
+    if (transaction.cashierName) return transaction.cashierName;
+    if (transaction.cashier) return transaction.cashier;
+
+    if (transaction.recordedBy && typeof transaction.recordedBy === 'string') {
+      const lower = transaction.recordedBy.toLowerCase();
+      if (lower === 'machine') return 'Machine';
+      if (lower === 'system') return 'System';
+      if (lower === 'null') return 'Machine';
+      if (looksLikeId(transaction.recordedBy)) return 'Manual';
+      if (transaction.recordedBy.length > 2) return transaction.recordedBy;
+    }
+
+    if (transaction.source === 'machine' || transaction.transactionType === 'machine') {
       return 'Machine';
     }
+
+    if (transaction.recordedBy === null || transaction.recordedBy === undefined ||
+        transaction.recordedBy === 'null') {
+      return 'Machine';
+    }
+
     return 'System';
   };
 
@@ -399,8 +507,24 @@ const AdminReports = () => {
           data.summary = calculateFilteredSummary(data.transactions);
         }
 
+        // Compute product ranking locally from filtered transactions
+        let localRanking = [];
         if (data.transactions.length > 0) {
-          calculateProductRanking(data.transactions);
+          const productSales = {};
+          data.transactions.forEach(t => {
+            const name = t.riceType || t.productName || 'Unknown Grain';
+            const qty = t.quantityKg || 0;
+            const revenue = t.amountPaid || t.totalAmount || 0;
+            if (!productSales[name]) {
+              productSales[name] = { name, quantity: 0, revenue: 0, count: 0 };
+            }
+            productSales[name].quantity += qty;
+            productSales[name].revenue += revenue;
+            productSales[name].count += 1;
+          });
+          localRanking = Object.values(productSales).sort((a, b) => b.quantity - a.quantity);
+          setProductRanking(localRanking);
+          setBestSellingProduct(localRanking[0] || null);
         } else {
           setProductRanking([]);
           setBestSellingProduct(null);
@@ -409,7 +533,27 @@ const AdminReports = () => {
         const controlNumber = generateControlNumber();
         const reportTitle = getReportTitle();
 
-        // Prepare report data - FIX: Convert generatedBy to string properly
+        // Build transaction list
+        const transactionList = data.transactions.map(t => ({
+          transactionId: t.transactionId || t._id?.slice(-8),
+          createdAt: t.createdAt,
+          riceType: t.riceType,
+          productName: t.productName,
+          quantityKg: t.quantityKg,
+          amountPaid: t.amountPaid,
+          totalAmount: t.amountPaid || t.totalAmount,
+          source: getTransactionSourceText(t),
+          paymentMethod: t.paymentMethod || 'CASH'
+        }));
+
+        // Compute best selling for THIS report's transactions
+        const bestSelling = localRanking.length > 0 ? {
+          name: localRanking[0].name,
+          quantity: localRanking[0].quantity,
+          revenue: localRanking[0].revenue,
+          count: localRanking[0].count
+        } : null;
+
         const reportEntry = {
           controlNumber,
           title: reportTitle,
@@ -419,24 +563,19 @@ const AdminReports = () => {
             end: reportType === 'custom' ? dateRange.endDate : dateRange.startDate
           },
           transactionSource: transactionSource,
+          source: transactionSource,
           summary: {
             totalTransactions: data.summary?.totalTransactions || 0,
             totalQuantity: data.summary?.totalQuantity || 0,
             totalSales: data.summary?.totalSales || 0,
             averageOrderValue: data.summary?.averageOrderValue || 0
           },
-          transactions: data.transactions.map(t => ({
-            transactionId: t.transactionId || t._id?.slice(-8),
-            createdAt: t.createdAt,
-            riceType: t.riceType,
-            productName: t.productName,
-            quantityKg: t.quantityKg,
-            amountPaid: t.amountPaid,
-            totalAmount: t.amountPaid || t.totalAmount,
-            source: getTransactionSourceText(t),
-            paymentMethod: t.paymentMethod || 'CASH'
-          })),
-          productRanking: productRanking.map(p => ({
+          totalTransactions: data.summary?.totalTransactions || 0,
+          totalQuantity: data.summary?.totalQuantity || 0,
+          totalSales: data.summary?.totalSales || 0,
+          transactions: transactionList,
+          bestSellingProduct: bestSelling,
+          productRanking: localRanking.map(p => ({
             name: p.name,
             quantity: p.quantity,
             revenue: p.revenue,
@@ -450,23 +589,22 @@ const AdminReports = () => {
           generatedAt: new Date().toISOString()
         };
 
-        // Save to database
         const savedReport = await saveReportToDatabase(reportEntry);
 
-        // Also save to localStorage for quick access
-        if (savedReport) {
-          const newHistory = [savedReport, ...reportHistory];
-          setReportHistory(newHistory);
-          localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
-        }
+        // Merge saved + local so we always keep transactions/bestSeller locally
+        const mergedReport = savedReport ? { ...reportEntry, ...savedReport, transactions: transactionList, bestSellingProduct: bestSelling } : reportEntry;
+        const newHistory = [mergedReport, ...reportHistory];
+        setReportHistory(newHistory);
+        localStorage.setItem('agrivend_report_history', JSON.stringify(newHistory));
 
         const report = {
           ...data,
           controlNumber,
-          generatedBy: `${user?.firstName || 'Admin'} ${user?.lastName || 'User'}`, // Convert to string
+          generatedBy: `${user?.firstName || 'Admin'} ${user?.lastName || 'User'}`,
           generatedAt: reportEntry.generatedAt,
           reportTitle,
-          dateRange: reportEntry.dateRange
+          dateRange: reportEntry.dateRange,
+          bestSellingProduct: bestSelling
         };
 
         setGeneratedReport(report);
@@ -537,18 +675,29 @@ const AdminReports = () => {
     }
   };
 
+  const getSourceTextFromValue = (sourceValue) => {
+    switch (sourceValue) {
+      case 'manual': return 'Manual Sales Only';
+      case 'machine': return 'Machine Sales Only';
+      default: return 'All Sales';
+    }
+  };
+
   const showNotification = (type, message) => {
     setNotification({ type, message });
   };
 
-  // ===== VIEW HISTORY REPORT =====
   const handleViewHistoryReport = (report) => {
-    // FIX: Convert generatedBy to string if it's an object
+    const bestSelling = report.bestSellingProduct || computeBestSellingFromReport(report);
     const fixedReport = {
       ...report,
-      generatedBy: typeof report.generatedBy === 'object' 
-        ? report.generatedBy.name || 'Admin' 
-        : report.generatedBy || 'Admin'
+      generatedBy: getReportGeneratedBy(report),
+      source: getReportSource(report),
+      totalTransactions: getReportTotalTransactions(report),
+      totalSales: getReportTotalSales(report),
+      totalQuantity: getReportTotalQuantity(report),
+      transactions: getReportTransactions(report),
+      bestSellingProduct: bestSelling
     };
     setViewingHistoryReport(fixedReport);
     setShowViewModal(true);
@@ -559,16 +708,163 @@ const AdminReports = () => {
     setViewingHistoryReport(null);
   };
 
+  // ===== SHARED PRINT/DOWNLOAD STYLES =====
+  const getReportStyles = () => `
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: white;
+      padding: 32px;
+      color: #000000;
+      line-height: 1.4;
+    }
+    .print-container { max-width: 1100px; margin: 0 auto; }
+    .report-header {
+      text-align: center;
+      padding-bottom: 0.75rem;
+      border-bottom: 2px solid #000000;
+      margin-bottom: 1rem;
+    }
+    .company-name { font-size: 1.5rem; font-weight: 700; color: #000000; letter-spacing: 2px; }
+    .company-subtitle { font-size: 0.72rem; color: #64748b; margin: 0.2rem 0 0.5rem; }
+    .report-title { font-size: 1.05rem; font-weight: 600; color: #000000; margin: 0.4rem 0; }
+    .control-number { font-weight: 700; color: #000000; background: #ffffff; padding: 0.2rem 0.6rem; border-radius: 0.25rem; border: 1.5px solid #000000; font-family: monospace; font-size: 0.72rem; }
+    .report-meta { display: flex; justify-content: center; gap: 1.5rem; font-size: 0.68rem; color: #64748b; margin-top: 0.4rem; flex-wrap: wrap; }
+    
+    .report-details { margin-bottom: 1rem; }
+    .report-details h3 { 
+      font-size: 0.8rem; 
+      font-weight: 600; 
+      color: #000000; 
+      margin: 0 0 0.4rem 0; 
+      padding-bottom: 0.3rem;
+      border-bottom: 1.5px solid #000000;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .table-wrapper { 
+      overflow-x: auto; 
+      border-radius: 0; 
+      border: 2px solid #000000; 
+    }
+    .report-table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      font-size: 0.68rem;
+      border: 2px solid #000000;
+    }
+    .report-table th { 
+      background: #f1f5f9; 
+      padding: 0.35rem 0.5rem; 
+      text-align: left; 
+      font-weight: 700; 
+      color: #000000; 
+      border: 1.5px solid #000000;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      font-size: 0.62rem;
+      line-height: 1.2;
+    }
+    .report-table td { 
+      padding: 0.3rem 0.5rem; 
+      border: 1.5px solid #000000;
+      color: #000000; 
+      font-size: 0.68rem;
+      line-height: 1.25;
+      vertical-align: middle;
+    }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+
+    .report-grand-total {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 1.5rem;
+      padding: 0.5rem 0.75rem;
+      border: 2px solid #000000;
+      border-top: none;
+      background: #ffffff;
+    }
+    .grand-total-label { font-size: 0.75rem; font-weight: 700; color: #000000; text-transform: uppercase; }
+    .grand-total-value { font-size: 0.85rem; font-weight: 700; color: #000000; min-width: 90px; text-align: right; }
+
+    .report-footer { margin-top: 1.25rem; padding-top: 0.75rem; border-top: 1.5px solid #000000; text-align: center; font-size: 0.6rem; color: #64748b; }
+    .report-footer .verification { color: #000000; font-weight: 500; }
+
+    @media print {
+      body { padding: 16px; }
+      .report-table thead { display: table-header-group; }
+      .report-table tr { page-break-inside: avoid; }
+      .report-grand-total { page-break-inside: avoid; page-break-before: avoid; }
+      .report-footer { page-break-before: avoid; }
+    }
+  `;
+
+  const buildTransactionRowsHtml = (transactions) => {
+    if (!transactions || transactions.length === 0) {
+      return `
+        <tr>
+          <td colspan="6" class="text-center" style="padding: 1rem; color: #64748b;">
+            No transactions in this report.
+          </td>
+        </tr>
+      `;
+    }
+    return transactions.map(t => `
+      <tr>
+        <td>${t.transactionId || t._id?.slice(-8) || 'N/A'}</td>
+        <td>${formatDateTime(t.createdAt)}</td>
+        <td>${t.riceType || t.productName || 'N/A'}</td>
+        <td>${t.quantityKg || 0} kg</td>
+        <td>${formatCurrency(t.amountPaid || t.totalAmount || 0)}</td>
+        <td>${t.source || getTransactionSourceText(t)}</td>
+      </tr>
+    `).join('');
+  };
+
+  const buildBestSellerHtml = (bestSeller) => {
+    if (!bestSeller) return '';
+    return `
+      <div class="report-details">
+        <h3>Best Selling Product</h3>
+        <div class="table-wrapper">
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>Product Name</th>
+                <th>Total Sold</th>
+                <th>Total Revenue</th>
+                <th>Transactions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>${bestSeller.name}</td>
+                <td>${(bestSeller.quantity || 0).toFixed(2)} kg</td>
+                <td>${formatCurrency(bestSeller.revenue || 0)}</td>
+                <td>${bestSeller.count || 0}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  };
+
   const handlePrintHistoryReport = () => {
     if (!viewingHistoryReport) return;
 
     const printWindow = window.open('', '_blank', 'width=1200,height=800');
     const reportTitle = viewingHistoryReport.title || 'Sales Report';
     const controlNumber = viewingHistoryReport.controlNumber || 'N/A';
-    const generatedBy = typeof viewingHistoryReport.generatedBy === 'object'
-      ? viewingHistoryReport.generatedBy.name || 'Admin'
-      : viewingHistoryReport.generatedBy || 'Admin';
+    const generatedBy = getReportGeneratedBy(viewingHistoryReport);
     const generatedAt = viewingHistoryReport.generatedAt || new Date().toISOString();
+    const totalTransactions = getReportTotalTransactions(viewingHistoryReport);
+    const totalSales = getReportTotalSales(viewingHistoryReport);
+    const totalQuantity = getReportTotalQuantity(viewingHistoryReport);
+    const transactions = getReportTransactions(viewingHistoryReport);
+    const bestSelling = viewingHistoryReport.bestSellingProduct || computeBestSellingFromReport(viewingHistoryReport);
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -576,43 +872,7 @@ const AdminReports = () => {
         <head>
           <meta charset="UTF-8">
           <title>${reportTitle} - AgriVend</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              background: white;
-              padding: 40px;
-              color: #1a1a2e;
-              line-height: 1.5;
-            }
-            .print-container { max-width: 1200px; margin: 0 auto; }
-            .report-header {
-              text-align: center;
-              padding-bottom: 1.5rem;
-              border-bottom: 2px solid #1a472a;
-              margin-bottom: 1.5rem;
-            }
-            .company-name { font-size: 2rem; font-weight: 700; color: #1a472a; letter-spacing: 2px; }
-            .company-subtitle { font-size: 0.875rem; color: #64748b; margin: 0.25rem 0 1rem; }
-            .report-title { font-size: 1.5rem; font-weight: 600; color: #1e293b; margin: 0.5rem 0; }
-            .control-number { font-weight: 700; color: #059669; background: #ecfdf5; padding: 0.25rem 0.75rem; border-radius: 0.25rem; border: 1px solid #d1fae5; font-family: monospace; }
-            .report-meta { display: flex; justify-content: center; gap: 2rem; font-size: 0.8rem; color: #64748b; margin-top: 0.75rem; flex-wrap: wrap; }
-            .report-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-            .summary-item { background: #f8fafc; border-radius: 0.5rem; padding: 1rem; text-align: center; border: 1px solid #e2e8f0; }
-            .summary-item .summary-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 0.5rem; }
-            .summary-item .summary-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
-            .summary-item .summary-value.total { color: #059669; }
-            .report-details h3 { font-size: 1.1rem; font-weight: 600; color: #1e293b; margin: 0 0 1rem; }
-            .table-wrapper { overflow-x: auto; }
-            .report-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-            .report-table th { background: #f1f5f9; padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; border-bottom: 2px solid #e2e8f0; }
-            .report-table td { padding: 0.75rem; border-bottom: 1px solid #e2e8f0; color: #475569; }
-            .report-table tfoot td { font-weight: 700; background: #f8fafc; border-top: 2px solid #e2e8f0; }
-            .text-right { text-align: right; }
-            .report-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #e2e8f0; text-align: center; font-size: 0.75rem; color: #64748b; }
-            .report-footer .verification { color: #059669; font-weight: 500; }
-            .text-center { text-align: center; }
-          </style>
+          <style>${getReportStyles()}</style>
         </head>
         <body>
           <div class="print-container">
@@ -624,27 +884,33 @@ const AdminReports = () => {
               <div class="report-meta">
                 <span>Generated By: ${generatedBy}</span>
                 <span>Date & Time: ${formatDateTime(generatedAt)}</span>
-                <span>Transaction Source: ${viewingHistoryReport.source === 'manual' ? 'Manual Sales Only' : 
-                  viewingHistoryReport.source === 'machine' ? 'Machine Sales Only' : 'All Sales'}</span>
+                <span>Transaction Source: ${getSourceTextFromValue(getReportSource(viewingHistoryReport))}</span>
               </div>
             </div>
 
-            <div class="report-summary">
-              <div class="summary-item">
-                <span class="summary-label">Total Transactions</span>
-                <span class="summary-value">${viewingHistoryReport.totalTransactions || 0}</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Total Quantity</span>
-                <span class="summary-value">${(viewingHistoryReport.totalQuantity || 0).toFixed(2)} kg</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Total Revenue</span>
-                <span class="summary-value total">${formatCurrency(viewingHistoryReport.totalSales || 0)}</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Average Order Value</span>
-                <span class="summary-value">${formatCurrency((viewingHistoryReport.totalSales || 0) / (viewingHistoryReport.totalTransactions || 1))}</span>
+            ${buildBestSellerHtml(bestSelling)}
+
+            <div class="report-details">
+              <h3>Report Summary</h3>
+              <div class="table-wrapper">
+                <table class="report-table">
+                  <thead>
+                    <tr>
+                      <th>Total Transactions</th>
+                      <th>Total Quantity</th>
+                      <th>Total Revenue</th>
+                      <th>Average Order Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>${totalTransactions}</td>
+                      <td>${(totalQuantity || 0).toFixed(2)} kg</td>
+                      <td>${formatCurrency(totalSales)}</td>
+                      <td>${formatCurrency(totalSales / (totalTransactions || 1))}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -663,20 +929,13 @@ const AdminReports = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td colspan="6" class="text-center" style="padding: 2rem; color: #64748b;">
-                        Full transaction details available in the original report.
-                      </td>
-                    </tr>
+                    ${buildTransactionRowsHtml(transactions)}
                   </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colspan="4" class="text-right"><strong>Total</strong></td>
-                      <td><strong>${formatCurrency(viewingHistoryReport.totalSales || 0)}</strong></td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
                 </table>
+              </div>
+              <div class="report-grand-total">
+                <span class="grand-total-label">Total</span>
+                <span class="grand-total-value">${formatCurrency(totalSales)}</span>
               </div>
             </div>
 
@@ -703,10 +962,13 @@ const AdminReports = () => {
 
     const reportTitle = viewingHistoryReport.title || 'Sales Report';
     const controlNumber = viewingHistoryReport.controlNumber || 'N/A';
-    const generatedBy = typeof viewingHistoryReport.generatedBy === 'object'
-      ? viewingHistoryReport.generatedBy.name || 'Admin'
-      : viewingHistoryReport.generatedBy || 'Admin';
+    const generatedBy = getReportGeneratedBy(viewingHistoryReport);
     const generatedAt = viewingHistoryReport.generatedAt || new Date().toISOString();
+    const totalTransactions = getReportTotalTransactions(viewingHistoryReport);
+    const totalSales = getReportTotalSales(viewingHistoryReport);
+    const totalQuantity = getReportTotalQuantity(viewingHistoryReport);
+    const transactions = getReportTransactions(viewingHistoryReport);
+    const bestSelling = viewingHistoryReport.bestSellingProduct || computeBestSellingFromReport(viewingHistoryReport);
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -714,43 +976,7 @@ const AdminReports = () => {
         <head>
           <meta charset="UTF-8">
           <title>${reportTitle} - AgriVend</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              background: white;
-              padding: 40px;
-              color: #1a1a2e;
-              line-height: 1.5;
-            }
-            .print-container { max-width: 1200px; margin: 0 auto; }
-            .report-header {
-              text-align: center;
-              padding-bottom: 1.5rem;
-              border-bottom: 2px solid #1a472a;
-              margin-bottom: 1.5rem;
-            }
-            .company-name { font-size: 2rem; font-weight: 700; color: #1a472a; letter-spacing: 2px; }
-            .company-subtitle { font-size: 0.875rem; color: #64748b; margin: 0.25rem 0 1rem; }
-            .report-title { font-size: 1.5rem; font-weight: 600; color: #1e293b; margin: 0.5rem 0; }
-            .control-number { font-weight: 700; color: #059669; background: #ecfdf5; padding: 0.25rem 0.75rem; border-radius: 0.25rem; border: 1px solid #d1fae5; font-family: monospace; }
-            .report-meta { display: flex; justify-content: center; gap: 2rem; font-size: 0.8rem; color: #64748b; margin-top: 0.75rem; flex-wrap: wrap; }
-            .report-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-            .summary-item { background: #f8fafc; border-radius: 0.5rem; padding: 1rem; text-align: center; border: 1px solid #e2e8f0; }
-            .summary-item .summary-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 0.5rem; }
-            .summary-item .summary-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
-            .summary-item .summary-value.total { color: #059669; }
-            .report-details h3 { font-size: 1.1rem; font-weight: 600; color: #1e293b; margin: 0 0 1rem; }
-            .table-wrapper { overflow-x: auto; }
-            .report-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-            .report-table th { background: #f1f5f9; padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; border-bottom: 2px solid #e2e8f0; }
-            .report-table td { padding: 0.75rem; border-bottom: 1px solid #e2e8f0; color: #475569; }
-            .report-table tfoot td { font-weight: 700; background: #f8fafc; border-top: 2px solid #e2e8f0; }
-            .text-right { text-align: right; }
-            .report-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #e2e8f0; text-align: center; font-size: 0.75rem; color: #64748b; }
-            .report-footer .verification { color: #059669; font-weight: 500; }
-            .text-center { text-align: center; }
-          </style>
+          <style>${getReportStyles()}</style>
         </head>
         <body>
           <div class="print-container">
@@ -762,27 +988,33 @@ const AdminReports = () => {
               <div class="report-meta">
                 <span>Generated By: ${generatedBy}</span>
                 <span>Date & Time: ${formatDateTime(generatedAt)}</span>
-                <span>Transaction Source: ${viewingHistoryReport.source === 'manual' ? 'Manual Sales Only' : 
-                  viewingHistoryReport.source === 'machine' ? 'Machine Sales Only' : 'All Sales'}</span>
+                <span>Transaction Source: ${getSourceTextFromValue(getReportSource(viewingHistoryReport))}</span>
               </div>
             </div>
 
-            <div class="report-summary">
-              <div class="summary-item">
-                <span class="summary-label">Total Transactions</span>
-                <span class="summary-value">${viewingHistoryReport.totalTransactions || 0}</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Total Quantity</span>
-                <span class="summary-value">${(viewingHistoryReport.totalQuantity || 0).toFixed(2)} kg</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Total Revenue</span>
-                <span class="summary-value total">${formatCurrency(viewingHistoryReport.totalSales || 0)}</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Average Order Value</span>
-                <span class="summary-value">${formatCurrency((viewingHistoryReport.totalSales || 0) / (viewingHistoryReport.totalTransactions || 1))}</span>
+            ${buildBestSellerHtml(bestSelling)}
+
+            <div class="report-details">
+              <h3>Report Summary</h3>
+              <div class="table-wrapper">
+                <table class="report-table">
+                  <thead>
+                    <tr>
+                      <th>Total Transactions</th>
+                      <th>Total Quantity</th>
+                      <th>Total Revenue</th>
+                      <th>Average Order Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>${totalTransactions}</td>
+                      <td>${(totalQuantity || 0).toFixed(2)} kg</td>
+                      <td>${formatCurrency(totalSales)}</td>
+                      <td>${formatCurrency(totalSales / (totalTransactions || 1))}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -801,20 +1033,13 @@ const AdminReports = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td colspan="6" class="text-center" style="padding: 2rem; color: #64748b;">
-                        Full transaction details available in the original report.
-                      </td>
-                    </tr>
+                    ${buildTransactionRowsHtml(transactions)}
                   </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colspan="4" class="text-right"><strong>Total</strong></td>
-                      <td><strong>${formatCurrency(viewingHistoryReport.totalSales || 0)}</strong></td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
                 </table>
+              </div>
+              <div class="report-grand-total">
+                <span class="grand-total-label">Total</span>
+                <span class="grand-total-value">${formatCurrency(totalSales)}</span>
               </div>
             </div>
 
@@ -844,10 +1069,8 @@ const AdminReports = () => {
   const handlePrintReport = () => {
     if (!generatedReport) return;
 
-    const reportElement = document.getElementById('report-content');
-    if (!reportElement) return;
-
     const printWindow = window.open('', '_blank', 'width=1200,height=800');
+    const bestSelling = generatedReport.bestSellingProduct || bestSellingProduct;
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -855,51 +1078,79 @@ const AdminReports = () => {
         <head>
           <meta charset="UTF-8">
           <title>${generatedReport.reportTitle} - AgriVend</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              background: white;
-              padding: 40px;
-              color: #1a1a2e;
-              line-height: 1.5;
-            }
-            .print-container { max-width: 1200px; margin: 0 auto; }
-            .report-header {
-              text-align: center;
-              padding-bottom: 1.5rem;
-              border-bottom: 2px solid #1a472a;
-              margin-bottom: 1.5rem;
-            }
-            .company-name { font-size: 2rem; font-weight: 700; color: #1a472a; letter-spacing: 2px; }
-            .company-subtitle { font-size: 0.875rem; color: #64748b; margin: 0.25rem 0 1rem; }
-            .report-title { font-size: 1.5rem; font-weight: 600; color: #1e293b; margin: 0.5rem 0; }
-            .control-number { font-weight: 700; color: #059669; background: #ecfdf5; padding: 0.25rem 0.75rem; border-radius: 0.25rem; border: 1px solid #d1fae5; font-family: monospace; }
-            .report-meta { display: flex; justify-content: center; gap: 2rem; font-size: 0.8rem; color: #64748b; margin-top: 0.75rem; flex-wrap: wrap; }
-            .report-best-seller { background: #1a472a; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center; color: white; }
-            .report-best-seller h3 { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; margin: 0 0 0.75rem; }
-            .best-seller-info .product-name { font-size: 1.5rem; font-weight: 700; display: block; margin-bottom: 0.5rem; }
-            .best-seller-info .product-stats { display: flex; justify-content: center; gap: 2rem; font-size: 0.875rem; }
-            .report-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-            .summary-item { background: #f8fafc; border-radius: 0.5rem; padding: 1rem; text-align: center; border: 1px solid #e2e8f0; }
-            .summary-item .summary-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 0.5rem; }
-            .summary-item .summary-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
-            .summary-item .summary-value.total { color: #059669; }
-            .report-details h3 { font-size: 1.1rem; font-weight: 600; color: #1e293b; margin: 0 0 1rem; }
-            .table-wrapper { overflow-x: auto; }
-            .report-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-            .report-table th { background: #f1f5f9; padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; border-bottom: 2px solid #e2e8f0; }
-            .report-table td { padding: 0.75rem; border-bottom: 1px solid #e2e8f0; color: #475569; }
-            .report-table tfoot td { font-weight: 700; background: #f8fafc; border-top: 2px solid #e2e8f0; }
-            .text-right { text-align: right; }
-            .report-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #e2e8f0; text-align: center; font-size: 0.75rem; color: #64748b; }
-            .report-footer .verification { color: #059669; font-weight: 500; }
-            .text-center { text-align: center; }
-          </style>
+          <style>${getReportStyles()}</style>
         </head>
         <body>
           <div class="print-container">
-            ${reportElement.innerHTML}
+            <div class="report-header">
+              <h1 class="company-name">AgriVend</h1>
+              <p class="company-subtitle">Enterprise Grain Vending Solution</p>
+              <h2 class="report-title">${generatedReport.reportTitle}</h2>
+              <p class="report-control">Control Number: <span class="control-number">${generatedReport.controlNumber}</span></p>
+              <div class="report-meta">
+                <span>Generated By: ${generatedReport.generatedBy}</span>
+                <span>Date & Time: ${formatDateTime(generatedReport.generatedAt)}</span>
+                <span>Transaction Source: ${getSourceText()}</span>
+              </div>
+            </div>
+
+            ${buildBestSellerHtml(bestSelling)}
+
+            <div class="report-details">
+              <h3>Report Summary</h3>
+              <div class="table-wrapper">
+                <table class="report-table">
+                  <thead>
+                    <tr>
+                      <th>Total Transactions</th>
+                      <th>Total Quantity</th>
+                      <th>Total Revenue</th>
+                      <th>Average Order Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>${generatedReport.summary?.totalTransactions || 0}</td>
+                      <td>${(generatedReport.summary?.totalQuantity || 0).toFixed(2)} kg</td>
+                      <td>${formatCurrency(generatedReport.summary?.totalSales || 0)}</td>
+                      <td>${formatCurrency(generatedReport.summary?.totalSales / (generatedReport.summary?.totalTransactions || 1))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="report-details">
+              <h3>Transaction Details</h3>
+              <div class="table-wrapper">
+                <table class="report-table">
+                  <thead>
+                    <tr>
+                      <th>Transaction ID</th>
+                      <th>Date & Time</th>
+                      <th>Product Name</th>
+                      <th>Quantity</th>
+                      <th>Amount</th>
+                      <th>Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${buildTransactionRowsHtml(generatedReport.transactions)}
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="report-grand-total">
+                <span class="grand-total-label">Total</span>
+                <span class="grand-total-value">${formatCurrency(generatedReport.summary?.totalSales || 0)}</span>
+              </div>
+            </div>
+
+            <div class="report-footer">
+              <p>This is a computer-generated document. No signature is required.</p>
+              <p>AgriVend - Enterprise Grain Vending Management</p>
+              <p class="verification">Verified: ${formatDateTime(generatedReport.generatedAt)} | Control: ${generatedReport.controlNumber}</p>
+            </div>
           </div>
           <script>
             window.onload = function() {
@@ -925,47 +1176,7 @@ const AdminReports = () => {
         <head>
           <meta charset="UTF-8">
           <title>${generatedReport.reportTitle} - AgriVend</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              background: white;
-              padding: 40px;
-              color: #1a1a2e;
-              line-height: 1.5;
-            }
-            .print-container { max-width: 1200px; margin: 0 auto; }
-            .report-header {
-              text-align: center;
-              padding-bottom: 1.5rem;
-              border-bottom: 2px solid #1a472a;
-              margin-bottom: 1.5rem;
-            }
-            .company-name { font-size: 2rem; font-weight: 700; color: #1a472a; letter-spacing: 2px; }
-            .company-subtitle { font-size: 0.875rem; color: #64748b; margin: 0.25rem 0 1rem; }
-            .report-title { font-size: 1.5rem; font-weight: 600; color: #1e293b; margin: 0.5rem 0; }
-            .control-number { font-weight: 700; color: #059669; background: #ecfdf5; padding: 0.25rem 0.75rem; border-radius: 0.25rem; border: 1px solid #d1fae5; font-family: monospace; }
-            .report-meta { display: flex; justify-content: center; gap: 2rem; font-size: 0.8rem; color: #64748b; margin-top: 0.75rem; flex-wrap: wrap; }
-            .report-best-seller { background: #1a472a; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem; text-align: center; color: white; }
-            .report-best-seller h3 { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; margin: 0 0 0.75rem; }
-            .best-seller-info .product-name { font-size: 1.5rem; font-weight: 700; display: block; margin-bottom: 0.5rem; }
-            .best-seller-info .product-stats { display: flex; justify-content: center; gap: 2rem; font-size: 0.875rem; }
-            .report-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-            .summary-item { background: #f8fafc; border-radius: 0.5rem; padding: 1rem; text-align: center; border: 1px solid #e2e8f0; }
-            .summary-item .summary-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 0.5rem; }
-            .summary-item .summary-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
-            .summary-item .summary-value.total { color: #059669; }
-            .report-details h3 { font-size: 1.1rem; font-weight: 600; color: #1e293b; margin: 0 0 1rem; }
-            .table-wrapper { overflow-x: auto; }
-            .report-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-            .report-table th { background: #f1f5f9; padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; border-bottom: 2px solid #e2e8f0; }
-            .report-table td { padding: 0.75rem; border-bottom: 1px solid #e2e8f0; color: #475569; }
-            .report-table tfoot td { font-weight: 700; background: #f8fafc; border-top: 2px solid #e2e8f0; }
-            .text-right { text-align: right; }
-            .report-footer { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid #e2e8f0; text-align: center; font-size: 0.75rem; color: #64748b; }
-            .report-footer .verification { color: #059669; font-weight: 500; }
-            .text-center { text-align: center; }
-          </style>
+          <style>${getReportStyles()}</style>
         </head>
         <body>
           <div class="print-container">
@@ -1026,31 +1237,24 @@ const AdminReports = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {reportHistory.map((report, index) => {
-                      // FIX: Convert generatedBy to string if it's an object
-                      const generatedByStr = typeof report.generatedBy === 'object'
-                        ? report.generatedBy.name || 'Admin'
-                        : report.generatedBy || 'Admin';
-                      
-                      return (
-                        <tr key={index}>
-                          <td className="control-number-cell">{report.controlNumber}</td>
-                          <td>{report.title}</td>
-                          <td>{generatedByStr}</td>
-                          <td>{formatDateTime(report.generatedAt)}</td>
-                          <td>{report.totalTransactions}</td>
-                          <td>{formatCurrency(report.totalSales)}</td>
-                          <td>
-                            <button 
-                              className="btn-view-history"
-                              onClick={() => handleViewHistoryReport(report)}
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {reportHistory.map((report, index) => (
+                      <tr key={index}>
+                        <td className="control-number-cell">{report.controlNumber}</td>
+                        <td>{report.title || report.reportTitle || 'Sales Report'}</td>
+                        <td>{getReportGeneratedBy(report)}</td>
+                        <td>{formatDateTime(report.generatedAt)}</td>
+                        <td>{getReportTotalTransactions(report)}</td>
+                        <td>{formatCurrency(getReportTotalSales(report))}</td>
+                        <td>
+                          <button 
+                            className="btn-view-history"
+                            onClick={() => handleViewHistoryReport(report)}
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               )}
@@ -1082,15 +1286,11 @@ const AdminReports = () => {
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Report Title</span>
-                  <span className="view-value">{viewingHistoryReport.title}</span>
+                  <span className="view-value">{viewingHistoryReport.title || viewingHistoryReport.reportTitle}</span>
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Generated By</span>
-                  <span className="view-value">
-                    {typeof viewingHistoryReport.generatedBy === 'object'
-                      ? viewingHistoryReport.generatedBy.name || 'Admin'
-                      : viewingHistoryReport.generatedBy || 'Admin'}
-                  </span>
+                  <span className="view-value">{getReportGeneratedBy(viewingHistoryReport)}</span>
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Date Generated</span>
@@ -1102,23 +1302,85 @@ const AdminReports = () => {
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Transaction Source</span>
-                  <span className="view-value">
-                    {viewingHistoryReport.source === 'manual' ? 'Manual Sales Only' :
-                     viewingHistoryReport.source === 'machine' ? 'Machine Sales Only' : 'All Sales'}
-                  </span>
+                  <span className="view-value">{getSourceTextFromValue(getReportSource(viewingHistoryReport))}</span>
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Total Transactions</span>
-                  <span className="view-value">{viewingHistoryReport.totalTransactions || 0}</span>
+                  <span className="view-value">{getReportTotalTransactions(viewingHistoryReport)}</span>
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Total Quantity</span>
-                  <span className="view-value">{(viewingHistoryReport.totalQuantity || 0).toFixed(2)} kg</span>
+                  <span className="view-value">{(getReportTotalQuantity(viewingHistoryReport) || 0).toFixed(2)} kg</span>
                 </div>
                 <div className="view-info-row">
                   <span className="view-label">Total Sales</span>
-                  <span className="view-value total">{formatCurrency(viewingHistoryReport.totalSales || 0)}</span>
+                  <span className="view-value total">{formatCurrency(getReportTotalSales(viewingHistoryReport))}</span>
                 </div>
+              </div>
+
+              {/* Best Selling Product */}
+              {(viewingHistoryReport.bestSellingProduct || computeBestSellingFromReport(viewingHistoryReport)) && (() => {
+                const best = viewingHistoryReport.bestSellingProduct || computeBestSellingFromReport(viewingHistoryReport);
+                return (
+                  <div className="history-view-best-seller">
+                    <h3>Best Selling Product</h3>
+                    <div className="history-view-table-wrapper">
+                      <table className="history-view-table">
+                        <thead>
+                          <tr>
+                            <th>Product Name</th>
+                            <th>Total Sold</th>
+                            <th>Total Revenue</th>
+                            <th>Transactions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td>{best.name}</td>
+                            <td>{(best.quantity || 0).toFixed(2)} kg</td>
+                            <td>{formatCurrency(best.revenue || 0)}</td>
+                            <td>{best.count || 0}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Transaction Details Table */}
+              <div className="history-view-transactions">
+                <h3>Transaction Details</h3>
+                {getReportTransactions(viewingHistoryReport).length === 0 ? (
+                  <p className="no-transactions-msg">No transaction details stored for this report.</p>
+                ) : (
+                  <div className="history-view-table-wrapper">
+                    <table className="history-view-table">
+                      <thead>
+                        <tr>
+                          <th>Transaction ID</th>
+                          <th>Date & Time</th>
+                          <th>Product</th>
+                          <th>Quantity</th>
+                          <th>Amount</th>
+                          <th>Source</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {getReportTransactions(viewingHistoryReport).map((t, idx) => (
+                          <tr key={idx}>
+                            <td>{t.transactionId || t._id?.slice(-8) || 'N/A'}</td>
+                            <td>{formatDateTime(t.createdAt)}</td>
+                            <td>{t.riceType || t.productName || 'N/A'}</td>
+                            <td>{t.quantityKg || 0} kg</td>
+                            <td>{formatCurrency(t.amountPaid || t.totalAmount || 0)}</td>
+                            <td>{t.source || getTransactionSourceText(t)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
             <div className="history-view-footer">
@@ -1137,7 +1399,7 @@ const AdminReports = () => {
               <div className="report-modal-actions">
                 <button className="btn-primary" onClick={handlePrintReport}>Print</button>
                 <button className="btn-secondary" onClick={handleDownloadReport}>Download</button>
-                <button className="history-modal-close" onClick={() => setShowReportModal(false)}>×</button>
+                <button className="report-modal-close" onClick={() => setShowReportModal(false)}>×</button>
               </div>
             </div>
             <div className="report-modal-body">
@@ -1154,36 +1416,56 @@ const AdminReports = () => {
                   </div>
                 </div>
 
-                {bestSellingProduct && (
-                  <div className="report-best-seller">
-                    <h3>Best Selling Product</h3>
-                    <div className="best-seller-info">
-                      <span className="product-name">{bestSellingProduct.name}</span>
-                      <div className="product-stats">
-                        <span>{bestSellingProduct.quantity.toFixed(1)} kg sold</span>
-                        <span>{formatCurrency(bestSellingProduct.revenue)} revenue</span>
-                        <span>{bestSellingProduct.count} transactions</span>
+                {(generatedReport.bestSellingProduct || bestSellingProduct) && (() => {
+                  const best = generatedReport.bestSellingProduct || bestSellingProduct;
+                  return (
+                    <div className="report-details">
+                      <h3>Best Selling Product</h3>
+                      <div className="table-wrapper">
+                        <table className="report-table">
+                          <thead>
+                            <tr>
+                              <th>Product Name</th>
+                              <th>Total Sold</th>
+                              <th>Total Revenue</th>
+                              <th>Transactions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td>{best.name}</td>
+                              <td>{best.quantity.toFixed(2)} kg</td>
+                              <td>{formatCurrency(best.revenue)}</td>
+                              <td>{best.count}</td>
+                            </tr>
+                          </tbody>
+                        </table>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
-                <div className="report-summary">
-                  <div className="summary-item">
-                    <span className="summary-label">Total Transactions</span>
-                    <span className="summary-value">{generatedReport.summary?.totalTransactions || 0}</span>
-                  </div>
-                  <div className="summary-item">
-                    <span className="summary-label">Total Quantity</span>
-                    <span className="summary-value">{(generatedReport.summary?.totalQuantity || 0).toFixed(2)} kg</span>
-                  </div>
-                  <div className="summary-item">
-                    <span className="summary-label">Total Revenue</span>
-                    <span className="summary-value total">{formatCurrency(generatedReport.summary?.totalSales || 0)}</span>
-                  </div>
-                  <div className="summary-item">
-                    <span className="summary-label">Average Order Value</span>
-                    <span className="summary-value">{formatCurrency(generatedReport.summary?.totalSales / (generatedReport.summary?.totalTransactions || 1))}</span>
+                <div className="report-details">
+                  <h3>Report Summary</h3>
+                  <div className="table-wrapper">
+                    <table className="report-table">
+                      <thead>
+                        <tr>
+                          <th>Total Transactions</th>
+                          <th>Total Quantity</th>
+                          <th>Total Revenue</th>
+                          <th>Average Order Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>{generatedReport.summary?.totalTransactions || 0}</td>
+                          <td>{(generatedReport.summary?.totalQuantity || 0).toFixed(2)} kg</td>
+                          <td>{formatCurrency(generatedReport.summary?.totalSales || 0)}</td>
+                          <td>{formatCurrency(generatedReport.summary?.totalSales / (generatedReport.summary?.totalTransactions || 1))}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
 
@@ -1209,18 +1491,18 @@ const AdminReports = () => {
                             <td>{t.riceType || t.productName || 'N/A'}</td>
                             <td>{t.quantityKg} kg</td>
                             <td>{formatCurrency(t.amountPaid || t.totalAmount)}</td>
-                            <td>{getTransactionSourceText(t)}</td>
+                            <td>{t.source || getTransactionSourceText(t)}</td>
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot>
-                        <tr>
-                          <td colSpan="4" className="text-right"><strong>Total</strong></td>
-                          <td><strong>{formatCurrency(generatedReport.summary?.totalSales || 0)}</strong></td>
-                          <td></td>
-                        </tr>
-                      </tfoot>
                     </table>
+                  </div>
+
+                  <div className="report-grand-total">
+                    <span className="grand-total-label">Total</span>
+                    <span className="grand-total-value">
+                      {formatCurrency(generatedReport.summary?.totalSales || 0)}
+                    </span>
                   </div>
                 </div>
 

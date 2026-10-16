@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import './Layout.css';
 
 const Layout = () => {
+  // ✅ Sidebar starts CLOSED on all screens — user opens it via hamburger
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
@@ -12,14 +13,8 @@ const Layout = () => {
     const handleResize = () => {
       const mobile = window.innerWidth < 1024;
       setIsMobile(mobile);
-      
-      // On desktop, open sidebar by default
-      // On mobile, close sidebar by default
-      if (!mobile) {
-        setSidebarOpen(true);
-      } else {
-        setSidebarOpen(false);
-      }
+      // ✅ Force sidebar closed on resize so it never pops open
+      setSidebarOpen(false);
     };
 
     handleResize();
@@ -27,19 +22,21 @@ const Layout = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
-
-  const closeSidebar = () => {
-    setSidebarOpen(false);
-  };
+  const toggleSidebar = () => setSidebarOpen(prev => !prev);
+  const closeSidebar = () => setSidebarOpen(false);
 
   return (
     <div className="layout">
-      <Navbar onToggleSidebar={toggleSidebar} />
-      <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} isMobile={isMobile} />
-      <main className="main-content">
+      <Navbar
+        onToggleSidebar={toggleSidebar}
+        sidebarOpen={sidebarOpen}
+      />
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={closeSidebar}
+        isMobile={isMobile}
+      />
+      <main className={`main-content ${sidebarOpen && !isMobile ? 'sidebar-open' : 'sidebar-closed'}`}>
         <div className="main-container">
           <Outlet />
         </div>
