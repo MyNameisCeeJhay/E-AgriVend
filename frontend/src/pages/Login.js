@@ -266,33 +266,15 @@ const Login = () => {
   return (
     <div className="login-container">
       <div className="login-grid">
-        {/* Left Side - Brand Area */}
+        {/* Left Side - Brand Area (Logo only) */}
         <div className="login-brand">
           <div className="login-brand-content">
-            <div className="login-brand-logo">
-              <h1 className="login-brand-name">AGRIVEND</h1>
-            </div>
-            <p className="login-brand-tagline">Solar Powered Grain Vending Machine</p>
-            <div className="login-brand-features">
-              <div className="login-feature-item">
-                <span className="login-feature-check">✓</span>
-                <span>Automated Vending Machine</span>
-              </div>
-              <div className="login-feature-item">
-                <span className="login-feature-check">✓</span>
-                <span>Real-time Inventory Tracking</span>
-              </div>
-              <div className="login-feature-item">
-                <span className="login-feature-check">✓</span>
-                <span>Secure Payment Processing</span>
-              </div>
-              <div className="login-feature-item">
-                <span className="login-feature-check">✓</span>
-                <span>Enterprise Management Dashboard</span>
-              </div>
-            </div>
-            <div className="login-brand-footer">
-              <p className="login-authorized-text">Authorized Personnel Only</p>
+            <div className="login-logo-wrapper">
+              <img
+                src="/assets/images/AgriVendLogo.png"
+                alt="AgriVend Logo"
+                className="login-logo-img"
+              />
             </div>
           </div>
         </div>

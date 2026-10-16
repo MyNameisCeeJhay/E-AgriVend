@@ -7,8 +7,7 @@
 }
 
 /* ============================================================
-   LOGIN CONTAINER — White core fading to dark green edges
-   Login card appears to "float" in light
+   LOGIN CONTAINER
    ============================================================ */
 .login-container {
   min-height: 100vh;
@@ -19,14 +18,14 @@
   position: relative;
   background: radial-gradient(
     ellipse 80% 70% at center,
-    #ffffff 0%,           /* pure white — brightest point */
-    #eaf6ee 8%,           /* very pale mint */
-    #b8e0c6 20%,          /* light soft green */
-    #6fb98c 35%,          /* medium green */
-    #2d6a4f 55%,          /* brand green */
-    #1a472a 72%,          /* dark brand green */
-    #0a1f14 90%,          /* very dark green */
-    #03100a 100%          /* near-black edges */
+    #ffffff 0%,
+    #eaf6ee 8%,
+    #b8e0c6 20%,
+    #6fb98c 35%,
+    #2d6a4f 55%,
+    #1a472a 72%,
+    #0a1f14 90%,
+    #03100a 100%
   );
 }
 
@@ -49,16 +48,17 @@
 }
 
 /* ============================================================
-   LEFT SIDE — BRAND PANEL
+   LEFT SIDE — BRAND PANEL (logo only, big)
    ============================================================ */
 .login-brand {
   background: #1a472a;
-  padding: 3rem 2.25rem;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 1.5rem;               /* ✅ reduced so logo can be bigger */
   position: relative;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;              /* ✅ keeps glow inside the panel */
 }
 
 .login-brand::before {
@@ -75,80 +75,51 @@
 .login-brand-content {
   position: relative;
   z-index: 1;
-  width: 100%;
-  text-align: left;
-}
-
-.login-brand-logo {
-  margin-bottom: 0.5rem;
-}
-
-.login-brand-name {
-  font-size: 2rem;
-  font-weight: 800;
-  letter-spacing: 4px;
-  color: #ffffff;
-  margin: 0;
-  line-height: 1;
-}
-
-.login-brand-tagline {
-  font-size: 0.68rem;
-  color: #FFD60A;
-  font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin: 0.75rem 0 2.5rem 0;
-  line-height: 1.4;
-}
-
-.login-brand-features {
   display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  margin: 0;
-  padding: 0;
-}
-
-.login-feature-item {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 0.82rem;
-  font-weight: 400;
-  line-height: 1.4;
-  letter-spacing: 0.2px;
-}
-
-.login-feature-check {
-  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  width: 100%;
+  height: 100%;
+}
+
+.login-logo-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Soft yellow glow behind the logo — scales with panel */
+.login-logo-wrapper::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 110%;
+  height: 110%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 214, 10, 0.14) 0%,
+    rgba(255, 214, 10, 0) 65%
+  );
   border-radius: 50%;
-  font-size: 0.62rem;
-  color: #FFD60A;
-  font-weight: 700;
+  pointer-events: none;
+  z-index: 0;
 }
 
-.login-brand-footer {
-  margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.login-authorized-text {
-  font-size: 0.68rem;
-  color: rgba(255, 255, 255, 0.5);
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  font-weight: 600;
-  margin: 0;
+/* ✅ BIG logo — fills the panel */
+.login-logo-img {
+  width: 100%;
+  max-width: 380px;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 15px 40px rgba(0, 0, 0, 0.45));
 }
 
 /* ============================================================
@@ -460,21 +431,11 @@
   }
 
   .login-brand {
-    padding: 2.5rem 1.75rem;
+    padding: 1.25rem;
   }
 
-  .login-brand-name {
-    font-size: 1.75rem;
-    letter-spacing: 3px;
-  }
-
-  .login-brand-tagline {
-    font-size: 0.62rem;
-    letter-spacing: 1.5px;
-  }
-
-  .login-feature-item {
-    font-size: 0.78rem;
+  .login-logo-img {
+    max-width: 300px;
   }
 
   .login-form-container {
@@ -490,40 +451,14 @@
   }
 
   .login-brand {
-    padding: 2rem 1.75rem 1.75rem;
+    padding: 1.5rem;
+    min-height: 220px;
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  .login-brand-content {
-    text-align: center;
-  }
-
-  .login-brand-tagline {
-    margin-bottom: 1.5rem;
-  }
-
-  .login-brand-features {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.6rem;
-    text-align: left;
-  }
-
-  .login-feature-item {
-    font-size: 0.72rem;
-  }
-
-  .login-feature-check {
-    width: 16px;
-    height: 16px;
-    min-width: 16px;
-    font-size: 0.6rem;
-  }
-
-  .login-brand-footer {
-    margin-top: 1.5rem;
-    padding-top: 1rem;
+  .login-logo-img {
+    max-width: 180px;
   }
 
   .login-form-container {
@@ -555,22 +490,12 @@
   }
 
   .login-brand {
-    padding: 1.75rem 1.5rem 1.5rem;
+    padding: 1.25rem;
+    min-height: 180px;
   }
 
-  .login-brand-name {
-    font-size: 1.5rem;
-    letter-spacing: 3px;
-  }
-
-  .login-brand-tagline {
-    font-size: 0.6rem;
-    letter-spacing: 1.2px;
-  }
-
-  .login-brand-features {
-    grid-template-columns: 1fr;
-    gap: 0.55rem;
+  .login-logo-img {
+    max-width: 140px;
   }
 
   .login-form-container {
