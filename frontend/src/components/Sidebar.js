@@ -34,8 +34,9 @@ const Sidebar = ({ isOpen, onClose, isMobile }) => {
   else if (isStaff) navItems = staffNavItems;
   else navItems = customerNavItems;
 
+  // ✅ Always close the sidebar when a link is clicked — desktop & mobile
   const handleLinkClick = () => {
-    if (isMobile && onClose) {
+    if (onClose) {
       onClose();
     }
   };
@@ -65,7 +66,7 @@ const Sidebar = ({ isOpen, onClose, isMobile }) => {
         <div className="sidebar-header">
           <div className="sidebar-logo">
             <h2>AGRIVEND</h2>
-          <p>Solar Powered Grain Vending Machine</p>
+            <p>Solar Powered Grain Vending Machine</p>
           </div>
         </div>
 

@@ -6,14 +6,14 @@ import './Sidebar.css';
 const StaffSidebar = ({ isOpen, onClose, isMobile }) => {
   const { user } = useAuth();
 
-  // Staff only has access to Machine Monitor and Transactions
   const staffNavItems = [
     { name: 'Machine Monitor', path: '/staff/dashboard', description: 'Monitor machine' },
     { name: 'Transactions', path: '/staff/transactions', description: 'View purchases' },
   ];
 
+  // ✅ Always close the sidebar when a link is clicked — desktop & mobile
   const handleLinkClick = () => {
-    if (isMobile && onClose) {
+    if (onClose) {
       onClose();
     }
   };
@@ -24,17 +24,17 @@ const StaffSidebar = ({ isOpen, onClose, isMobile }) => {
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <h2>AgriVend</h2>
-            <p>Staff Portal</p>
+            <h2>AGRIVEND</h2>
+            <p>Solar Powered Grain Vending Machine</p>
           </div>
         </div>
-        
+
         <nav className="sidebar-nav">
           {staffNavItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
-              className={({ isActive }) => 
+              className={({ isActive }) =>
                 `sidebar-link ${isActive ? 'active' : ''}`
               }
               onClick={handleLinkClick}
@@ -53,8 +53,14 @@ const StaffSidebar = ({ isOpen, onClose, isMobile }) => {
               {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
             </div>
             <div className="user-details">
-              <div className="user-name">{user?.firstName} {user?.lastName}</div>
-              <div className="user-role">Staff</div>
+              <div className="user-name">
+                {user?.firstName} {user?.lastName}
+              </div>
+              <div className="user-role">
+                {user?.role === 'admin' ? 'Administrator'
+                  : user?.role === 'staff' ? 'Staff'
+                  : 'Customer'}
+              </div>
             </div>
           </div>
         </div>

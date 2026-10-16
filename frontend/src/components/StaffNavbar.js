@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './Navbar.css';
 
@@ -7,7 +7,7 @@ const StaffNavbar = ({ sidebarOpen, onToggleSidebar }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  
+
   const handleToggleSidebar = () => {
     if (onToggleSidebar) {
       onToggleSidebar();
@@ -27,38 +27,24 @@ const StaffNavbar = ({ sidebarOpen, onToggleSidebar }) => {
     return 'Customer';
   };
 
-  const getRoleBadgeClass = () => {
-    if (user?.role === 'admin') return 'role-badge admin';
-    if (user?.role === 'staff') return 'role-badge staff';
-    return 'role-badge customer';
-  };
-
-  const getDashboardPath = () => {
-    if (user?.role === 'admin') return '/admin/dashboard';
-    if (user?.role === 'staff') return '/staff/dashboard';
-    return '/customer/dashboard';
-  };
-
   if (!user) return null;
 
   return (
     <nav className="navbar">
       <div className="navbar-container">
+        {/* Left: only the hamburger button — no logo, no badge */}
         <div className="navbar-left">
-          <button 
-            className="menu-toggle"
+          <button
+            className={`menu-toggle ${sidebarOpen ? 'active' : ''}`}
             onClick={handleToggleSidebar}
             aria-label="Toggle menu"
+            type="button"
           >
             <span className="menu-icon">☰</span>
           </button>
-          
-          <Link to={getDashboardPath()} className="navbar-logo">
-            <span className="logo-text">AgriVend</span>
-            <span className={getRoleBadgeClass()}>{getUserRoleDisplay()}</span>
-          </Link>
         </div>
 
+        {/* Right: user info + logout */}
         <div className="navbar-actions">
           <div className="user-menu">
             <div className="user-avatar-small">
@@ -72,8 +58,8 @@ const StaffNavbar = ({ sidebarOpen, onToggleSidebar }) => {
                 {getUserRoleDisplay()}
               </span>
             </div>
-            <button 
-              onClick={handleLogout} 
+            <button
+              onClick={handleLogout}
               className={`logout-btn ${isLoggingOut ? 'loading' : ''}`}
               disabled={isLoggingOut}
             >

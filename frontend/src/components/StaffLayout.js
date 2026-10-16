@@ -5,6 +5,7 @@ import StaffSidebar from './StaffSidebar';
 import './Layout.css';
 
 const StaffLayout = () => {
+  // ✅ Sidebar starts CLOSED — user opens via hamburger
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
@@ -12,12 +13,8 @@ const StaffLayout = () => {
     const handleResize = () => {
       const mobile = window.innerWidth < 1024;
       setIsMobile(mobile);
-      
-      if (!mobile) {
-        setSidebarOpen(true);
-      } else {
-        setSidebarOpen(false);
-      }
+      // ✅ Force close on resize so it never pops open
+      setSidebarOpen(false);
     };
 
     handleResize();
@@ -25,19 +22,21 @@ const StaffLayout = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
-
-  const closeSidebar = () => {
-    setSidebarOpen(false);
-  };
+  const toggleSidebar = () => setSidebarOpen(prev => !prev);
+  const closeSidebar = () => setSidebarOpen(false);
 
   return (
     <div className="layout">
-      <StaffNavbar onToggleSidebar={toggleSidebar} />
-      <StaffSidebar isOpen={sidebarOpen} onClose={closeSidebar} isMobile={isMobile} />
-      <main className="main-content">
+      <StaffNavbar
+        onToggleSidebar={toggleSidebar}
+        sidebarOpen={sidebarOpen}
+      />
+      <StaffSidebar
+        isOpen={sidebarOpen}
+        onClose={closeSidebar}
+        isMobile={isMobile}
+      />
+      <main className={`main-content ${sidebarOpen && !isMobile ? 'sidebar-open' : 'sidebar-closed'}`}>
         <div className="main-container">
           <Outlet />
         </div>
